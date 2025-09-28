@@ -1,0 +1,6 @@
+[submodule "Chilli/Libs/GLFW"]
+	path = Chilli/Libs/GLFW
+	url = https://github.com/glfw/glfw.git
+[submodule "Chilli/Libs/SpdLog"]
+	path = Chilli/Libs/SpdLog
+	url = https://github.com/gabime/spdlog.git
