@@ -3,6 +3,7 @@
 #include "Window/Window.h"
 #include "Input/Input.h"
 #include "Layers/LayerStack.h"
+#include "Renderer.h"
 
 namespace Chilli
 {

@@ -39,6 +39,10 @@ namespace Chilli
 
 		void SetEventCallback(const std::function<void(Event&)>& Callback) { _Data.EventCallback = Callback; }
 		GLFWwindow* GetRawHandle() const { return _Window; }
+
+		int GetWidth() const { return _Data.Dimensions.x; }
+		int GetHeight() const { return _Data.Dimensions.y; }
+		const char* GetName() const { return _Data.Name.c_str(); }
 	private:
 		GLFWwindow* _Window;
 		WindowSpec _Spec;

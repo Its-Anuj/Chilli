@@ -19,12 +19,18 @@ namespace Chilli
 		_Window.SetEventCallback(CHILLI_EVENT_CALLBACK_FN(OnEvent));
 
 		Input::Init(_Window.GetRawHandle());
+
+		{
+			Renderer::Init(RenderAPITypes::VULKAN1_3);
+		}
+		CH_CORE_INFO("Using: {0}", Renderer::GetName());
 	}
 
 	void Application::ShutDown()
 	{
-		_Window.Terminate();
 		_Layers.Flush();
+		Renderer::ShutDown();
+		_Window.Terminate();
 		Input::ShutDown();
 		// Clean up resources and shut down the application
 	}

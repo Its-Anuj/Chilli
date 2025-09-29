@@ -5,20 +5,27 @@ class Editor : public Chilli::Layer
 {
 public:
 	Editor() :Layer("Editor") {}
-	~Editor(){}
+	~Editor() {}
 
-	virtual void Init() override {}
-	virtual void Terminate() override {}  
-	
-	virtual void Update() override 
+	virtual void Init() override 
+	{
+		Chilli::UUID id;
+		CH_INFO((uint64_t)id);
+	}
+
+	virtual void Terminate() override {
+	}
+
+	virtual void Update() override
 	{
 		if (Chilli::Input::IsKeyPressed(Chilli::Input_key_A) == Chilli::InputResult::INPUT_PRESS)
 		{
-			CH_INFO("A");
+			CH_INFO(Chilli::Input::KeyToString(Chilli::Input_key_A));
 		}
 	}
-	
-	virtual void OnEvent(Chilli::Event& e) override {}
+
+	virtual void OnEvent(Chilli::Event& e) override {
+	}
 
 private:
 };
