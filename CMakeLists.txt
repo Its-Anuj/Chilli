@@ -17,6 +17,7 @@ include_directories("Chilli/")
 include_directories("Chilli/Src/")
 include_directories("Chilli/Src/Core/")
 include_directories("Chilli/Src/Renderer/")
+include_directories("Chilli/Libs/SpdLog/include/")
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
 add_executable(${CMAKE_PROJECT_NAME} ${SOURCES} "Main.cpp")

@@ -1,8 +1,10 @@
-#include "PCH//Ch_PCH.h"
+#include "Ch_PCH.h"
 #include "Application.h"
 
 namespace Chilli
 {
+#define CHILLI_EVENT_CALLBACK_FN(x) {std::bind(&Application::x, this, std::placeholders::_1)}
+
 	void Application::Init(const ApplicationSpec& Spec)
 	{
 		Log::Init();
@@ -12,13 +14,18 @@ namespace Chilli
 		WindowSpec WSpec{};
 		WSpec.Title = Spec.Name;
 		WSpec.Dimensions = { Spec.Dimensions.x, Spec.Dimensions.y };
-		
+
 		_Window.Init(WSpec);
+		_Window.SetEventCallback(CHILLI_EVENT_CALLBACK_FN(OnEvent));
+
+		Input::Init(_Window.GetRawHandle());
 	}
 
 	void Application::ShutDown()
 	{
 		_Window.Terminate();
+		_Layers.Flush();
+		Input::ShutDown();
 		// Clean up resources and shut down the application
 	}
 
@@ -27,7 +34,24 @@ namespace Chilli
 		while (!_Window.WindowShouldClose())
 		{
 			_Window.SwapBuffers();
+
+			for (auto layer : _Layers)
+				layer->Update();
+
 			_Window.PollEvents();
+		}
+	}
+
+	void Application::OnEvent(Event& e)
+	{
+		if (e.GetType() == WindowCloseEvent::GetStaticType())
+		{
+			CH_CORE_INFO("Window Close!");
+		}
+		if (e.GetType() == KeyPressedEvent::GetStaticType())
+		{
+			auto keye = static_cast<KeyPressedEvent&>(e);
+			CH_CORE_INFO("Key Pressed: {0}", (keye.GetKeyCode()));
 		}
 	}
 } // namespace Chilli

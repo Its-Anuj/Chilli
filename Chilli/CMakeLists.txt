@@ -1,7 +1,12 @@
-file(GLOB_RECURSE CHILLI_CORE_SOURCES Src/Core/*/*.cpp Src/Core/*.cpp)
+file(GLOB_RECURSE CHILLI_CORE_SOURCES Src/Core/*.cpp Src/Core/*/*.cpp)
 
 include_directories("Src/")
 include_directories("Src/Core/")
+include_directories("Src/Core/Application/")
+include_directories("Src/Core/Window/")
+include_directories("Src/Core/Input/")
+include_directories("Src/Core/Events/")
+include_directories("Src/Core/Layers/")
 include_directories("Src/Renderer/")
 
 # Library includes
@@ -11,9 +16,9 @@ include_directories("Libs/SpdLog/include/")
 add_subdirectory("Src/Renderer/")
 add_subdirectory("Libs/GLFW/")
 
-add_library(ChilliCore STATIC ${CHILLI_CORE_SOURCES} "Src/Core/Application/Application.h")
+add_library(ChilliCore STATIC ${CHILLI_CORE_SOURCES})
 
-target_precompile_headers(ChilliCore PRIVATE "Src/Core/PCH/Ch_PCH.h" )
+target_precompile_headers(ChilliCore PRIVATE "Src/Core/Ch_PCH.h" )
 
 if(CMAKE_BUILD_TYPE MATCHES "Debug")
 	message("Using Debug")

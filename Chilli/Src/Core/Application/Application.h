@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Window/Window.h"
+#include "Input/Input.h"
+#include "Layers/LayerStack.h"
 
 namespace Chilli
 {
@@ -23,7 +25,13 @@ namespace Chilli
 		void ShutDown();
 
 		void Run();
+
+		void PushLayer(const std::shared_ptr<Layer>& layer) { _Layers.PushLayer(layer); }
+		void PushOverLay(const std::shared_ptr<Layer>& layer) { _Layers.PushOverlay(layer); }
+
+		void OnEvent(Event& e);
 	private:
 		Window _Window;
+		LayerStack _Layers;
 	};
 }

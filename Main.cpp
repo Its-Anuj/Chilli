@@ -1,5 +1,27 @@
-#include <iostream>
+#include "Ch_PCH.h"
 #include "Chilli/Chilli.h"
+
+class Editor : public Chilli::Layer
+{
+public:
+	Editor() :Layer("Editor") {}
+	~Editor(){}
+
+	virtual void Init() override {}
+	virtual void Terminate() override {}  
+	
+	virtual void Update() override 
+	{
+		if (Chilli::Input::IsKeyPressed(Chilli::Input_key_A) == Chilli::InputResult::INPUT_PRESS)
+		{
+			CH_INFO("A");
+		}
+	}
+	
+	virtual void OnEvent(Chilli::Event& e) override {}
+
+private:
+};
 
 int main()
 {
@@ -10,6 +32,7 @@ int main()
 
 	Chilli::Application App;
 	App.Init(Spec);
+	App.PushLayer(std::make_shared<Editor>());
 	App.Run();
 	App.ShutDown();
 
