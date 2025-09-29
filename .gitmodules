@@ -4,3 +4,6 @@
 [submodule "Chilli/Libs/SpdLog"]
 	path = Chilli/Libs/SpdLog
 	url = https://github.com/gabime/spdlog.git
+[submodule "Chilli/Libs/VMA"]
+	path = Chilli/Libs/VMA
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git

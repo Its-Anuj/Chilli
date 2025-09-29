@@ -1,9 +1,59 @@
 #pragma once
 
 #include "RenderAPI.h"
+#include "VulkanDevice.h"
+#include "VulkanSwapChainKHR.h"
 
+#define VULKAN_SUCCESS_ASSERT(x, err) \
+    {                                 \
+        if (x != VK_SUCCESS)          \
+        {                             \
+            VULKAN_ERROR(err);        \
+        }                             \
+    }
 namespace Chilli
 {
+	struct VulkanRendererSpec
+	{
+		const char* Name;
+		bool EnableValidationLayer = false;
+		void* Win32Surface;
+
+		struct
+		{
+			float x, y;
+		} FrameBufferSize;
+		std::vector<const char*> DeviceExtensions;
+		std::vector<const char*> InstanceExtensions;
+		std::vector<const char*> InstanceLayers;
+	};
+
+	struct VulkanVersion
+	{
+		int Major, Minor, Patch;
+	};
+
+	struct VulkanRendererData
+	{
+		VkInstance Instance;
+		VkDebugUtilsMessengerEXT DebugMessenger;
+		VkSurfaceKHR SurfaceKHR;
+
+		struct {
+			int x, y;
+		} FrameBufferSize;
+
+		VulkanSwapChainKHR SwapChainKHR;
+
+		// Devices
+		std::vector<VulkanPhysicalDevice> PhysicalDevices;
+		int ActivePhysicalDeviceIndex = 0;
+
+		VulkanDevice Device;
+	};
+
+	struct VulkanResourceFactory;
+
 	class VulkanRenderer : public RenderAPI
 	{
 	public:
@@ -17,6 +67,27 @@ namespace Chilli
 		inline const char* GetName() override {
 			return "VULKAN_1_3";
 		}
+
+		virtual void Init(void* Spec) override; 
+		virtual void ShutDown() override;
 	private:
+		void _CreateInstance();
+		void _CreateDebugMessenger();
+		void _PopulateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
+		void _CreateSurfaceKHR();
+
+		// Devices
+		void _CreatePhysicalDevice();
+		void _FindSuitablePhysicalDevice();
+		void _CreateLogicalDevice();
+
+		// SwapChain
+		void _CreateSwapChainKHR();
+
+		void _CreateResourceFactory();
+	private:
+		VulkanRendererSpec _Spec;
+		VulkanRendererData _Data;
+		std::shared_ptr< VulkanResourceFactory> _ResourceFactory;
 	};
 }

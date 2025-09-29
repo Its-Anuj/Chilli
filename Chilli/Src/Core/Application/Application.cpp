@@ -21,7 +21,11 @@ namespace Chilli
 		Input::Init(_Window.GetRawHandle());
 
 		{
-			Renderer::Init(RenderAPITypes::VULKAN1_3);
+			RendererSpec RenderSpec{};
+			RenderSpec.RenderWindow = &_Window;
+			RenderSpec.EnableValidation = true;
+
+			Renderer::Init(RenderAPITypes::VULKAN1_3, RenderSpec);
 		}
 		CH_CORE_INFO("Using: {0}", Renderer::GetName());
 	}

@@ -4,6 +4,12 @@
 
 namespace Chilli
 {
+	struct RendererSpec
+	{
+		Window* RenderWindow;
+		bool EnableValidation = true;
+	};
+
 	class Renderer
 	{
 	public:
@@ -13,7 +19,7 @@ namespace Chilli
 			return Instance;
 		}
 
-		static void Init(RenderAPITypes Type);
+		static void Init(RenderAPITypes Type, const RendererSpec& RenderSpec);
 		static void ShutDown();
 
 		static const char* GetName() { return Get()._Api->GetName(); }

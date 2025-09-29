@@ -12,8 +12,8 @@ namespace Chilli
 	public:
 		virtual ~RenderAPI(){}
 
-		//virtual void Init() = 0;
-		//virtual void ShutDown() = 0;
+		virtual void Init(void* Spec) = 0;
+		virtual void ShutDown() = 0;
 
 		virtual RenderAPITypes GetType() = 0;
 		virtual const char* GetName() = 0;

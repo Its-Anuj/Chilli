@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Events/Events.h"
+#include "Maths.h"
 
 struct GLFWwindow;
 
@@ -43,6 +44,9 @@ namespace Chilli
 		int GetWidth() const { return _Data.Dimensions.x; }
 		int GetHeight() const { return _Data.Dimensions.y; }
 		const char* GetName() const { return _Data.Name.c_str(); }
+
+		void* GetWin32Surface() const;
+		Vec2 GetFrameBufferSize() const;
 	private:
 		GLFWwindow* _Window;
 		WindowSpec _Spec;

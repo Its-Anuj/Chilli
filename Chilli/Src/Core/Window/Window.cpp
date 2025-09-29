@@ -1,3 +1,5 @@
+#include "Window.h"
+#include "Window.h"
 #include "Ch_PCH.h"
 #include "Window.h"
 
@@ -183,5 +185,17 @@ namespace Chilli
 	bool Window::WindowShouldClose()
 	{
 		return glfwWindowShouldClose(_Window);
+	}
+	
+	void* Chilli::Window::GetWin32Surface() const
+	{
+		return glfwGetWin32Window(_Window);
+	}
+
+	Vec2 Chilli::Window::GetFrameBufferSize() const
+	{
+		int w, h;
+		glfwGetFramebufferSize(_Window, &w, &h);
+		return Vec2((float)w, (float)h);
 	}
 }

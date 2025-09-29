@@ -11,6 +11,18 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
+# Check For Vulkan
+find_package(Vulkan REQUIRED)
+
+if (NOT Vulkan_FOUND)
+    message(FATAL_ERROR "Vulkan SDK not found. Please install 1.3.275")
+endif()
+
+message("Vulkan SDK found ${Vulkan_VERSION}")
+message("Vulkan SDK Libs found ${Vulkan_LIBRARIES}")
+message("Vulkan SDK Includes found ${Vulkan_INCLUDE_DIR}")
+include_directories(${Vulkan_INCLUDE_DIR})
+
 add_subdirectory("Chilli")
 
 include_directories("Chilli/")
@@ -22,7 +34,8 @@ include_directories("Chilli/Libs/SpdLog/include/")
 include_directories(${CMAKE_SOURCE_DIR}/include)
 add_executable(${CMAKE_PROJECT_NAME} ${SOURCES} "Main.cpp")
 
-target_link_libraries(${CMAKE_PROJECT_NAME} ChilliCore ChilliVulkan kernel32 user32 glfw)
+target_link_libraries(${CMAKE_PROJECT_NAME} ChilliCore ChilliVulkan VulkanMemoryAllocator  kernel32 user32 glfw)
+target_link_libraries(${CMAKE_PROJECT_NAME} ${Vulkan_LIBRARIES})
 
 if(CMAKE_BUILD_TYPE MATCHES "Debug")
 	message("Using Debug")
