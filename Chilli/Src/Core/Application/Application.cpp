@@ -43,12 +43,17 @@ namespace Chilli
 	{
 		while (!_Window.WindowShouldClose())
 		{
-			_Window.SwapBuffers();
+			//_Window.SwapBuffers();
+			auto StartTime = GetWindowTime();
+			float timestep = StartTime - LastTime;
+			LastTime = StartTime;
+
+			CH_CORE_INFO("{0} ms, FPS: {1}", timestep, 1.0f / timestep);
+
+			_Window.PollEvents();
 
 			for (auto layer : _Layers)
 				layer->Update();
-
-			_Window.PollEvents();
 		}
 	}
 

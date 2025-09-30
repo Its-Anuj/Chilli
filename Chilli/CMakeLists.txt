@@ -13,10 +13,12 @@ include_directories("Src/Renderer/")
 include_directories("Libs/GLFW/include/")
 include_directories("Libs/SpdLog/include/")
 include_directories("Libs/VMA/include/")
+include_directories("Libs/VMAglm/glm/")
 
 add_subdirectory("Src/Renderer/")
 add_subdirectory("Libs/GLFW/")
 add_subdirectory("Libs/VMA/")
+add_subdirectory("Libs/glm/")
 
 add_library(ChilliCore STATIC ${CHILLI_CORE_SOURCES})
 

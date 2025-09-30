@@ -165,8 +165,11 @@ namespace Chilli
         vkCmdBeginRendering(commandBuffer, &renderingInfo);
     }
 
-    void VulkanRenderer::Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline)
+    void VulkanRenderer::Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline
+        , const std::shared_ptr<VertexBuffer>& VB, const std::shared_ptr<IndexBuffer>& IB)
     {
+        auto VulkanVB = std::static_pointer_cast<VulkanVertexBuffer>(VB);
+        auto VulkanIB = std::static_pointer_cast<VulkanIndexBuffer>(IB);
         auto VulkanPipeline = std::static_pointer_cast<VulkanGraphicsPipeline>(Pipeline);
         auto commandBuffer = _Data.GraphicsCommandBuffer;
         // Bind pipeline (created without render pass)
@@ -188,8 +191,14 @@ namespace Chilli
         scissor.extent = _Data.SwapChainKHR.GetExtent();
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
+        // 🆕 Bind vertex buffer
+        VkBuffer vertexBuffers[] = { VulkanVB->GetHandle() };
+        VkDeviceSize offsets[] = { 0 };
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+        vkCmdBindIndexBuffer(commandBuffer, VulkanIB->GetHandle(), 0, VK_INDEX_TYPE_UINT16);
         // 🎨 Draw your geometry
-        vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+        
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(3), 1, 0, 0, 0);
     }
 
     void VulkanRenderer::EndRenderPass()

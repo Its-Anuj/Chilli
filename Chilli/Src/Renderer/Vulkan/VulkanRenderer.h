@@ -26,6 +26,8 @@ namespace Chilli
 		std::vector<const char*> DeviceExtensions;
 		std::vector<const char*> InstanceExtensions;
 		std::vector<const char*> InstanceLayers;
+
+		uint32_t InFrameFlightCount = 0;
 	};
 
 	struct VulkanVersion
@@ -85,7 +87,8 @@ namespace Chilli
 		// Rendering related
 		virtual void BeginFrame() override;
 		virtual void BeginRenderPass() override; 
-		virtual void Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline) override;
+		virtual void Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline
+			, const std::shared_ptr<VertexBuffer>& VB, const std::shared_ptr<IndexBuffer>& IB) override;
 		virtual void EndRenderPass() override;
 		virtual void RenderFrame() override;
 		virtual void Present() override;

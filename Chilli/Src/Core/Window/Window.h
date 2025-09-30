@@ -52,4 +52,6 @@ namespace Chilli
 		WindowSpec _Spec;
 		WindowData _Data;
 	};
+
+	float GetWindowTime();
 }

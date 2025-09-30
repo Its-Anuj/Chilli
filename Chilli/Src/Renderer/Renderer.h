@@ -30,7 +30,8 @@ namespace Chilli
 		// Rendering related
 		static void BeginFrame();
 		static void BeginRenderPass();
-		static void Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline);
+		static void Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline
+			, const std::shared_ptr<VertexBuffer>& VB, const std::shared_ptr<IndexBuffer>& IB);
 		static void EndRenderPass();
 		static void RenderFrame();
 		static void Present();

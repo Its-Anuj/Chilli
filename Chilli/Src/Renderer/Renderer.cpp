@@ -45,9 +45,10 @@ namespace Chilli
 		Get()._Api->BeginRenderPass();
 	}
 
-	void Renderer::Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline)
+	void Renderer::Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline, const std::shared_ptr<VertexBuffer>& VB
+		, const std::shared_ptr<IndexBuffer>& IB)
 	{
-		Get()._Api->Submit(Pipeline);
+		Get()._Api->Submit(Pipeline, VB, IB);
 	}
 
 	void Renderer::EndRenderPass()

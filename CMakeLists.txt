@@ -30,11 +30,12 @@ include_directories("Chilli/Src/")
 include_directories("Chilli/Src/Core/")
 include_directories("Chilli/Src/Renderer/")
 include_directories("Chilli/Libs/SpdLog/include/")
+include_directories("Chilli/Libs/glm/glm/")
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
 add_executable(${CMAKE_PROJECT_NAME} ${SOURCES} "Main.cpp")
 
-target_link_libraries(${CMAKE_PROJECT_NAME} ChilliCore ChilliVulkan VulkanMemoryAllocator  kernel32 user32 glfw)
+target_link_libraries(${CMAKE_PROJECT_NAME} ChilliCore ChilliVulkan VulkanMemoryAllocator glm::glm kernel32 user32 glfw)
 target_link_libraries(${CMAKE_PROJECT_NAME} ${Vulkan_LIBRARIES})
 
 if(CMAKE_BUILD_TYPE MATCHES "Debug")

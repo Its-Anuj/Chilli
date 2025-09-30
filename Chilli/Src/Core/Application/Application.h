@@ -34,5 +34,6 @@ namespace Chilli
 	private:
 		Window _Window;
 		LayerStack _Layers;
+		float LastTime = 0.0f;
 	};
 }

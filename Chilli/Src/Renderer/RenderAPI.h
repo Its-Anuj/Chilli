@@ -23,7 +23,8 @@ namespace Chilli
 		// Rendering related
 		virtual void BeginFrame() = 0;
 		virtual void BeginRenderPass() = 0;
-		virtual void Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline) = 0;
+		virtual void Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline, const std::shared_ptr<VertexBuffer>& VB
+		, const std::shared_ptr<IndexBuffer>& IB) = 0;
 		virtual void EndRenderPass() = 0;
 		virtual void RenderFrame() = 0;
 		virtual void Present() = 0;

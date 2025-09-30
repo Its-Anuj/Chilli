@@ -198,4 +198,9 @@ namespace Chilli
 		glfwGetFramebufferSize(_Window, &w, &h);
 		return Vec2((float)w, (float)h);
 	}
+
+	float GetWindowTime()
+	{
+		return glfwGetTime();
+	}
 }
