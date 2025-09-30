@@ -11,23 +11,37 @@ public:
 	{
 		Chilli::UUID id;
 		CH_INFO((uint64_t)id);
-	}
 
-	virtual void Terminate() override {
+		Chilli::GraphicsPipelineSpec Spec{};
+		Spec.Paths[0] = "vert.spv";
+		Spec.Paths[1] = "frag.spv";
+		Shader = Chilli::Renderer::GetResourceFactory()->CreateGraphicsPipeline(Spec);
 	}
 
 	virtual void Update() override
 	{
-		if (Chilli::Input::IsKeyPressed(Chilli::Input_key_A) == Chilli::InputResult::INPUT_PRESS)
-		{
-			CH_INFO(Chilli::Input::KeyToString(Chilli::Input_key_A));
-		}
+		Chilli::Renderer::BeginFrame();
+		
+		Chilli::Renderer::BeginRenderPass();
+		Chilli::Renderer::Submit(Shader);
+		Chilli::Renderer::EndRenderPass();
+
+		Chilli::Renderer::RenderFrame();
+		Chilli::Renderer::Present();
+
+		Chilli::Renderer::EndFrame();
+	}
+
+	virtual void Terminate() override {
+		Chilli::Renderer::FinishRendering();
+		Chilli::Renderer::GetResourceFactory()->DestroyGraphicsPipeline(Shader);
 	}
 
 	virtual void OnEvent(Chilli::Event& e) override {
 	}
 
 private:
+	std::shared_ptr<Chilli::GraphicsPipeline> Shader;
 };
 
 int main()

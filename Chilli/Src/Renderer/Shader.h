@@ -2,6 +2,11 @@
 
 namespace Chilli
 {
+    struct GraphicsPipelineSpec
+    {
+        const char* Paths[2];
+    };
+
     class GraphicsPipeline
     {
     public:

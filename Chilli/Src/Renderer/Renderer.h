@@ -24,6 +24,18 @@ namespace Chilli
 
 		static const char* GetName() { return Get()._Api->GetName(); }
 		static RenderAPITypes GetType() { return Get()._Api->GetType(); }
+
+		static std::shared_ptr<ResourceFactory> GetResourceFactory();
+
+		// Rendering related
+		static void BeginFrame();
+		static void BeginRenderPass();
+		static void Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline);
+		static void EndRenderPass();
+		static void RenderFrame();
+		static void Present();
+		static void EndFrame();
+		static void FinishRendering();
 	private:
 		RenderAPI* _Api;
 	};

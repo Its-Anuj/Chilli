@@ -1,4 +1,4 @@
-#include "ChV_PCH.h"
+﻿#include "ChV_PCH.h"
 
 #define VK_USE_PLATFORM_WIN32_KHR
 #include "C:\VulkanSDK\1.3.275.0\Include\vulkan\vulkan.h"
@@ -61,16 +61,33 @@ namespace Chilli
         // SwapChain
         _CreateSwapChainKHR();
 
+        //  Commands
+        _CreateCommandPools();
+        _CreateCommandBuffers();
+        _CreateSyncObjects();
+
         VULKAN_PRINTLN("Vulkan Initiated!!");
         _CreateResourceFactory();
     }
 
 	void VulkanRenderer::ShutDown()
 	{
+        vkDeviceWaitIdle(_Data.Device.GetHandle());
         _ResourceFactory->Destroy();
 
+        auto device = _Data.Device.GetHandle();
+        vkDestroySemaphore(device, _Data.ImageAvailableSemaphores, nullptr);
+        vkDestroySemaphore(device, _Data.RenderFinishedSemaphores, nullptr);
+        vkDestroyFence(device, _Data.InFlightFences, nullptr);
+        
+        vkDestroyCommandPool(_Data.Device.GetHandle(), _Data.GraphicsCommandPool, nullptr);
+        vkDestroyCommandPool(_Data.Device.GetHandle(), _Data.TransferCommandPool, nullptr);
+
         _Data.SwapChainKHR.Destroy(_Data.Device);
+        
         _Data.Device.Destroy();
+        
+        // Core
         vkDestroySurfaceKHR(_Data.Instance, _Data.SurfaceKHR, nullptr);
         if (_Spec.EnableValidationLayer)
             DestroyDebugUtilsMessengerEXT(_Data.Instance, _Data.DebugMessenger, nullptr);
@@ -78,6 +95,190 @@ namespace Chilli
         vkDestroyInstance(_Data.Instance, nullptr);
         VULKAN_PRINTLN("Vulkan Terminated!!");
 	}
+
+    void VulkanRenderer::BeginFrame()
+    {
+    }
+
+    void VulkanRenderer::BeginRenderPass()
+    {
+        vkWaitForFences(_Data.Device.GetHandle(), 1, &_Data.InFlightFences, VK_TRUE, UINT64_MAX);
+
+        VkResult result = vkAcquireNextImageKHR(_Data.Device.GetHandle(), _Data.SwapChainKHR.GetHandle(), UINT64_MAX,
+            _Data.ImageAvailableSemaphores, VK_NULL_HANDLE,
+            &_Data.CurrentImageIndex);
+
+        if (result != VK_SUCCESS)
+        {
+            std::cout << "ERROR: AcquireNextImage failed: " << result << "\n";
+        }
+        vkResetFences(_Data.Device.GetHandle(), 1, &_Data.InFlightFences);
+        vkResetCommandBuffer(_Data.GraphicsCommandBuffer, 0);
+
+        auto commandBuffer = _Data.GraphicsCommandBuffer;
+
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+        // 🆕 TRANSITION: undefined → color attachment optimal (for rendering)
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = _Data.SwapChainKHR.GetImages()[_Data.CurrentImageIndex]; // 🆕 Use the actual image
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+        vkCmdPipelineBarrier(
+            commandBuffer,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,             // Before any operations
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // Before color attachment output
+            0,
+            0, nullptr,
+            0, nullptr,
+            1, &barrier);
+
+        // Continue with dynamic rendering...
+        VkRenderingInfo renderingInfo{};
+        renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+        renderingInfo.renderArea = { {0, 0}, _Data.SwapChainKHR.GetExtent() };
+        renderingInfo.layerCount = 1;
+
+        VkRenderingAttachmentInfo colorAttachment{};
+        colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        colorAttachment.imageView = _Data.SwapChainKHR.GetImageViews()[_Data.CurrentImageIndex];
+        colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // ✅ Now correct
+        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        colorAttachment.clearValue = { {0.5f, 0.5f, 0.0f, 1.0f} };
+        renderingInfo.colorAttachmentCount = 1;
+        renderingInfo.pColorAttachments = &colorAttachment;
+
+        vkCmdBeginRendering(commandBuffer, &renderingInfo);
+    }
+
+    void VulkanRenderer::Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline)
+    {
+        auto VulkanPipeline = std::static_pointer_cast<VulkanGraphicsPipeline>(Pipeline);
+        auto commandBuffer = _Data.GraphicsCommandBuffer;
+        // Bind pipeline (created without render pass)
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VulkanPipeline->GetHandle());
+
+        // Set dynamic viewport (matches pipeline dynamic state)
+        VkViewport viewport{};
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width = static_cast<float>(_Data.SwapChainKHR.GetExtent().width);
+        viewport.height = static_cast<float>(_Data.SwapChainKHR.GetExtent().height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+        // Set dynamic scissor
+        VkRect2D scissor{};
+        scissor.offset = { 0, 0 };
+        scissor.extent = _Data.SwapChainKHR.GetExtent();
+        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+        // 🎨 Draw your geometry
+        vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+    }
+
+    void VulkanRenderer::EndRenderPass()
+    {
+        auto commandBuffer = _Data.GraphicsCommandBuffer;
+
+        vkCmdEndRendering(commandBuffer);
+
+        // 🆕 TRANSITION: color attachment optimal → present source (for presentation)
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR; // ✅ Required for presentation
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = _Data.SwapChainKHR.GetImages()[_Data.CurrentImageIndex]; // 🆕 Use the actual image
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        barrier.dstAccessMask = 0;
+
+        vkCmdPipelineBarrier(
+            commandBuffer,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // After color attachment writing
+            VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,          // Before presentation
+            0,
+            0, nullptr,
+            0, nullptr,
+            1, &barrier);
+
+        vkEndCommandBuffer(commandBuffer);
+    }
+
+    void VulkanRenderer::RenderFrame()
+    {
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+        VkSemaphore waitSemaphores[] = { _Data.ImageAvailableSemaphores };
+        VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+        submitInfo.waitSemaphoreCount = 1;
+        submitInfo.pWaitSemaphores = waitSemaphores;
+        submitInfo.pWaitDstStageMask = waitStages;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &_Data.GraphicsCommandBuffer;
+
+        VkSemaphore signalSemaphores[] = { _Data.RenderFinishedSemaphores};
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pSignalSemaphores = signalSemaphores;
+
+        if (vkQueueSubmit(_Data.Device.GetQueue(QueueFamilies::GRAPHICS), 1, &submitInfo, _Data.InFlightFences) != VK_SUCCESS)
+            throw std::runtime_error("failed to submit draw command buffer!");
+    }
+
+    void VulkanRenderer::Present()
+    {
+        VkSemaphore signalSemaphores[] = { _Data.RenderFinishedSemaphores};
+
+        VkPresentInfoKHR presentInfo{};
+        presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+
+        presentInfo.waitSemaphoreCount = 1;
+        presentInfo.pWaitSemaphores = signalSemaphores;
+
+        VkSwapchainKHR swapChains[] = { _Data.SwapChainKHR.GetHandle()};
+        presentInfo.swapchainCount = 1;
+        presentInfo.pSwapchains = swapChains;
+        presentInfo.pImageIndices = &_Data.CurrentImageIndex;
+        presentInfo.pResults = nullptr; // Optional
+
+        auto result = vkQueuePresentKHR(_Data.Device.GetQueue(QueueFamilies::PRESENT), &presentInfo);
+    }
+
+    void VulkanRenderer::EndFrame()
+    {
+    }
+
+    void VulkanRenderer::FinishRendering()
+    {
+        vkDeviceWaitIdle(_Data.Device.GetHandle());
+    }
+
+    std::shared_ptr<ResourceFactory> VulkanRenderer::GetResourceFactory()
+    {
+        return _ResourceFactory;
+    }
 
     void VulkanRenderer::_CreateInstance()
     {
@@ -295,8 +496,67 @@ namespace Chilli
         VulkanResourceFactorySpec Spec{};
         Spec.Device = &_Data.Device;
         Spec.Instance = _Data.Instance;
+        Spec.SwapChain = &_Data.SwapChainKHR;
 
         _ResourceFactory = std::make_shared<VulkanResourceFactory>(Spec);
+    }
+    
+    VkCommandPool __CreateCommandPool(VkDevice device, uint32_t QueueIndex, VkCommandPoolCreateFlags Flags)
+    {
+        VkCommandPoolCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        info.queueFamilyIndex = QueueIndex;
+        info.flags = Flags;
+
+        VkCommandPool CommandPool;
+        VULKAN_SUCCESS_ASSERT(vkCreateCommandPool(device, &info, nullptr, &CommandPool), "Command Pool Createion Failed");
+        return CommandPool;
+    }
+
+    void VulkanRenderer::_CreateCommandPools()
+    {
+        _Data.GraphicsCommandPool = __CreateCommandPool(_Data.Device.GetHandle()
+            , _Data.Device.GetPhysicalDevice()->Info.QueueIndicies.Queues[QueueFamilies::GRAPHICS].value(),
+            VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+
+        _Data.TransferCommandPool = __CreateCommandPool(_Data.Device.GetHandle()
+            , _Data.Device.GetPhysicalDevice()->Info.QueueIndicies.Queues[QueueFamilies::TRANSFER].value(),
+            VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+    }
+
+    void __CreateCommandBuffer(VkDevice Device, VkCommandPool Pool, VkCommandBuffer* Buffers, uint32_t Count
+        , VkCommandBufferLevel Level)
+    {
+        VkCommandBufferAllocateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        info.commandPool = Pool;
+        info.commandBufferCount = Count;
+        info.level = Level;
+
+        VULKAN_SUCCESS_ASSERT(vkAllocateCommandBuffers(Device, &info, Buffers), "Command Buffer Failed!");
+    }
+
+    void VulkanRenderer::_CreateCommandBuffers()
+    {
+        __CreateCommandBuffer(_Data.Device.GetHandle(), _Data.GraphicsCommandPool, &_Data.GraphicsCommandBuffer, 1,
+            VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+
+        VULKAN_PRINTLN("[VULKAN]: Graphics Command Buffers Created !!");
+    }
+
+    void VulkanRenderer::_CreateSyncObjects()
+    {
+        VkSemaphoreCreateInfo semaphoreInfo{};
+        semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+        VkFenceCreateInfo fenceInfo{};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT; // Start signaled so first frame doesn't wait forever
+        auto device = _Data.Device.GetHandle();
+
+        VULKAN_SUCCESS_ASSERT(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &_Data.ImageAvailableSemaphores), "Image Available Sempahore Failed!");
+        VULKAN_SUCCESS_ASSERT(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &_Data.RenderFinishedSemaphores), "Render Finished Semaphore Failed!");
+        VULKAN_SUCCESS_ASSERT(vkCreateFence(device, &fenceInfo, nullptr, &_Data.InFlightFences), "Fences Failed To create!");
     }
 }
 

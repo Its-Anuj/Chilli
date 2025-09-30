@@ -14,7 +14,10 @@ namespace Chilli
 
         VkFormat GetFormat() const { return _Format; }
         VkExtent2D GetExtent() const { return _Extent; }
-        const std::vector<VkImageView> GetImageViewss() const { return _ImageViews; }
+        const std::vector<VkImageView> GetImageViews() const { return _ImageViews; }
+        const std::vector<VkImage> GetImages() const { return _Images; }
+
+        VkSwapchainKHR GetHandle() { return _SwapChain; }
 
     private:
         void _CreateSwapChainKHR(VulkanDevice& device, VkSurfaceKHR SurfaceKHR, int Width, int Height);

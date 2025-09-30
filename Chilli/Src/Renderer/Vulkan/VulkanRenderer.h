@@ -50,6 +50,16 @@ namespace Chilli
 		int ActivePhysicalDeviceIndex = 0;
 
 		VulkanDevice Device;
+
+		// Commands
+		VkCommandPool GraphicsCommandPool, TransferCommandPool;
+		VkCommandBuffer GraphicsCommandBuffer;
+
+		VkSemaphore ImageAvailableSemaphores;
+		VkSemaphore RenderFinishedSemaphores;
+		VkFence InFlightFences;
+
+		uint32_t CurrentImageIndex;
 	};
 
 	struct VulkanResourceFactory;
@@ -70,6 +80,19 @@ namespace Chilli
 
 		virtual void Init(void* Spec) override; 
 		virtual void ShutDown() override;
+
+
+		// Rendering related
+		virtual void BeginFrame() override;
+		virtual void BeginRenderPass() override; 
+		virtual void Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline) override;
+		virtual void EndRenderPass() override;
+		virtual void RenderFrame() override;
+		virtual void Present() override;
+		virtual void EndFrame() override;	
+		virtual void FinishRendering() override;
+
+		virtual std::shared_ptr<ResourceFactory> GetResourceFactory() override;
 	private:
 		void _CreateInstance();
 		void _CreateDebugMessenger();
@@ -85,6 +108,12 @@ namespace Chilli
 		void _CreateSwapChainKHR();
 
 		void _CreateResourceFactory();
+
+		// Commands
+		void _CreateCommandPools();
+		void _CreateCommandBuffers();
+
+		void _CreateSyncObjects();
 	private:
 		VulkanRendererSpec _Spec;
 		VulkanRendererData _Data;

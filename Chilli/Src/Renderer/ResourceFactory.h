@@ -10,7 +10,7 @@ namespace Chilli
     class ResourceFactory
     {
     public:
-        virtual Ref<GraphicsPipeline> CreateGraphicsPipeline() = 0;
+        virtual Ref<GraphicsPipeline> CreateGraphicsPipeline(const GraphicsPipelineSpec& Spec) = 0;
         virtual void DestroyGraphicsPipeline(Ref<GraphicsPipeline>& Pipeline) = 0;
     private:
     };
