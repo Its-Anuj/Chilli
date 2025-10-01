@@ -3,6 +3,7 @@
 #include "RenderAPI.h"
 #include "VulkanDevice.h"
 #include "VulkanSwapChainKHR.h"
+#include "VulkanUtils.h"
 
 #define VULKAN_SUCCESS_ASSERT(x, err) \
     {                                 \
@@ -54,7 +55,6 @@ namespace Chilli
 		VulkanDevice Device;
 
 		// Commands
-		VkCommandPool GraphicsCommandPool, TransferCommandPool;
 		VkCommandBuffer GraphicsCommandBuffer;
 
 		VkSemaphore ImageAvailableSemaphores;
@@ -113,7 +113,6 @@ namespace Chilli
 		void _CreateResourceFactory();
 
 		// Commands
-		void _CreateCommandPools();
 		void _CreateCommandBuffers();
 
 		void _CreateSyncObjects();

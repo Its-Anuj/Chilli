@@ -61,11 +61,14 @@ namespace Chilli
         // SwapChain
         _CreateSwapChainKHR();
 
+        // Utils
+        VulkanUtilsSpec UtilsSpec{};
+        UtilsSpec.Device = &_Data.Device;
+        VulkanUtils::Init(UtilsSpec);
+
         //  Commands
-        _CreateCommandPools();
         _CreateCommandBuffers();
         _CreateSyncObjects();
-
         VULKAN_PRINTLN("Vulkan Initiated!!");
         _CreateResourceFactory();
     }
@@ -74,14 +77,12 @@ namespace Chilli
 	{
         vkDeviceWaitIdle(_Data.Device.GetHandle());
         _ResourceFactory->Destroy();
+        VulkanUtils::ShutDown();
 
         auto device = _Data.Device.GetHandle();
         vkDestroySemaphore(device, _Data.ImageAvailableSemaphores, nullptr);
         vkDestroySemaphore(device, _Data.RenderFinishedSemaphores, nullptr);
         vkDestroyFence(device, _Data.InFlightFences, nullptr);
-        
-        vkDestroyCommandPool(_Data.Device.GetHandle(), _Data.GraphicsCommandPool, nullptr);
-        vkDestroyCommandPool(_Data.Device.GetHandle(), _Data.TransferCommandPool, nullptr);
 
         _Data.SwapChainKHR.Destroy(_Data.Device);
         
@@ -174,6 +175,9 @@ namespace Chilli
         auto commandBuffer = _Data.GraphicsCommandBuffer;
         // Bind pipeline (created without render pass)
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VulkanPipeline->GetHandle());
+
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VulkanPipeline->GetLayout(),
+            0, 1, &VulkanPipeline->GetSets()[0], 0, nullptr);
 
         // Set dynamic viewport (matches pipeline dynamic state)
         VkViewport viewport{};
@@ -509,47 +513,12 @@ namespace Chilli
 
         _ResourceFactory = std::make_shared<VulkanResourceFactory>(Spec);
     }
-    
-    VkCommandPool __CreateCommandPool(VkDevice device, uint32_t QueueIndex, VkCommandPoolCreateFlags Flags)
-    {
-        VkCommandPoolCreateInfo info{};
-        info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        info.queueFamilyIndex = QueueIndex;
-        info.flags = Flags;
-
-        VkCommandPool CommandPool;
-        VULKAN_SUCCESS_ASSERT(vkCreateCommandPool(device, &info, nullptr, &CommandPool), "Command Pool Createion Failed");
-        return CommandPool;
-    }
-
-    void VulkanRenderer::_CreateCommandPools()
-    {
-        _Data.GraphicsCommandPool = __CreateCommandPool(_Data.Device.GetHandle()
-            , _Data.Device.GetPhysicalDevice()->Info.QueueIndicies.Queues[QueueFamilies::GRAPHICS].value(),
-            VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
-
-        _Data.TransferCommandPool = __CreateCommandPool(_Data.Device.GetHandle()
-            , _Data.Device.GetPhysicalDevice()->Info.QueueIndicies.Queues[QueueFamilies::TRANSFER].value(),
-            VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
-    }
-
-    void __CreateCommandBuffer(VkDevice Device, VkCommandPool Pool, VkCommandBuffer* Buffers, uint32_t Count
-        , VkCommandBufferLevel Level)
-    {
-        VkCommandBufferAllocateInfo info{};
-        info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        info.commandPool = Pool;
-        info.commandBufferCount = Count;
-        info.level = Level;
-
-        VULKAN_SUCCESS_ASSERT(vkAllocateCommandBuffers(Device, &info, Buffers), "Command Buffer Failed!");
-    }
 
     void VulkanRenderer::_CreateCommandBuffers()
     {
-        __CreateCommandBuffer(_Data.Device.GetHandle(), _Data.GraphicsCommandPool, &_Data.GraphicsCommandBuffer, 1,
-            VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-
+        std::vector<VkCommandBuffer> GpCommandBuffers;
+        VulkanUtils::CreateCommandBuffers(QueueFamilies::GRAPHICS, GpCommandBuffers, 1);
+        _Data.GraphicsCommandBuffer = GpCommandBuffers[0];
         VULKAN_PRINTLN("[VULKAN]: Graphics Command Buffers Created !!");
     }
 

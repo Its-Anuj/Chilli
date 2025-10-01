@@ -21,7 +21,7 @@ namespace Chilli
 	{
 	public:
 		virtual size_t GetCount() const = 0;
-		virtual size_t GetSize() const = 0 ;
+		virtual size_t GetSize() const = 0;
 	private:
 	};
 
@@ -38,6 +38,21 @@ namespace Chilli
 	public:
 		virtual size_t GetCount() const = 0;
 		virtual size_t GetSize() const = 0;
+	private:
+	};
+
+	struct UniformBufferSpec
+	{
+		void* Data;
+		size_t Size = 0;
+		size_t Count = 0;
+	};
+
+	class UniformBuffer
+	{
+	public:
+
+		virtual void StreamData(void* Data, size_t Size) = 0; 
 	private:
 	};
 }

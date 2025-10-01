@@ -18,9 +18,12 @@ if (NOT Vulkan_FOUND)
     message(FATAL_ERROR "Vulkan SDK not found. Please install 1.3.275")
 endif()
 
+message(STATUS "Vulkan SDK: ${VULKAN_SDK_ROOT}")
+message(STATUS "Library Dir: ${VULKAN_LIBRARIES_DIR}")
 message("Vulkan SDK found ${Vulkan_VERSION}")
 message("Vulkan SDK Libs found ${Vulkan_LIBRARIES}")
 message("Vulkan SDK Includes found ${Vulkan_INCLUDE_DIR}")
+
 include_directories(${Vulkan_INCLUDE_DIR})
 
 add_subdirectory("Chilli")
@@ -47,3 +50,5 @@ if(CMAKE_BUILD_TYPE MATCHES "Release")
 	message("Using Release")
 	target_compile_definitions(${CMAKE_PROJECT_NAME} PUBLIC CHILLI_ENGINE_DEBUG=false)
 endif()
+
+

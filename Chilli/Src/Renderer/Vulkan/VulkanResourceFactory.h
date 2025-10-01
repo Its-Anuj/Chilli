@@ -28,11 +28,22 @@ namespace Chilli
 		void Init(const VulkanGraphicsPipelineSpec& Spec);
 
 		virtual void Bind() override {}
+		virtual void LinkUniformBuffer(std::shared_ptr<UniformBuffer>& UB) override;
 
 		VkPipeline GetHandle() const { return _Pipeline; }
+		VkPipelineLayout GetLayout() { return _PipelineLayout; }
+		const std::vector<VkDescriptorSet>& GetSets() { return _Sets; }
+
+		void TestSPIRV(const char* Path);
 	private:
 		VkPipeline _Pipeline;
 		VkPipelineLayout _PipelineLayout;
+		VkDevice _Device;
+
+		std::vector<VkDescriptorSet> _Sets;
+		VkDescriptorSetLayout _Layout;
+
+		void _CreateLayout(VkDevice Device);
 	};
 
 	struct VulkanVertexBufferSpec
@@ -87,6 +98,33 @@ namespace Chilli
 		size_t _Count = 0;
 	};
 
+	struct VulkanUniformBufferrSpec
+	{
+		UniformBufferSpec Spec;
+		VmaAllocator Allocator;
+	};
+
+	class VulkanUniformBuffer : public UniformBuffer
+	{
+	public:
+		VulkanUniformBuffer(const VulkanUniformBufferrSpec& Spec);
+		~VulkanUniformBuffer() {}
+
+		void Destroy(VmaAllocator Allocator);
+		void Init(const VulkanUniformBufferrSpec& Spec);
+
+		VkBuffer GetHandle() const { return _Buffer; }
+		uint32_t GetSize() const { return _AllocatoinInfo.size; }
+
+		virtual void StreamData(void* Data, size_t Size) override;
+	private:
+		VkBuffer _Buffer;
+		VmaAllocation _Allocation;
+		VmaAllocationInfo _AllocatoinInfo;
+		size_t _Size = 0;
+	};
+
+
 	class VulkanResourceFactory : public ResourceFactory
 	{
 	public:
@@ -103,6 +141,9 @@ namespace Chilli
 
 		virtual Ref<IndexBuffer> CreateIndexBuffer(const IndexBufferSpec& Spec) override;
 		virtual void DestroyIndexBuffer(Ref<IndexBuffer>& IB) override;
+
+		virtual Ref<UniformBuffer> CreateUniformBuffer(const UniformBufferSpec& Spec) override;
+		virtual void DestroyUniformBuffer(Ref<UniformBuffer>& IB) override;
 	private:
 		VmaAllocator _Allocator;
 		VulkanDevice* _Device;

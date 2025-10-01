@@ -77,6 +77,21 @@ namespace Chilli
 		VulkanIB->Destroy(_Allocator);
 	}
 
+	Ref<UniformBuffer> VulkanResourceFactory::CreateUniformBuffer(const UniformBufferSpec& Spec)
+	{
+		VulkanUniformBufferrSpec VulkanSpec{};
+		VulkanSpec.Spec = Spec;
+		VulkanSpec.Allocator = _Allocator;
+
+		return std::make_shared<VulkanUniformBuffer>(VulkanSpec);
+	}
+
+	void VulkanResourceFactory::DestroyUniformBuffer(Ref<UniformBuffer>& IB)
+	{
+		auto VulkanIB = std::static_pointer_cast<VulkanUniformBuffer>(IB);
+		VulkanIB->Destroy(_Allocator);
+	}
+
 	VulkanVertexBuffer::VulkanVertexBuffer(const VulkanVertexBufferSpec& Spec)
 	{
 		Init(Spec);
@@ -261,11 +276,13 @@ namespace Chilli
 
 	VulkanGraphicsPipeline::VulkanGraphicsPipeline(const VulkanGraphicsPipelineSpec& Spec)
 	{
+		_Device = Spec.Device;
 		Init(Spec);
 	}
 
 	void VulkanGraphicsPipeline::Destroy(VkDevice Device)
 	{
+		vkDestroyDescriptorSetLayout(Device, _Layout, nullptr);
 		vkDestroyPipelineLayout(Device, _PipelineLayout, nullptr);
 		vkDestroyPipeline(Device, _Pipeline, nullptr);
 	}
@@ -402,10 +419,12 @@ namespace Chilli
 		renderingInfo.pColorAttachmentFormats = &Spec.SwapChainFormat;
 
 		// Create pipeline layout
+		_CreateLayout(Spec.Device);
+
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.setLayoutCount = 0;
-		pipelineLayoutInfo.pSetLayouts = nullptr;
+		pipelineLayoutInfo.setLayoutCount = 1;
+		pipelineLayoutInfo.pSetLayouts = &_Layout;
 		pipelineLayoutInfo.pushConstantRangeCount = 0;
 		pipelineLayoutInfo.pPushConstantRanges = nullptr;
 
@@ -435,4 +454,93 @@ namespace Chilli
 		vkDestroyShaderModule(Spec.Device, vertShaderModule, nullptr);
 		vkDestroyShaderModule(Spec.Device, fragShaderModule, nullptr);
 	}
+
+	void VulkanGraphicsPipeline::LinkUniformBuffer(std::shared_ptr<UniformBuffer>& UB)
+	{
+		auto VulkanUB = std::static_pointer_cast<VulkanUniformBuffer>(UB);
+
+		std::vector<VkDescriptorSetLayout> layouts(1, _Layout);
+		VulkanUtils::CreateDescSets(_Sets, 1, layouts);
+
+		// Update descriptor sets
+		VkDescriptorBufferInfo bufferInfo{};
+		bufferInfo.buffer = VulkanUB->GetHandle();
+		bufferInfo.offset = 0;
+		bufferInfo.range = VulkanUB->GetSize();
+
+		VkWriteDescriptorSet descriptorWrite{};
+		descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrite.dstSet = _Sets[0];
+		descriptorWrite.dstBinding = 0;
+		descriptorWrite.dstArrayElement = 0;
+		descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		descriptorWrite.descriptorCount = 1;
+		descriptorWrite.pBufferInfo = &bufferInfo;
+
+		vkUpdateDescriptorSets(_Device, 1, &descriptorWrite, 0, nullptr);
+	}
+
+	void VulkanGraphicsPipeline::TestSPIRV(const char* Path)
+	{
+
+	}
+
+	void VulkanGraphicsPipeline::_CreateLayout(VkDevice Device)
+	{
+		VkDescriptorSetLayoutBinding uboLayoutBinding{};
+		uboLayoutBinding.binding = 0;
+		uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		uboLayoutBinding.descriptorCount = 1;
+		uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+		uboLayoutBinding.pImmutableSamplers = nullptr; // Optional
+
+		VkDescriptorSetLayoutCreateInfo layoutInfo{};
+		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		layoutInfo.bindingCount = 1;
+		layoutInfo.pBindings = &uboLayoutBinding;
+
+		if (vkCreateDescriptorSetLayout(Device, &layoutInfo, nullptr, &_Layout) != VK_SUCCESS)
+			throw std::runtime_error("failed to create descriptor set layout!");
+	}
+
+	VulkanUniformBuffer::VulkanUniformBuffer(const VulkanUniformBufferrSpec& Spec)
+	{
+		Init(Spec);
+	}
+
+	void VulkanUniformBuffer::Destroy(VmaAllocator Allocator)
+	{
+		vmaDestroyBuffer(Allocator, _Buffer, _Allocation);
+	}
+
+	void VulkanUniformBuffer::Init(const VulkanUniformBufferrSpec& Spec)
+	{
+		_Size = Spec.Spec.Size;
+
+		VkBufferCreateInfo bufferInfo = {};
+		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		bufferInfo.size = Spec.Spec.Size;
+		bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		VmaAllocationCreateInfo allocInfo = {};
+		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+			VMA_ALLOCATION_CREATE_MAPPED_BIT;
+		allocInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+			VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+		// Use staging buffer
+		allocInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU; // For frequent updates
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+
+		auto Allocator = Spec.Allocator;
+		vmaCreateBuffer(Allocator, &bufferInfo, &allocInfo, &_Buffer, &_Allocation, &_AllocatoinInfo);
+	}
+
+	void VulkanUniformBuffer::StreamData(void* Data, size_t Size)
+	{
+		memcpy(_AllocatoinInfo.pMappedData, Data, Size);
+	}
+
 }

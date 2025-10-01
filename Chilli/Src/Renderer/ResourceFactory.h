@@ -19,6 +19,9 @@ namespace Chilli
 
         virtual Ref<IndexBuffer> CreateIndexBuffer(const IndexBufferSpec& Spec) = 0;
         virtual void DestroyIndexBuffer(Ref<IndexBuffer>& IB) = 0;
+
+        virtual Ref<UniformBuffer> CreateUniformBuffer(const UniformBufferSpec& Spec) = 0;
+        virtual void DestroyUniformBuffer(Ref<UniformBuffer>& IB) = 0;
     private:
     };
 } // namespace VEngine

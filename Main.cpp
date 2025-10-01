@@ -1,12 +1,23 @@
 #include "Ch_PCH.h"
 #include "Chilli/Chilli.h"
+
+#define GLM_FORCE_RADIANS
 #include "Chilli/Libs/glm/glm/glm.hpp"
+#include "Chilli/Libs/glm/glm/gtc/matrix_transform.hpp"
+#include <chrono>
 
 class Editor : public Chilli::Layer
 {
 public:
 	Editor() :Layer("Editor") {}
 	~Editor() {}
+
+	// Uniform buffer object structure
+	struct UniformBufferObject {
+		glm::mat4 model;
+		glm::mat4 view;
+		glm::mat4 proj;
+	};
 
 	struct Vertex
 	{
@@ -19,7 +30,7 @@ public:
 	{
 		Chilli::UUID id;
 		CH_INFO((uint64_t)id);
-
+			
 		{
 			Chilli::GraphicsPipelineSpec Spec{};
 			Spec.Paths[0] = "vert.spv";
@@ -53,7 +64,30 @@ public:
 			Spec.Type = Chilli::BufferType::STATIC_DRAW;
 
 			IndexBuffer = Chilli::Renderer::GetResourceFactory()->CreateIndexBuffer(Spec);
+		} 
+		{
+			Chilli::UniformBufferSpec Spec{};
+			Spec.Size = sizeof(UniformBufferObject);
+			Spec.Count = 1;
+
+			UniformBuffer = Chilli::Renderer::GetResourceFactory()->CreateUniformBuffer(Spec);
 		}
+		Shader->LinkUniformBuffer(UniformBuffer);
+	}
+
+	void UpdateUBO()
+	{
+		static auto startTime = std::chrono::high_resolution_clock::now();
+
+		auto currentTime = std::chrono::high_resolution_clock::now();
+		float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+
+		UniformBufferObject ubo{};
+		ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+		ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+		ubo.proj = glm::perspective(glm::radians(45.0f), 1280/ (float)720, 0.1f, 10.0f);
+		ubo.proj[1][1] *= -1; // Flip Y for Vulkan
+		_UBO = ubo;
 	}
 
 	virtual void Update() override
@@ -61,6 +95,10 @@ public:
 		Chilli::Renderer::BeginFrame();
 
 		Chilli::Renderer::BeginRenderPass();
+
+		UpdateUBO();
+		UniformBuffer->StreamData((void*)&_UBO, sizeof(_UBO));
+		
 		Chilli::Renderer::Submit(Shader, VertexBuffer, IndexBuffer);
 		Chilli::Renderer::EndRenderPass();
 
@@ -73,6 +111,7 @@ public:
 	virtual void Terminate() override {
 		Chilli::Renderer::FinishRendering();
 		Chilli::Renderer::GetResourceFactory()->DestroyIndexBuffer(IndexBuffer);
+		Chilli::Renderer::GetResourceFactory()->DestroyUniformBuffer(UniformBuffer);
 		Chilli::Renderer::GetResourceFactory()->DestroyVertexBuffer(VertexBuffer);
 		Chilli::Renderer::GetResourceFactory()->DestroyGraphicsPipeline(Shader);
 	}
@@ -84,6 +123,8 @@ private:
 	std::shared_ptr<Chilli::GraphicsPipeline> Shader;
 	std::shared_ptr<Chilli::IndexBuffer> IndexBuffer;
 	std::shared_ptr<Chilli::VertexBuffer> VertexBuffer;
+	std::shared_ptr<Chilli::UniformBuffer> UniformBuffer;
+	UniformBufferObject _UBO;
 };
 
 int main()
