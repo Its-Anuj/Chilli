@@ -10,3 +10,6 @@
 [submodule "Chilli/Libs/glm"]
 	path = Chilli/Libs/glm
 	url = https://github.com/g-truc/glm.git
+[submodule "Chilli/Libs/Stb"]
+	path = Chilli/Libs/Stb
+	url = https://github.com/nothings/stb.git

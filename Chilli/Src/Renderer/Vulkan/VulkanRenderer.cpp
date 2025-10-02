@@ -3,9 +3,10 @@
 #define VK_USE_PLATFORM_WIN32_KHR
 #include "C:\VulkanSDK\1.3.275.0\Include\vulkan\vulkan.h"
 
-#include "VulkanDevice.h"
-#include "VulkanRenderer.h"
 #include "vk_mem_alloc.h"
+#include "VulkanDevice.h"
+#include "VulkanUtils.h"
+#include "VulkanRenderer.h"
 #include "VulkanResourceFactory.h"
 
 VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
@@ -64,6 +65,7 @@ namespace Chilli
         // Utils
         VulkanUtilsSpec UtilsSpec{};
         UtilsSpec.Device = &_Data.Device;
+        UtilsSpec.Instance = _Data.Instance;
         VulkanUtils::Init(UtilsSpec);
 
         //  Commands

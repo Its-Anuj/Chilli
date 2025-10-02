@@ -124,6 +124,70 @@ namespace Chilli
 		size_t _Size = 0;
 	};
 
+	struct VulkanImageSpec
+	{
+		TextureSpec Spec;
+	};
+
+	class VulkanImage : public Image
+	{
+	public:
+		VulkanImage() {}
+		~VulkanImage() {}
+
+		void Init(VmaAllocator Allocator, const VulkanImageSpec& Spec);
+		void Destroy(VmaAllocator Allocator);
+
+		virtual const ImageSpec& GetSpec() const override { return _Spec.Spec; }
+		virtual void LoadImageData(void* ImageData) override;
+
+		VkImage GetHandle() const { return _Image; }
+	private:
+		VulkanImageSpec _Spec;
+		VkImage _Image;
+		VmaAllocation _Allocation;
+		VmaAllocationInfo _AllocationInfo;
+	};
+
+	class VulkanTexture : public Texture
+	{
+	public:
+		VulkanTexture() {}
+		~VulkanTexture() {}
+
+		void Init(VmaAllocator Allocator, VkDevice Device, const VulkanImageSpec& Spec, float MaxAnisoTropy);
+		void Destroy(VmaAllocator Allocator, VkDevice Device);
+		  
+		virtual const ImageSpec& GetSpec() const override { return _Image->GetSpec(); }
+		virtual Ref<Image>& GetImage() override;
+
+		VkImageView GetHandle() const;
+	private:
+		void _CreateImageView(VkDevice Device, VkImageAspectFlags aspectFlags);
+		void _CreateSampler(VkDevice Device, float MaxAnisoTropy);
+	private:
+		std::shared_ptr<VulkanImage> _Image;
+		VkImageView _ImageView;
+		VkSampler _Sampler;
+	};
+
+	struct VulkanStageBuffer
+	{
+	public:
+		VulkanStageBuffer() {}
+		~VulkanStageBuffer() {}
+	
+		void Init(VmaAllocator Allocator, void* Data, uint32_t Size);
+		void Destroy(VmaAllocator Allocator);
+		void Load(void* Data, uint32_t Size);
+
+		VkBuffer GetHandle() { return _Buffer; }
+	private:
+		VmaAllocation _Allocation;
+		VkBuffer _Buffer;
+		VmaAllocationInfo _AllocatoinInfo;
+	}; 
+
 
 	class VulkanResourceFactory : public ResourceFactory
 	{
@@ -144,8 +208,10 @@ namespace Chilli
 
 		virtual Ref<UniformBuffer> CreateUniformBuffer(const UniformBufferSpec& Spec) override;
 		virtual void DestroyUniformBuffer(Ref<UniformBuffer>& IB) override;
+
+		virtual Ref<Texture> CreateTexture(const TextureSpec& Spec) override;
+		virtual void DestroyTexture(Ref<Texture>& Tex) override;
 	private:
-		VmaAllocator _Allocator;
 		VulkanDevice* _Device;
 		VulkanSwapChainKHR* _SwapChain;
 	};

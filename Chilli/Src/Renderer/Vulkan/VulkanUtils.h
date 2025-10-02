@@ -4,7 +4,8 @@ namespace Chilli
 {
 	enum class ShaderUniformTypes
 	{
-		UNIFORM
+		UNIFORM,
+		SAMPLED_IMAGE
 	};
 
 	struct ShaderDescAttribs
@@ -34,27 +35,28 @@ namespace Chilli
 	struct CommandPoolsManager
 	{
 	public:
-		 CommandPoolsManager() {}
-		  ~CommandPoolsManager() {}
-	
-		  void Init(VkDevice device, QueueFamilyIndicies Indicies, QueueFamilies ChosenFamily);
-		  void Destroy();
+		CommandPoolsManager() {}
+		~CommandPoolsManager() {}
 
-		  void CreateCommandBuffers(std::vector<VkCommandBuffer>& Buffers, uint32_t Count,
-			  VkCommandBufferLevel Level);
-		  void FreeCommandBuffer(std::vector<VkCommandBuffer>& Buffers);
- 
-		  VkDevice Device = VK_NULL_HANDLE;
+		void Init(VkDevice device, QueueFamilyIndicies Indicies, QueueFamilies ChosenFamily);
+		void Destroy();
 
-		  uint32_t GetBuffersCount() { return _BuffersCount; }
-		  uint32_t GetPoolsCount() { return 0; }
+		void CreateCommandBuffers(std::vector<VkCommandBuffer>& Buffers, uint32_t Count,
+			VkCommandBufferLevel Level);
+		void FreeCommandBuffer(std::vector<VkCommandBuffer>& Buffers);
+
+		VkDevice Device = VK_NULL_HANDLE;
+
+		uint32_t GetBuffersCount() { return _BuffersCount; }
+		uint32_t GetPoolsCount() { return 0; }
 	private:
-		VkCommandPool _Pool; 
+		VkCommandPool _Pool;
 		uint32_t _BuffersCount;
 	};
 
 	struct VulkanUtilsSpec
 	{
+		VkInstance Instance;
 		VulkanDevice* Device;
 	};
 
@@ -76,9 +78,14 @@ namespace Chilli
 		static void CreateDescSets(std::vector<VkDescriptorSet>& Sets, uint32_t Count, std::vector<VkDescriptorSetLayout>& Layouts);
 		static void FreeDescSets(std::vector<VkDescriptorSet>& Sets);
 
-		static void BeginSingleTimeCommands(VkCommandBuffer SingleTimeBuffer);
-		static void EndSingleTimeCommands();
-		static VkResult SubmitQueue(const VkSubmitInfo &SubmitInfo, QueueFamilies Family, VkFence& Fence);
+		static void BeginSingleTimeCommands(VkCommandBuffer& SingleTimeBuffer, QueueFamilies Family);
+		static void EndSingleTimeCommands(VkCommandBuffer& SingleTimeBuffer, QueueFamilies Family);
+		static VkResult SubmitQueue(const VkSubmitInfo& SubmitInfo, QueueFamilies Family, VkFence& Fence);
+
+		static void CreateAllocator(VkInstance Instance, VkPhysicalDevice PhysicalDevice, VkDevice Device);
+		static void DestroyAllocator();
+
+		static  VmaAllocator GetAllocator();
 	private:
 		void _CreateCommandPools();
 		void _CreateDescPools();
@@ -86,5 +93,6 @@ namespace Chilli
 		VulkanUtilsSpec _Spec;
 		DescriptorPoolsManager _DescManager;
 		CommandPoolsManager _GraphicsCmdManager, _TransferCmdManager;
+		VmaAllocator _Allocator;
 	};
 }

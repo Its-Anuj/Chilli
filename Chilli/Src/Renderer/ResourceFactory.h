@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Texture.h"
 #include "Buffers.h"
 #include "Shader.h"
 
@@ -22,6 +23,9 @@ namespace Chilli
 
         virtual Ref<UniformBuffer> CreateUniformBuffer(const UniformBufferSpec& Spec) = 0;
         virtual void DestroyUniformBuffer(Ref<UniformBuffer>& IB) = 0;
+
+        virtual Ref<Texture> CreateTexture(const TextureSpec& Spec) = 0;
+        virtual void DestroyTexture(Ref<Texture>& Tex) = 0;
     private:
     };
 } // namespace VEngine

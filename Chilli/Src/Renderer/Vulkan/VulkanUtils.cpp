@@ -1,5 +1,6 @@
 #include "ChV_PCH.h"
 
+#include "vk_mem_alloc.h"
 #define VK_USE_PLATFORM_WIN32_KHR
 #include "vulkan/vulkan.h"
 #include "VulkanRenderer.h"
@@ -12,6 +13,7 @@ namespace Chilli
 		switch (Type)
 		{
 		case ShaderUniformTypes::UNIFORM: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		case ShaderUniformTypes::SAMPLED_IMAGE: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		}
 	}
 
@@ -119,6 +121,7 @@ namespace Chilli
 		Get()._Spec = Spec;
 		Get()._CreateCommandPools();
 		Get()._CreateDescPools();
+		CreateAllocator(Spec.Instance, Spec.Device->GetPhysicalDevice()->PhysicalDevice, Spec.Device->GetHandle());
 	}
 
 	void VulkanUtils::ShutDown()
@@ -126,6 +129,7 @@ namespace Chilli
 		Get()._GraphicsCmdManager.Destroy();
 		Get()._TransferCmdManager.Destroy();
 		Get()._DescManager.Destroy();
+		DestroyAllocator();
 	}
 
 	void VulkanUtils::CreateCommandBuffers(QueueFamilies Family, std::vector<VkCommandBuffer>& Buffers, uint32_t Count)
@@ -146,17 +150,64 @@ namespace Chilli
 		Manager->FreeCommandBuffer(Buffers);
 	}
 
-	void VulkanUtils::BeginSingleTimeCommands(VkCommandBuffer SingleTimeBuffer)
+	void VulkanUtils::BeginSingleTimeCommands(VkCommandBuffer& SingleTimeBuffer, QueueFamilies Family)
 	{
+		std::vector<VkCommandBuffer> Buffers;
+		Get().CreateCommandBuffers(Family, Buffers, 1);
+
+		VkCommandBufferBeginInfo beginInfo{};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+		SingleTimeBuffer = Buffers[0];
+		vkBeginCommandBuffer(SingleTimeBuffer, &beginInfo);
 	}
 
-	void VulkanUtils::EndSingleTimeCommands()
+	void VulkanUtils::EndSingleTimeCommands(VkCommandBuffer& SingleTimeBuffer, QueueFamilies Family)
 	{
+		vkEndCommandBuffer(SingleTimeBuffer);
+
+		VkSubmitInfo submit{};
+		submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submit.commandBufferCount = 1;
+		submit.pCommandBuffers = &SingleTimeBuffer;
+		
+		VkFence fence;
+		SubmitQueue(submit, Family, fence);
+
+		vkQueueWaitIdle(Get()._Spec.Device->GetQueue(Family));
+
+		std::vector<VkCommandBuffer> Buffers = { SingleTimeBuffer };
+		if (Family == QueueFamilies::GRAPHICS)
+			Get()._GraphicsCmdManager.FreeCommandBuffer(Buffers);
+		if (Family == QueueFamilies::TRANSFER)
+			Get()._TransferCmdManager.FreeCommandBuffer(Buffers);
+		SingleTimeBuffer = VK_NULL_HANDLE;
 	}
 
 	VkResult VulkanUtils::SubmitQueue(const VkSubmitInfo& SubmitInfo, QueueFamilies Family, VkFence& Fence)
 	{
 		return vkQueueSubmit(Get()._Spec.Device->GetQueue(Family), 1, &SubmitInfo, Fence);
+	}
+
+	void VulkanUtils::CreateAllocator(VkInstance Instance, VkPhysicalDevice PhysicalDevice, VkDevice Device)
+	{
+		VmaAllocatorCreateInfo allocatorInfo = {};
+		allocatorInfo.physicalDevice = PhysicalDevice;
+		allocatorInfo.device = Device;
+		allocatorInfo.instance = Instance;
+		VULKAN_SUCCESS_ASSERT(vmaCreateAllocator(&allocatorInfo, &Get()._Allocator), "VMA Allocator failed to initialize!");
+		VULKAN_PRINTLN("VMA Created!!");
+	}
+
+	void VulkanUtils::DestroyAllocator()
+	{
+		vmaDestroyAllocator(Get()._Allocator);
+	}
+
+	VmaAllocator VulkanUtils::GetAllocator()
+	{
+		return Get()._Allocator;
 	}
 
 	void VulkanUtils::_CreateCommandPools()

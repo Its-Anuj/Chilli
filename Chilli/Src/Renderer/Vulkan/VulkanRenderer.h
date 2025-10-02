@@ -3,7 +3,6 @@
 #include "RenderAPI.h"
 #include "VulkanDevice.h"
 #include "VulkanSwapChainKHR.h"
-#include "VulkanUtils.h"
 
 #define VULKAN_SUCCESS_ASSERT(x, err) \
     {                                 \

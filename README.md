@@ -31,6 +31,7 @@ Future module to transform Chilli from a rendering engine into a full game engin
 - [glm](https://github.com/g-truc/glm) (Math library)
 - [Vulkan Memory Allocator (VMA)](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) (Efficient Vulkan memory management)
 - [spdlog](https://github.com/gabime/spdlog) (Logging)
+- [stbi](https://github.com/nothings/stb.git) (Image Loading)
 
 ## Example Code
 
@@ -50,7 +51,7 @@ Future module to transform Chilli from a rendering engine into a full game engin
 			Spec.Type = Chilli::BufferType::STATIC_DRAW;
 
 			VertexBuffer = Chilli::Renderer::GetResourceFactory()->CreateVertexBuffer(Spec);
-````````markdown
+````````
 
 ### 2. Render Loop
 
@@ -67,13 +68,13 @@ Future module to transform Chilli from a rendering engine into a full game engin
 		Chilli::Renderer::Present();
 
 		Chilli::Renderer::EndFrame();
-````````markdown
+````````
 
 ### 3. Resource Deletion
 
 ````````
 		Chilli::Renderer::GetResourceFactory()->DestroyVertexBuffer(VertexBuffer);
-````````markdown
+````````
 
 ## Screenshots
 
