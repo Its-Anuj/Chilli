@@ -80,7 +80,7 @@ Future module to transform Chilli from a rendering engine into a full game engin
 
 _Add screenshots of your application here!_
 
-![Screenshot Placeholder](C:\Users\anujb\OneDrive\Pictures\Screenshots\Screenshot 2025-10-01 214751.png)
+![Screenshot](image.png)
 
 ---
 

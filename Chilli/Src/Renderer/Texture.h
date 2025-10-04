@@ -13,7 +13,7 @@ namespace Chilli
 	{
 	public:
 		virtual const ImageSpec& GetSpec() const = 0;
-		virtual Ref<Image>& GetImage() = 0;
+		virtual std::shared_ptr<Image>& GetImage() = 0;
 	private:
 	};
 }

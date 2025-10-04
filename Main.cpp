@@ -22,29 +22,20 @@ public:
 	struct Vertex
 	{
 		glm::vec3 Position;
+		glm::vec2 Uv;
 
-		Vertex(const glm::vec3& pos) :Position(pos) {}
+		Vertex(const glm::vec3& pos, const glm::vec2& uv) :Position(pos), Uv(uv) {}
 	};
 
 	virtual void Init() override
 	{
-		Chilli::UUID id;
-		CH_INFO((uint64_t)id);
-			
-		{
-			Chilli::GraphicsPipelineSpec Spec{};
-			Spec.Paths[0] = "vert.spv";
-			Spec.Paths[1] = "frag.spv";
-			Spec.Attribs = { {"position", Chilli::ShaderVertexTypes::FLOAT3, 0,0} };
-
-			Shader = Chilli::Renderer::GetResourceFactory()->CreateGraphicsPipeline(Spec);
-		}
 		{
 			std::vector<Vertex> vertices;
-			vertices.reserve(3);
-			vertices.push_back(glm::vec3(0.0f, -0.5f, 0.0f));
-			vertices.push_back(glm::vec3(0.5f, 0.5f, 0.0f));
-			vertices.push_back(glm::vec3(-0.5f, 0.5f, 0.0f));
+			vertices.reserve(4);
+			vertices.push_back(Vertex(glm::vec3(-0.5f, -0.5f, 0.0f), glm::vec2(0.0f, 0.0f))); // bottom-left
+			vertices.push_back(Vertex(glm::vec3(0.5f, -0.5f, 0.0f), glm::vec2(1.0f, 0.0f))); // bottom-right
+			vertices.push_back(Vertex(glm::vec3(0.5f, 0.5f, 0.0f), glm::vec2(1.0f, 1.0f))); // top-right
+			vertices.push_back(Vertex(glm::vec3(-0.5f, 0.5f, 0.0f), glm::vec2(0.0f, 1.0f))); // top-left
 
 			Chilli::VertexBufferSpec Spec{};
 			Spec.Data = vertices.data();
@@ -55,8 +46,11 @@ public:
 			VertexBuffer = Chilli::Renderer::GetResourceFactory()->CreateVertexBuffer(Spec);
 		}
 		{
-			const std::vector<uint16_t> indices = {
-				0, 1, 2 };
+			std::vector<uint16_t> indices = {
+			   0, 1, 2,   // first triangle
+			   2, 3, 0    // second triangle
+			};
+
 			Chilli::IndexBufferSpec Spec{};
 			Spec.Data = (void*)indices.data();
 			Spec.Size = indices.size() * sizeof(uint16_t);
@@ -64,7 +58,7 @@ public:
 			Spec.Type = Chilli::BufferType::STATIC_DRAW;
 
 			IndexBuffer = Chilli::Renderer::GetResourceFactory()->CreateIndexBuffer(Spec);
-		} 
+		}
 		{
 			Chilli::UniformBufferSpec Spec{};
 			Spec.Size = sizeof(UniformBufferObject);
@@ -72,7 +66,31 @@ public:
 
 			UniformBuffer = Chilli::Renderer::GetResourceFactory()->CreateUniformBuffer(Spec);
 		}
-		Shader->LinkUniformBuffer(UniformBuffer);
+		{
+			Chilli::TextureSpec Spec{};
+			Spec.FilePath = "A.png";
+			Spec.Format = Chilli::ImageFormat::RGBA8;
+			Spec.Tiling = Chilli::ImageTiling::IMAGE_TILING_OPTIONAL;
+			Spec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
+
+			Texture = Chilli::Renderer::GetResourceFactory()->CreateTexture(Spec);
+		}
+		{
+			Chilli::GraphicsPipelineSpec Spec{};
+			Spec.Paths[0] = "vert.spv";
+			Spec.Paths[1] = "frag.spv";
+			Spec.Attribs = { {"position", Chilli::ShaderVertexTypes::FLOAT3, 0,0},
+				{"tecoord", Chilli::ShaderVertexTypes::FLOAT2, 0,1} };
+			Spec.UniformAttribs = {
+				{Chilli::ShaderUniformTypes::UNIFORM, Chilli::ShaderStageType::VERTEX, "UBO", 0},
+				{Chilli::ShaderUniformTypes::SAMPLED_IMAGE, Chilli::ShaderStageType::FRAGMENT, "Texture", 1}
+			};
+			Spec.UBs.push_back(UniformBuffer);
+			Spec.Texs = Texture;
+
+			Shader = Chilli::Renderer::GetResourceFactory()->CreateGraphicsPipeline(Spec);
+
+		}
 	}
 
 	void UpdateUBO()
@@ -85,7 +103,7 @@ public:
 		UniformBufferObject ubo{};
 		ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 		ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-		ubo.proj = glm::perspective(glm::radians(45.0f), 1280/ (float)720, 0.1f, 10.0f);
+		ubo.proj = glm::perspective(glm::radians(45.0f), 1280 / (float)720, 0.1f, 10.0f);
 		ubo.proj[1][1] *= -1; // Flip Y for Vulkan
 		_UBO = ubo;
 	}
@@ -98,7 +116,7 @@ public:
 
 		UpdateUBO();
 		UniformBuffer->StreamData((void*)&_UBO, sizeof(_UBO));
-		
+
 		Chilli::Renderer::Submit(Shader, VertexBuffer, IndexBuffer);
 		Chilli::Renderer::EndRenderPass();
 
@@ -114,6 +132,7 @@ public:
 		Chilli::Renderer::GetResourceFactory()->DestroyUniformBuffer(UniformBuffer);
 		Chilli::Renderer::GetResourceFactory()->DestroyVertexBuffer(VertexBuffer);
 		Chilli::Renderer::GetResourceFactory()->DestroyGraphicsPipeline(Shader);
+		Chilli::Renderer::GetResourceFactory()->DestroyTexture(Texture);
 	}
 
 	virtual void OnEvent(Chilli::Event& e) override {
@@ -124,6 +143,7 @@ private:
 	std::shared_ptr<Chilli::IndexBuffer> IndexBuffer;
 	std::shared_ptr<Chilli::VertexBuffer> VertexBuffer;
 	std::shared_ptr<Chilli::UniformBuffer> UniformBuffer;
+	std::shared_ptr<Chilli::Texture> Texture;
 	UniformBufferObject _UBO;
 };
 

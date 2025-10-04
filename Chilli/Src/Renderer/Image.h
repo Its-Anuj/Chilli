@@ -40,7 +40,7 @@ namespace Chilli
 	{
 	public:
 		virtual const ImageSpec& GetSpec() const = 0;
-		virtual void LoadImageData(void* ImageData) = 0;
+		virtual void LoadImageData(const void* ImageData) = 0;
 	protected:
 	};
 }

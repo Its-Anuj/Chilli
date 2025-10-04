@@ -204,7 +204,7 @@ namespace Chilli
         vkCmdBindIndexBuffer(commandBuffer, VulkanIB->GetHandle(), 0, VK_INDEX_TYPE_UINT16);
         // 🎨 Draw your geometry
         
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(3), 1, 0, 0, 0);
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(VulkanIB->GetCount()), 1, 0, 0, 0);
     }
 
     void VulkanRenderer::EndRenderPass()

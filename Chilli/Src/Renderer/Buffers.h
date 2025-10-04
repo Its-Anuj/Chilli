@@ -51,7 +51,9 @@ namespace Chilli
 	class UniformBuffer
 	{
 	public:
-
+		virtual uint32_t GetSize() const = 0;
+		virtual uint64_t GetNativeHandle() const = 0;  // uint64_t avoids void* issues
+		
 		virtual void StreamData(void* Data, size_t Size) = 0; 
 	private:
 	};

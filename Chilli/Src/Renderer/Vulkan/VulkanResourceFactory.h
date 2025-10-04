@@ -11,41 +11,6 @@ namespace Chilli
 		VkInstance Instance;
 	};
 
-	struct VulkanGraphicsPipelineSpec
-	{
-		GraphicsPipelineSpec Spec;
-		VkDevice Device;
-		VkFormat SwapChainFormat;
-	};
-
-	class VulkanGraphicsPipeline : public GraphicsPipeline
-	{
-	public:
-		VulkanGraphicsPipeline(const VulkanGraphicsPipelineSpec& Spec);
-		~VulkanGraphicsPipeline() {}
-
-		void Destroy(VkDevice Device);
-		void Init(const VulkanGraphicsPipelineSpec& Spec);
-
-		virtual void Bind() override {}
-		virtual void LinkUniformBuffer(std::shared_ptr<UniformBuffer>& UB) override;
-
-		VkPipeline GetHandle() const { return _Pipeline; }
-		VkPipelineLayout GetLayout() { return _PipelineLayout; }
-		const std::vector<VkDescriptorSet>& GetSets() { return _Sets; }
-
-		void TestSPIRV(const char* Path);
-	private:
-		VkPipeline _Pipeline;
-		VkPipelineLayout _PipelineLayout;
-		VkDevice _Device;
-
-		std::vector<VkDescriptorSet> _Sets;
-		VkDescriptorSetLayout _Layout;
-
-		void _CreateLayout(VkDevice Device);
-	};
-
 	struct VulkanVertexBufferSpec
 	{
 		VertexBufferSpec Spec;
@@ -114,9 +79,12 @@ namespace Chilli
 		void Init(const VulkanUniformBufferrSpec& Spec);
 
 		VkBuffer GetHandle() const { return _Buffer; }
-		uint32_t GetSize() const { return _AllocatoinInfo.size; }
-
+		virtual uint32_t GetSize() const  override { return _AllocatoinInfo.size; }
 		virtual void StreamData(void* Data, size_t Size) override;
+
+		// uint64_t avoids void
+		virtual uint64_t GetNativeHandle() const override { return reinterpret_cast<uint64_t>(_Buffer); }
+
 	private:
 		VkBuffer _Buffer;
 		VmaAllocation _Allocation;
@@ -132,36 +100,40 @@ namespace Chilli
 	class VulkanImage : public Image
 	{
 	public:
-		VulkanImage() {}
+		VulkanImage(VmaAllocator Allocator, VulkanImageSpec& Spec) { Init(Allocator, Spec); }
+		VulkanImage() {  }
 		~VulkanImage() {}
 
-		void Init(VmaAllocator Allocator, const VulkanImageSpec& Spec);
+		void Init(VmaAllocator Allocator, VulkanImageSpec& Spec);
 		void Destroy(VmaAllocator Allocator);
 
 		virtual const ImageSpec& GetSpec() const override { return _Spec.Spec; }
-		virtual void LoadImageData(void* ImageData) override;
+		virtual void LoadImageData(const void* ImageData) override;
 
 		VkImage GetHandle() const { return _Image; }
 	private:
 		VulkanImageSpec _Spec;
-		VkImage _Image;
-		VmaAllocation _Allocation;
-		VmaAllocationInfo _AllocationInfo;
+		VkImage _Image = VK_NULL_HANDLE;
+		VmaAllocation _Allocation = VK_NULL_HANDLE;
+		VmaAllocationInfo _AllocationInfo{};
 	};
 
 	class VulkanTexture : public Texture
 	{
 	public:
-		VulkanTexture() {}
+		VulkanTexture(VmaAllocator Allocator, VkDevice Device, VulkanImageSpec& Spec, float MaxAnisoTropy) {
+			Init(Allocator, Device, Spec, MaxAnisoTropy);
+		}
 		~VulkanTexture() {}
 
-		void Init(VmaAllocator Allocator, VkDevice Device, const VulkanImageSpec& Spec, float MaxAnisoTropy);
+		void Init(VmaAllocator Allocator, VkDevice Device, VulkanImageSpec& Spec, float MaxAnisoTropy);
 		void Destroy(VmaAllocator Allocator, VkDevice Device);
-		  
+
 		virtual const ImageSpec& GetSpec() const override { return _Image->GetSpec(); }
 		virtual Ref<Image>& GetImage() override;
 
-		VkImageView GetHandle() const;
+		VkImageView GetHandle() const { return _ImageView; }
+		VkSampler GetSampler() const { return _Sampler; }
 	private:
 		void _CreateImageView(VkDevice Device, VkImageAspectFlags aspectFlags);
 		void _CreateSampler(VkDevice Device, float MaxAnisoTropy);
@@ -171,13 +143,20 @@ namespace Chilli
 		VkSampler _Sampler;
 	};
 
-	struct VulkanStageBuffer
+	struct VulkanStageBufferSpec
 	{
+		VmaAllocator Allocator;
+		uint32_t Size;
+		const void* Data;
+	};
+
+	struct VulkanStageBuffer
+	{	
 	public:
 		VulkanStageBuffer() {}
 		~VulkanStageBuffer() {}
-	
-		void Init(VmaAllocator Allocator, void* Data, uint32_t Size);
+
+		void Init(const VulkanStageBufferSpec& Spec);
 		void Destroy(VmaAllocator Allocator);
 		void Load(void* Data, uint32_t Size);
 
@@ -186,8 +165,43 @@ namespace Chilli
 		VmaAllocation _Allocation;
 		VkBuffer _Buffer;
 		VmaAllocationInfo _AllocatoinInfo;
-	}; 
+	};
 
+	struct VulkanGraphicsPipelineSpec
+	{
+		GraphicsPipelineSpec Spec;
+		VkDevice Device;
+		VkFormat SwapChainFormat;
+	};
+
+	class VulkanGraphicsPipeline : public GraphicsPipeline
+	{
+	public:
+		VulkanGraphicsPipeline(const VulkanGraphicsPipelineSpec& Spec);
+		~VulkanGraphicsPipeline() {}
+
+		void Destroy(VkDevice Device);
+		void Init(const VulkanGraphicsPipelineSpec& Spec);
+
+		virtual void Bind() override {}
+		virtual void LinkUniformBuffer(const std::shared_ptr<UniformBuffer>& UB) override {}
+		void MakeUniformWork(const std::vector<std::shared_ptr<UniformBuffer>>& UB, const std::shared_ptr<Texture>& Texs);
+
+		VkPipeline GetHandle() const { return _Pipeline; }
+		VkPipelineLayout GetLayout() { return _PipelineLayout; }
+		const std::vector<VkDescriptorSet>& GetSets() { return _Sets; }
+
+		void TestSPIRV(const char* Path);
+	private:
+		VkPipeline _Pipeline;
+		VkPipelineLayout _PipelineLayout;
+		VkDevice _Device;
+
+		std::vector<VkDescriptorSet> _Sets;
+		VkDescriptorSetLayout _Layout;
+
+		void _CreateLayout(VkDevice Device, std::vector< ShaderUnifromAttrib> UniformAttribs);
+	};
 
 	class VulkanResourceFactory : public ResourceFactory
 	{
@@ -209,7 +223,7 @@ namespace Chilli
 		virtual Ref<UniformBuffer> CreateUniformBuffer(const UniformBufferSpec& Spec) override;
 		virtual void DestroyUniformBuffer(Ref<UniformBuffer>& IB) override;
 
-		virtual Ref<Texture> CreateTexture(const TextureSpec& Spec) override;
+		virtual Ref<Texture> CreateTexture(TextureSpec& Spec) override;
 		virtual void DestroyTexture(Ref<Texture>& Tex) override;
 	private:
 		VulkanDevice* _Device;

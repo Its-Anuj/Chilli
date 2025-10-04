@@ -51,4 +51,25 @@ if(CMAKE_BUILD_TYPE MATCHES "Release")
 	target_compile_definitions(${CMAKE_PROJECT_NAME} PUBLIC CHILLI_ENGINE_DEBUG=false)
 endif()
 
+add_custom_command(
+    OUTPUT ${CMAKE_BINARY_DIR}/bin/vert.spv
+    COMMAND "C:/VulkanSDK/1.3.275.0/Bin/glslc.exe"
+            ${CMAKE_SOURCE_DIR}/Assets/Shaders/shader.vert
+            -o ${CMAKE_BINARY_DIR}/bin/vert.spv
+    DEPENDS ${CMAKE_SOURCE_DIR}/Assets/Shaders/shader.vert
+    COMMENT "Compiling vertex shader"
+)
 
+add_custom_command(
+    OUTPUT ${CMAKE_BINARY_DIR}/bin/frag.spv
+    COMMAND "C:/VulkanSDK/1.3.275.0/Bin/glslc.exe"
+            ${CMAKE_SOURCE_DIR}/Assets/Shaders/shader.frag
+            -o ${CMAKE_BINARY_DIR}/bin/frag.spv
+    DEPENDS ${CMAKE_SOURCE_DIR}/Assets/Shaders/shader.frag
+    COMMENT "Compiling fragment shader"
+)
+
+add_custom_target(Shaders ALL
+    DEPENDS ${CMAKE_BINARY_DIR}/bin/vert.spv
+    DEPENDS ${CMAKE_BINARY_DIR}/bin/frag.spv
+)

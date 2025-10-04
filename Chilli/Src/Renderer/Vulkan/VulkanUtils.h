@@ -1,12 +1,14 @@
 #pragma once
 
+#include "Shader.h"
+
 namespace Chilli
 {
-	enum class ShaderUniformTypes
-	{
-		UNIFORM,
-		SAMPLED_IMAGE
-	};
+	//enum class ShaderUniformTypes
+	//{
+	//	UNIFORM,
+	//	SAMPLED_IMAGE
+	//};
 
 	struct ShaderDescAttribs
 	{

@@ -88,13 +88,19 @@ namespace Chilli
 		VulkanIB->Destroy(VulkanUtils::GetAllocator());
 	}
 
-	Ref<Texture> VulkanResourceFactory::CreateTexture(const TextureSpec& Spec)
+	std::shared_ptr<Texture> VulkanResourceFactory::CreateTexture(TextureSpec& Spec)
 	{
-		return Ref<Texture>();
+		VulkanImageSpec VulkanSpec{};
+		VulkanSpec.Spec = Spec;
+
+		return std::make_shared<VulkanTexture>(VulkanUtils::GetAllocator(), _Device->GetHandle(), VulkanSpec,
+			_Device->GetPhysicalDevice()->Info.properties.limits.maxSamplerAnisotropy);
 	}
 
 	void VulkanResourceFactory::DestroyTexture(Ref<Texture>& Tex)
 	{
+		auto VulkanIB = std::static_pointer_cast<VulkanTexture>(Tex);
+		VulkanIB->Destroy(VulkanUtils::GetAllocator(), this->_Device->GetHandle());
 	}
 
 	VulkanVertexBuffer::VulkanVertexBuffer(const VulkanVertexBufferSpec& Spec)
@@ -424,7 +430,7 @@ namespace Chilli
 		renderingInfo.pColorAttachmentFormats = &Spec.SwapChainFormat;
 
 		// Create pipeline layout
-		_CreateLayout(Spec.Device);
+		_CreateLayout(Spec.Device, Spec.Spec.UniformAttribs);;
 
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -458,31 +464,61 @@ namespace Chilli
 		// Cleanup shader modules
 		vkDestroyShaderModule(Spec.Device, vertShaderModule, nullptr);
 		vkDestroyShaderModule(Spec.Device, fragShaderModule, nullptr);
-	}
-
-	void VulkanGraphicsPipeline::LinkUniformBuffer(std::shared_ptr<UniformBuffer>& UB)
-	{
-		auto VulkanUB = std::static_pointer_cast<VulkanUniformBuffer>(UB);
 
 		std::vector<VkDescriptorSetLayout> layouts(1, _Layout);
 		VulkanUtils::CreateDescSets(_Sets, 1, layouts);
 
-		// Update descriptor sets
-		VkDescriptorBufferInfo bufferInfo{};
-		bufferInfo.buffer = VulkanUB->GetHandle();
-		bufferInfo.offset = 0;
-		bufferInfo.range = VulkanUB->GetSize();
+		MakeUniformWork(Spec.Spec.UBs, Spec.Spec.Texs);
+	}
 
-		VkWriteDescriptorSet descriptorWrite{};
-		descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrite.dstSet = _Sets[0];
-		descriptorWrite.dstBinding = 0;
-		descriptorWrite.dstArrayElement = 0;
-		descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		descriptorWrite.descriptorCount = 1;
-		descriptorWrite.pBufferInfo = &bufferInfo;
+	void VulkanGraphicsPipeline::MakeUniformWork(const std::vector<std::shared_ptr<UniformBuffer>>& UB, const std::shared_ptr<Texture>& Texs)
+	{
+		std::vector< VkDescriptorBufferInfo> BufferInfos;
+		BufferInfos.reserve(UB.size());
 
-		vkUpdateDescriptorSets(_Device, 1, &descriptorWrite, 0, nullptr);
+		for (int i = 0; i < UB.size(); i++)
+		{
+			auto VulkanIB = std::static_pointer_cast<VulkanUniformBuffer>(UB[i]);
+			VkDescriptorBufferInfo bufferInfo{};
+			bufferInfo.buffer = VulkanIB->GetHandle();
+			bufferInfo.offset = 0;
+			bufferInfo.range = VulkanIB->GetSize();
+			BufferInfos.push_back(bufferInfo);
+		}
+
+		std::vector< VkDescriptorImageInfo > ImageInfos;
+		ImageInfos.reserve(1);
+
+		auto VulkanTex = std::static_pointer_cast<VulkanTexture>(Texs);
+		VkDescriptorImageInfo imageInfo{};
+		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		imageInfo.imageView = VulkanTex->GetHandle();  // VkImageView
+		imageInfo.sampler = VulkanTex->GetSampler();    // VkSampler
+		ImageInfos.push_back(imageInfo);
+
+		std::vector< VkWriteDescriptorSet> Sets;
+
+		VkWriteDescriptorSet BufferDescriptorWrite{};
+		BufferDescriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		BufferDescriptorWrite.dstSet = _Sets[0];
+		BufferDescriptorWrite.dstBinding = 0;
+		BufferDescriptorWrite.dstArrayElement = 0;
+		BufferDescriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		BufferDescriptorWrite.descriptorCount = BufferInfos.size();
+		BufferDescriptorWrite.pBufferInfo = BufferInfos.data();
+		Sets.push_back(BufferDescriptorWrite);
+
+		VkWriteDescriptorSet ImageDescriptorWrite{};
+		ImageDescriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		ImageDescriptorWrite.dstSet = _Sets[0];
+		ImageDescriptorWrite.dstBinding = 1;
+		ImageDescriptorWrite.dstArrayElement = 0;
+		ImageDescriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		ImageDescriptorWrite.descriptorCount = ImageInfos.size();
+		ImageDescriptorWrite.pImageInfo = ImageInfos.data();
+		Sets.push_back(ImageDescriptorWrite);
+
+		vkUpdateDescriptorSets(_Device, static_cast<uint32_t>(Sets.size()), Sets.data(), 0, nullptr);
 	}
 
 	void VulkanGraphicsPipeline::TestSPIRV(const char* Path)
@@ -490,19 +526,46 @@ namespace Chilli
 
 	}
 
-	void VulkanGraphicsPipeline::_CreateLayout(VkDevice Device)
+	VkDescriptorType UniformTypeToVk(ShaderUniformTypes Type)
 	{
-		VkDescriptorSetLayoutBinding uboLayoutBinding{};
-		uboLayoutBinding.binding = 0;
-		uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		uboLayoutBinding.descriptorCount = 1;
-		uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-		uboLayoutBinding.pImmutableSamplers = nullptr; // Optional
+		switch (Type)
+		{
+		case ShaderUniformTypes::UNIFORM:
+			return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		};
+	}
+
+	VkShaderStageFlags ShaderStageTypeToVk(ShaderStageType Type)
+	{
+		switch (Type)
+		{
+		case ShaderStageType::VERTEX:
+			return VK_SHADER_STAGE_VERTEX_BIT;
+		case ShaderStageType::FRAGMENT:
+			return VK_SHADER_STAGE_FRAGMENT_BIT;
+		};
+	}
+
+	void VulkanGraphicsPipeline::_CreateLayout(VkDevice Device, std::vector< ShaderUnifromAttrib> UniformAttribs)
+	{
+		std::vector< VkDescriptorSetLayoutBinding> Bindings;
+		Bindings.reserve(UniformAttribs.size());
+
+		for (auto& Attrib : UniformAttribs)
+		{
+			VkDescriptorSetLayoutBinding Binding{};
+			Binding.binding = Attrib.Binding;
+			Binding.descriptorType = UniformTypeToVk(Attrib.Type);
+			Binding.descriptorCount = 1;
+			Binding.stageFlags = ShaderStageTypeToVk(Attrib.StageType);
+			Binding.pImmutableSamplers = nullptr; // Optional
+			Bindings.push_back(Binding);
+		}
 
 		VkDescriptorSetLayoutCreateInfo layoutInfo{};
 		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		layoutInfo.bindingCount = 1;
-		layoutInfo.pBindings = &uboLayoutBinding;
+		layoutInfo.bindingCount = Bindings.size();
+		layoutInfo.pBindings = Bindings.data();
 
 		if (vkCreateDescriptorSetLayout(Device, &layoutInfo, nullptr, &_Layout) != VK_SUCCESS)
 			throw std::runtime_error("failed to create descriptor set layout!");
@@ -534,11 +597,7 @@ namespace Chilli
 			VMA_ALLOCATION_CREATE_MAPPED_BIT;
 		allocInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
 			VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-		// Use staging buffer
-		allocInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU; // For frequent updates
-		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-		allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-
+		
 		auto Allocator = Spec.Allocator;
 		vmaCreateBuffer(Allocator, &bufferInfo, &allocInfo, &_Buffer, &_Allocation, &_AllocatoinInfo);
 	}
@@ -561,8 +620,14 @@ namespace Chilli
 		VkSampleCountFlagBits Samples;
 	};
 
-	void CreateVulkanImage(VmaAllocator Allocator, VkImage& image, VmaAllocation& Allocation
-		, const CreateVulkanImageSpec& Spec, VmaAllocationInfo& AllocInfo)
+	struct CreateVulkanImageReturn
+	{
+		VkImage Image;
+		VmaAllocation Allocation;
+		VmaAllocationInfo AllocInfo;
+	};
+
+	CreateVulkanImageReturn CreateVulkanImage(VmaAllocator Allocator, const CreateVulkanImageSpec& Spec)
 	{
 		VkImageCreateInfo imageInfo{};
 		imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -583,8 +648,11 @@ namespace Chilli
 		VmaAllocationCreateInfo imageAllocInfo{};
 		imageAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
 		imageAllocInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+		
+		CreateVulkanImageReturn ReturnInfo{};
 
-		vmaCreateImage(Allocator, &imageInfo, &imageAllocInfo, &image, &Allocation, &AllocInfo);
+		vmaCreateImage(Allocator, &imageInfo, &imageAllocInfo, &ReturnInfo.Image, &ReturnInfo.Allocation, &ReturnInfo.AllocInfo);
+		return ReturnInfo;
 	}
 
 	void _TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage Image, VkImageLayout OldLayout, VkImageLayout NewLayout)
@@ -659,7 +727,7 @@ namespace Chilli
 		switch (Type)
 		{
 		case ImageType::IMAGE_TYPE_1D:
-			return VK_IMAGE_VIEW_TYPE_1D ;
+			return VK_IMAGE_VIEW_TYPE_1D;
 		case ImageType::IMAGE_TYPE_2D:
 			return VK_IMAGE_VIEW_TYPE_2D;
 		case ImageType::IMAGE_TYPE_3D:
@@ -687,9 +755,10 @@ namespace Chilli
 		}
 	}
 
-	void VulkanImage::Init(VmaAllocator Allocator, const VulkanImageSpec& Spec)
+	void VulkanImage::Init(VmaAllocator Allocator, VulkanImageSpec& Spec)
 	{
-		auto ImgSpec = Spec.Spec;
+		_Spec = Spec;
+		auto& ImgSpec = Spec.Spec;
 		CreateVulkanImageSpec Info{};
 
 		Info.Width = ImgSpec.Resolution.Width;
@@ -702,7 +771,10 @@ namespace Chilli
 		Info.SharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		Info.Usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
-		CreateVulkanImage(Allocator, _Image, _Allocation, Info, _AllocationInfo);
+		auto ReturnInfo = CreateVulkanImage(Allocator, Info);
+		_Image = ReturnInfo.Image;
+		_Allocation = ReturnInfo.Allocation;
+		_AllocationInfo = ReturnInfo.AllocInfo;
 
 		if (Spec.Spec.ImageData != nullptr)
 			LoadImageData(Spec.Spec.ImageData);
@@ -713,10 +785,16 @@ namespace Chilli
 		vmaDestroyImage(Allocator, _Image, _Allocation);
 	}
 
-	void VulkanImage::LoadImageData(void* ImageData)
+	void VulkanImage::LoadImageData(const void* ImageData)
 	{
+		VulkanStageBufferSpec StageBufferSpec{};
+		StageBufferSpec.Allocator = VulkanUtils::GetAllocator();
+		StageBufferSpec.Data = ImageData;
+		VkDeviceSize imageSize = _Spec.Spec.Resolution.Width * _Spec.Spec.Resolution.Height * 4;
+		StageBufferSpec.Size = imageSize;
+
 		VulkanStageBuffer StageBuffer;
-		StageBuffer.Init(VulkanUtils::GetAllocator(), ImageData, _AllocationInfo.size);
+		StageBuffer.Init(StageBufferSpec);
 
 		// Make so Image Data in buffer can be copied to Image
 		VkCommandBuffer SingleTime;
@@ -761,11 +839,11 @@ namespace Chilli
 		StageBuffer.Destroy(VulkanUtils::GetAllocator());
 	}
 
-	void VulkanStageBuffer::Init(VmaAllocator Allocator, void* Data, uint32_t Size)
+	void VulkanStageBuffer::Init(const VulkanStageBufferSpec& Spec)
 	{
 		VkBufferCreateInfo bufferInfo = {};
 		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-		bufferInfo.size = Size;
+		bufferInfo.size = Spec.Size;
 		bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
@@ -773,13 +851,13 @@ namespace Chilli
 		allocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
 		allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 
-		vmaCreateBuffer(Allocator, &bufferInfo, &allocInfo, &_Buffer, &_Allocation, &_AllocatoinInfo);
+		vmaCreateBuffer(Spec.Allocator, &bufferInfo, &allocInfo, &_Buffer, &_Allocation, &_AllocatoinInfo);
 
 		// Copy pixel data to staging buffer
 		void* data;
-		vmaMapMemory(Allocator, _Allocation, &data);
-		memcpy(data, Data, static_cast<size_t>(Size));
-		vmaUnmapMemory(Allocator, _Allocation);
+		vmaMapMemory(Spec.Allocator, _Allocation, &data);
+		memcpy(data, Spec.Data, static_cast<size_t>(Spec.Size));
+		vmaUnmapMemory(Spec.Allocator, _Allocation);
 	}
 
 	void VulkanStageBuffer::Destroy(VmaAllocator Allocator)
@@ -791,25 +869,22 @@ namespace Chilli
 	{
 	}
 
-	void VulkanTexture::Init(VmaAllocator Allocator, VkDevice Device, const VulkanImageSpec& Spec, float MaxAnisoTropy)
+	void VulkanTexture::Init(VmaAllocator Allocator, VkDevice Device, VulkanImageSpec& Spec, float MaxAnisoTropy)
 	{
-		auto TexSpec = Spec;
 		// Load image data using stb_image
 		int texWidth, texHeight, texChannels;
-		stbi_uc* pixels = stbi_load(TexSpec.Spec.FilePath, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+		stbi_uc* pixels = stbi_load(Spec.Spec.FilePath, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
 
 		if (!pixels)
 			throw std::runtime_error("failed to load texture image!");
 
-		TexSpec.Spec.Format = ImageFormat::RGBA8;
-		TexSpec.Spec.Resolution.Width = texWidth;
-		TexSpec.Spec.Resolution.Height = texHeight;
+		Spec.Spec.Resolution.Width = texWidth;
+		Spec.Spec.Resolution.Height = texHeight;
 
-		VkDeviceSize imageSize = texWidth * texHeight * 4;
-
+		_Image = std::make_shared<VulkanImage>();
 		_Image->Init(Allocator, Spec);
-		_Image->LoadImageData(pixels);
-		
+		_Image->LoadImageData((const void*)pixels);
+
 		stbi_image_free(pixels);
 
 		_CreateImageView(Device, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -828,8 +903,8 @@ namespace Chilli
 		auto BaseImage = std::static_pointer_cast<Image>(_Image);
 		return BaseImage;
 	}
-	
-	void VulkanTexture::_CreateImageView(VkDevice Device, VkImageAspectFlags aspectFlags)	
+
+	void VulkanTexture::_CreateImageView(VkDevice Device, VkImageAspectFlags aspectFlags)
 	{
 		VkImageViewCreateInfo info{};
 		info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
