@@ -33,6 +33,113 @@ Future module to transform Chilli from a rendering engine into a full game engin
 - [spdlog](https://github.com/gabime/spdlog) (Logging)
 - [stbi](https://github.com/nothings/stb.git) (Image Loading)
 
+## Features 
+
+## Attachments(NEW)
+
+### 1. Color Attachment
+
+On ColorAttachment.UseSwapChainTexture the RenderPass allows the attachment to render to the SwapChain Image
+
+````````
+		Chilli::ColorAttachment ColorAttachment{};
+		ColorAttachment.UseSwapChainTexture = true;
+		ColorAttachment.ClearColor = { 0.4f, 0.8f, 0.4f, 1.0f };
+````````
+
+### 2. Depth Attachment
+
+We have to provide a pre made Depth Texture
+
+````````
+		Chilli::DepthAttachment DepthAttachment{};
+		DepthAttachment.DepthTexture = DepthTexture;
+		DepthAttachment.Planes.Far = 1.0f;
+		DepthAttachment.Planes.Near = 0;
+		DepthAttachment.UseSwapChainTexture = false;
+````````
+
+### 3. RenderPass(NEW)
+
+Based on vulkan dynamic rendering info also allowing multiple color attachments and only a single depth attachment
+
+````````
+		Chilli::BeginRenderPassInfo NormalPassInfo;
+		NormalPassInfo.ColorAttachments = &ColorAttachment;
+		NormalPassInfo.ColorAttachmentCount = 1;
+		NormalPassInfo.DepthAttachment = DepthAttachment;
+````````
+
+### 4. Texture(NEW)
+
+## a. Image Texture
+
+````````
+		Chilli::TextureSpec Spec{};
+		Spec.FilePath = "A.png";
+		Spec.Format = Chilli::ImageFormat::RGBA8;
+		Spec.Tiling = Chilli::ImageTiling::IMAGE_TILING_OPTIONAL;
+		Spec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
+		Spec.Aspect = Chilli::ImageAspect::COLOR;
+
+		Texture = Chilli::Renderer::GetResourceFactory()->CreateTexture(Spec);
+````````
+
+## b. Depth Texture
+
+````````
+		Chilli::TextureSpec Spec{};
+		Spec.Resolution.Width = Chilli::Renderer::GetFrameBufferSize().x;
+		Spec.Resolution.Height = Chilli::Renderer::GetFrameBufferSize().y;
+		Spec.Format = Chilli::ImageFormat::D32_FLOAT;
+		Spec.Tiling = Chilli::ImageTiling::IMAGE_TILING_OPTIONAL;
+		Spec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
+		Spec.ImageData = nullptr;
+		Spec.FilePath = nullptr;
+		Spec.Aspect = Chilli::ImageAspect::DEPTH;
+
+		DepthTexture = Chilli::Renderer::GetResourceFactory()->CreateTexture(Spec);
+````````
+
+## c. Checkerboard Texture
+
+````````
+		Chilli::TextureSpec Spec{};
+
+		Spec.Format = Chilli::ImageFormat::RGBA8;
+		Spec.Tiling = Chilli::ImageTiling::IMAGE_TILING_OPTIONAL;
+		Spec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
+		Spec.Resolution.Width = 800;
+		Spec.Resolution.Height = 800;
+		Spec.FilePath = nullptr;
+		Spec.Aspect = Chilli::ImageAspect::COLOR;
+
+		uint32_t* ImageData = new uint32_t[800 * 800];
+		for (int y = 0; y < 800; y++)
+		{
+			for (int x = 0; x < 800; x++)
+			{
+				if ((x / 50 + y / 50) % 2 == 0) {
+					ImageData[y * 800 + x] = 0xFFFF0000;
+				}
+				else {
+					ImageData[y * 800 + x] = 0xFF0000FF;
+				}
+			}
+		}
+
+		Spec.ImageData = ImageData;
+
+		WhiteTexture = Chilli::Renderer::GetResourceFactory()->CreateTexture(Spec);
+		delete[] ImageData;
+````````
+
+### 5. New Features in New Renderer
+- Better Api 
+- Better Abstraction
+- Better Resource Factory(Re think)
+- Follow end level standard for the fundamentals of the Vulkan Renderer
+
 ## Example Code
 
 ### 1. Resource Creation: Vulkan Buffer
@@ -81,7 +188,7 @@ Future module to transform Chilli from a rendering engine into a full game engin
 _Add screenshots of your application here!_
 
 ![Screenshot](image.png)
-
+![New CheckerBoard Texture](image-1.png)
 ---
 
 For more details, see the documentation and source code.

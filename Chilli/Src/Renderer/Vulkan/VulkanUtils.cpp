@@ -172,8 +172,7 @@ namespace Chilli
 		submit.commandBufferCount = 1;
 		submit.pCommandBuffers = &SingleTimeBuffer;
 		
-		VkFence fence;
-		SubmitQueue(submit, Family, fence);
+		SubmitQueue(submit, Family);
 
 		vkQueueWaitIdle(Get()._Spec.Device->GetQueue(Family));
 
@@ -188,6 +187,11 @@ namespace Chilli
 	VkResult VulkanUtils::SubmitQueue(const VkSubmitInfo& SubmitInfo, QueueFamilies Family, VkFence& Fence)
 	{
 		return vkQueueSubmit(Get()._Spec.Device->GetQueue(Family), 1, &SubmitInfo, Fence);
+	}
+
+	VkResult VulkanUtils::SubmitQueue(const VkSubmitInfo& SubmitInfo, QueueFamilies Family)
+	{
+		return vkQueueSubmit(Get()._Spec.Device->GetQueue(Family), 1, &SubmitInfo, VK_NULL_HANDLE);
 	}
 
 	void VulkanUtils::CreateAllocator(VkInstance Instance, VkPhysicalDevice PhysicalDevice, VkDevice Device)

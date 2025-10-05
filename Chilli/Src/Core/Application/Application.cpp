@@ -24,6 +24,8 @@ namespace Chilli
 			RendererSpec RenderSpec{};
 			RenderSpec.RenderWindow = &_Window;
 			RenderSpec.EnableValidation = true;
+			RenderSpec.InFrameFlightCount = 2;
+			RenderSpec.VSync = true;
 
 			Renderer::Init(RenderAPITypes::VULKAN1_3, RenderSpec);
 		}
@@ -59,6 +61,11 @@ namespace Chilli
 
 	void Application::OnEvent(Event& e)
 	{
+		if (e.GetType() == FrameBufferResizeEvent::GetStaticType())
+		{
+			auto Fb = static_cast<FrameBufferResizeEvent&>(e);
+			Renderer::FrameBufferReSized(Fb.GetX(), Fb.GetY());
+		}
 		if (e.GetType() == WindowCloseEvent::GetStaticType())
 		{
 			CH_CORE_INFO("Window Close!");

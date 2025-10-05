@@ -83,6 +83,7 @@ namespace Chilli
 		static void BeginSingleTimeCommands(VkCommandBuffer& SingleTimeBuffer, QueueFamilies Family);
 		static void EndSingleTimeCommands(VkCommandBuffer& SingleTimeBuffer, QueueFamilies Family);
 		static VkResult SubmitQueue(const VkSubmitInfo& SubmitInfo, QueueFamilies Family, VkFence& Fence);
+		static VkResult SubmitQueue(const VkSubmitInfo& SubmitInfo, QueueFamilies Family);
 
 		static void CreateAllocator(VkInstance Instance, VkPhysicalDevice PhysicalDevice, VkDevice Device);
 		static void DestroyAllocator();

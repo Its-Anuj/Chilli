@@ -60,22 +60,22 @@ namespace Chilli
 		VULKAN_PRINTLN("SwapChain deleted!");
 	}
 
-	void VulkanSwapChainKHR::Init(VulkanDevice& device, VkSurfaceKHR SurfaceKHR, int Width, int Height)
+	void VulkanSwapChainKHR::Init(VulkanDevice& device, VkSurfaceKHR SurfaceKHR, int Width, int Height, bool VSync)
 	{
-		_CreateSwapChainKHR(device, SurfaceKHR, Width, Height);
+		_CreateSwapChainKHR(device, SurfaceKHR, Width, Height, VSync);
 		_CreateSwapChainImageViews(device);
 	}
 
-	void VulkanSwapChainKHR::Recreate(VulkanDevice& device, VkSurfaceKHR SurfaceKHR, int Width, int Height)
+	void VulkanSwapChainKHR::Recreate(VulkanDevice& device, VkSurfaceKHR SurfaceKHR, int Width, int Height, bool VSync)
 	{
 		Destroy(device);
-		Init(device, SurfaceKHR, Width, Height);
+		Init(device, SurfaceKHR, Width, Height, VSync);
 	}
 
-	void VulkanSwapChainKHR::_CreateSwapChainKHR(VulkanDevice& device, VkSurfaceKHR SurfaceKHR, int Width, int Height)
+	void VulkanSwapChainKHR::_CreateSwapChainKHR(VulkanDevice& device, VkSurfaceKHR SurfaceKHR, int Width, int Height, bool VSync)
 	{
 		auto& deviceInfo = device.GetPhysicalDevice()->Info;
-		SwapChainSupportDetails& support = deviceInfo.SwapChainDetails;
+		SwapChainSupportDetails support = QuerySwapChainSupport(device.GetPhysicalDevice()->PhysicalDevice, SurfaceKHR);
 
 		// Choose surface format
 		VkSurfaceFormatKHR surfaceFormat = ChooseSwapSurfaceFormat(support.formats);
@@ -118,10 +118,13 @@ namespace Chilli
 
 		createInfo.preTransform = support.capabilities.currentTransform;
 		createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-		//createInfo.presentMode = presentMode;
-		createInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
 		createInfo.clipped = VK_TRUE;
 		createInfo.oldSwapchain = VK_NULL_HANDLE;
+
+		//if (VSync)
+		createInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+		//else
+			//createInfo.presentMode = presentMode;
 
 		VULKAN_SUCCESS_ASSERT(vkCreateSwapchainKHR(device.GetHandle(), &createInfo, nullptr, &_SwapChain), "SwapChain createion Failed!");
 		VULKAN_PRINTLN("SwapChain created!");

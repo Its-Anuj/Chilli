@@ -135,6 +135,8 @@ namespace Chilli
         features12.pNext = &features13; // chain 1.3 features after 1.2
 
         VkPhysicalDeviceFeatures features{};
+        features.samplerAnisotropy = VK_TRUE;
+
         createInfo.pEnabledFeatures = &features;
 
         createInfo.enabledLayerCount = 0;

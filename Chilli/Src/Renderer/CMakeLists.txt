@@ -5,6 +5,7 @@ include_directories("Src/Core/")
 include_directories("Src/Renderer/")
 include_directories(${Vulkan_INCLUDE_DIR})
 include_directories("../../../Libs/VMA/include/")
+include_directories("../../../Libs/GLFW/include/")
 
 add_library(ChilliVulkan STATIC ${CHILLI_VULKAN_SOURCES})
 

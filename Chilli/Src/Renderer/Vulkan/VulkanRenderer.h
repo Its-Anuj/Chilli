@@ -28,6 +28,8 @@ namespace Chilli
 		std::vector<const char*> InstanceLayers;
 
 		uint32_t InFrameFlightCount = 0;
+		bool VSync;
+		void* GLFWWINDOW;
 	};
 
 	struct VulkanVersion
@@ -54,13 +56,17 @@ namespace Chilli
 		VulkanDevice Device;
 
 		// Commands
-		VkCommandBuffer GraphicsCommandBuffer;
+		std::vector<VkCommandBuffer >GraphicsCommandBuffers;
 
-		VkSemaphore ImageAvailableSemaphores;
-		VkSemaphore RenderFinishedSemaphores;
-		VkFence InFlightFences;
+		std::vector<VkSemaphore >ImageAvailableSemaphores; 
+		std::vector<VkSemaphore >RenderFinishedSemaphores; 
+		std::vector<VkFence >InFlightFences;	
 
 		uint32_t CurrentImageIndex;
+		uint32_t CurrentFrameIndex = 0;
+		uint32_t FrameInFlightCount = 0;
+		bool VSync;
+		bool FrameBufferReSized;
 	};
 
 	struct VulkanResourceFactory;
@@ -84,8 +90,8 @@ namespace Chilli
 
 
 		// Rendering related
-		virtual void BeginFrame() override;
-		virtual void BeginRenderPass() override; 
+		virtual bool BeginFrame() override;
+		virtual bool BeginRenderPass(const BeginRenderPassInfo& Info) override;
 		virtual void Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline
 			, const std::shared_ptr<VertexBuffer>& VB, const std::shared_ptr<IndexBuffer>& IB) override;
 		virtual void EndRenderPass() override;
@@ -93,8 +99,12 @@ namespace Chilli
 		virtual void Present() override;
 		virtual void EndFrame() override;	
 		virtual void FinishRendering() override;
+		virtual void FrameBufferReSized(int Width, int Height) override;
 
 		virtual std::shared_ptr<ResourceFactory> GetResourceFactory() override;
+
+		virtual float GetFrameBufferWidth() override { return _Data.FrameBufferSize.x; }
+		virtual float GetFrameBufferHeight() override{ return _Data.FrameBufferSize.y; }
 	private:
 		void _CreateInstance();
 		void _CreateDebugMessenger();
@@ -108,6 +118,7 @@ namespace Chilli
 
 		// SwapChain
 		void _CreateSwapChainKHR();
+		void _ReCreateSwapChainKHR();
 
 		void _CreateResourceFactory();
 

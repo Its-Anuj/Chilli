@@ -4,9 +4,15 @@
 
 namespace Chilli
 {
+	enum class ImageAspect
+	{
+		DEPTH,COLOR
+	};
+
 	struct TextureSpec : public ImageSpec
 	{
 		const char* FilePath;
+		ImageAspect Aspect;
 	};
 
 	class Texture

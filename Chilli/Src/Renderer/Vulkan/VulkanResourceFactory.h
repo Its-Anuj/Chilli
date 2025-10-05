@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ResourceFactory.h"
+#include "VulkanTexture.h"
 
 namespace Chilli
 {
@@ -79,7 +80,10 @@ namespace Chilli
 		void Init(const VulkanUniformBufferrSpec& Spec);
 
 		VkBuffer GetHandle() const { return _Buffer; }
+		// Returns ALlocation Size  which is in power of 16 but our may not alwys be
 		virtual uint32_t GetSize() const  override { return _AllocatoinInfo.size; }
+		// return actual size of the object
+		uint32_t GetBufferSize() const  { return _Size; }
 		virtual void StreamData(void* Data, size_t Size) override;
 
 		// uint64_t avoids void
@@ -90,57 +94,6 @@ namespace Chilli
 		VmaAllocation _Allocation;
 		VmaAllocationInfo _AllocatoinInfo;
 		size_t _Size = 0;
-	};
-
-	struct VulkanImageSpec
-	{
-		TextureSpec Spec;
-	};
-
-	class VulkanImage : public Image
-	{
-	public:
-		VulkanImage(VmaAllocator Allocator, VulkanImageSpec& Spec) { Init(Allocator, Spec); }
-		VulkanImage() {  }
-		~VulkanImage() {}
-
-		void Init(VmaAllocator Allocator, VulkanImageSpec& Spec);
-		void Destroy(VmaAllocator Allocator);
-
-		virtual const ImageSpec& GetSpec() const override { return _Spec.Spec; }
-		virtual void LoadImageData(const void* ImageData) override;
-
-		VkImage GetHandle() const { return _Image; }
-	private:
-		VulkanImageSpec _Spec;
-		VkImage _Image = VK_NULL_HANDLE;
-		VmaAllocation _Allocation = VK_NULL_HANDLE;
-		VmaAllocationInfo _AllocationInfo{};
-	};
-
-	class VulkanTexture : public Texture
-	{
-	public:
-		VulkanTexture(VmaAllocator Allocator, VkDevice Device, VulkanImageSpec& Spec, float MaxAnisoTropy) {
-			Init(Allocator, Device, Spec, MaxAnisoTropy);
-		}
-		~VulkanTexture() {}
-
-		void Init(VmaAllocator Allocator, VkDevice Device, VulkanImageSpec& Spec, float MaxAnisoTropy);
-		void Destroy(VmaAllocator Allocator, VkDevice Device);
-
-		virtual const ImageSpec& GetSpec() const override { return _Image->GetSpec(); }
-		virtual Ref<Image>& GetImage() override;
-
-		VkImageView GetHandle() const { return _ImageView; }
-		VkSampler GetSampler() const { return _Sampler; }
-	private:
-		void _CreateImageView(VkDevice Device, VkImageAspectFlags aspectFlags);
-		void _CreateSampler(VkDevice Device, float MaxAnisoTropy);
-	private:
-		std::shared_ptr<VulkanImage> _Image;
-		VkImageView _ImageView;
-		VkSampler _Sampler;
 	};
 
 	struct VulkanStageBufferSpec

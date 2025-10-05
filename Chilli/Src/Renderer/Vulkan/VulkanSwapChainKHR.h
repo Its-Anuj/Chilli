@@ -9,8 +9,8 @@ namespace Chilli
         ~VulkanSwapChainKHR() {}
 
         void Destroy(VulkanDevice& device);
-        void Init(VulkanDevice& device, VkSurfaceKHR SurfaceKHR, int Width, int Height);
-        void Recreate(VulkanDevice& device, VkSurfaceKHR SurfaceKHR, int Width, int Height);
+        void Init(VulkanDevice& device, VkSurfaceKHR SurfaceKHR, int Width, int Height, bool VSync);
+        void Recreate(VulkanDevice& device, VkSurfaceKHR SurfaceKHR, int Width, int Height, bool VSync);
 
         VkFormat GetFormat() const { return _Format; }
         VkExtent2D GetExtent() const { return _Extent; }
@@ -20,7 +20,7 @@ namespace Chilli
         VkSwapchainKHR GetHandle() { return _SwapChain; }
 
     private:
-        void _CreateSwapChainKHR(VulkanDevice& device, VkSurfaceKHR SurfaceKHR, int Width, int Height);
+        void _CreateSwapChainKHR(VulkanDevice& device, VkSurfaceKHR SurfaceKHR, int Width, int Height, bool VSync);
         void _CreateSwapChainImageViews(VulkanDevice& device);
 
     private:
@@ -31,4 +31,6 @@ namespace Chilli
         std::vector<VkImage> _Images;
         std::vector<VkImageView> _ImageViews;
     };
+
+    SwapChainSupportDetails QuerySwapChainSupport(VkPhysicalDevice device, VkSurfaceKHR surface);
 } // namespace VEngine

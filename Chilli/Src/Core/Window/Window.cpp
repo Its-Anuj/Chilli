@@ -25,7 +25,7 @@ void Chilli_WindowCloseCallBack(GLFWwindow* window)
 	Chilli::WindowData* Data = (Chilli::WindowData*)glfwGetWindowUserPointer(window);
 
 	Chilli::WindowCloseEvent e;
-	Data->EventCallback(e);
+	//Data->EventCallback(e);
 }
 
 void Chilli_WindowSizeCallBack(GLFWwindow* window, int width, int height)
@@ -145,11 +145,20 @@ namespace Chilli
 		_Data.Dimensions = { Spec.Dimensions.x,Spec.Dimensions.y };
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+
 		_Window = glfwCreateWindow(Spec.Dimensions.x, Spec.Dimensions.y, Spec.Title, NULL, NULL);
-		glfwMakeContextCurrent(_Window);
 
 		CH_CORE_INFO("Window Created: {0} of {1}x{2}", Spec.Title, Spec.Dimensions.x, Spec.Dimensions.y);
 
+		if (glfwGetWindowAttrib(_Window, GLFW_MAXIMIZED)) {
+			std::cout << "WINDOW IS MAXIMIZED - THIS LOCKS SURFACE SIZE!" << std::endl;
+		}
+
+		// Check if window is fullscreen  
+		if (glfwGetWindowMonitor(_Window)) {
+			std::cout << "WINDOW IS FULLSCREEN - THIS LOCKS SURFACE SIZE!" << std::endl;
+		}
+		
 		glfwSetWindowUserPointer(_Window, &_Data);
 
 		// Callbacks
@@ -186,7 +195,7 @@ namespace Chilli
 	{
 		return glfwWindowShouldClose(_Window);
 	}
-	
+
 	void* Chilli::Window::GetWin32Surface() const
 	{
 		return glfwGetWin32Window(_Window);

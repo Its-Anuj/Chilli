@@ -4,7 +4,8 @@ namespace Chilli
 {
 	enum class ImageFormat
 	{
-		RGBA8
+		RGBA8,
+		D32_FLOAT
 	};
 
 	enum class ImageLayout

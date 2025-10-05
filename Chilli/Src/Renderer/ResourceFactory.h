@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Shader.h"
+#include "RenderAttachments.h"
 
 namespace Chilli
 {

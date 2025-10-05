@@ -1,3 +1,4 @@
+#include "Renderer.h"
 #include "Ch_PCH.h"
 #include "Window/Window.h"
 #include "Renderer.h"
@@ -19,6 +20,9 @@ namespace Chilli
 			Spec.FrameBufferSize.x = RenderSpec.RenderWindow->GetFrameBufferSize().x;
 			Spec.FrameBufferSize.y = RenderSpec.RenderWindow->GetFrameBufferSize().y;
 			Spec.Win32Surface = RenderSpec.RenderWindow->GetWin32Surface();
+			Spec.InFrameFlightCount = RenderSpec.InFrameFlightCount;
+			Spec.VSync = RenderSpec.VSync;
+			Spec.GLFWWINDOW = RenderSpec.RenderWindow->GetRawHandle();
 
 			Get()._Api->Init(&Spec);
 		}
@@ -35,14 +39,14 @@ namespace Chilli
 		return Get()._Api->GetResourceFactory();
 	}
 	
-	void Renderer::BeginFrame()
+	bool Renderer::BeginFrame()
 	{
-		Get()._Api->BeginFrame();
+		return Get()._Api->BeginFrame();
 	}
 
-	void Renderer::BeginRenderPass()
+	bool Renderer::BeginRenderPass(const BeginRenderPassInfo& Info)
 	{
-		Get()._Api->BeginRenderPass();
+		return Get()._Api->BeginRenderPass(Info);
 	}
 
 	void Renderer::Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline, const std::shared_ptr<VertexBuffer>& VB
@@ -71,8 +75,18 @@ namespace Chilli
 		Get()._Api->EndFrame();
 	}
 
-	void Chilli::Renderer::FinishRendering()
+	void Renderer::FinishRendering()
 	{
 		Get()._Api->FinishRendering();
+	}
+
+	void Renderer::FrameBufferReSized(int Width, int Height)
+	{
+		Get()._Api->FrameBufferReSized(Width, Height);
+	}
+
+	Vec2 Chilli::Renderer::GetFrameBufferSize()
+	{
+		return Vec2(Get()._Api->GetFrameBufferWidth(), Get()._Api->GetFrameBufferHeight());
 	}
 }
