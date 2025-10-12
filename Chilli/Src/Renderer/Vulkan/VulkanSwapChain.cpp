@@ -5,7 +5,7 @@
 #include "VulkanDevice.h"
 
 #include "VulkanRenderer.h"
-#include "VulkanSwapChainKHR.h"
+#include "VulkanSwapChain.h"
 #include <cstdint>
 #include <limits>
 #include <algorithm>

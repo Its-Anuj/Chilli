@@ -1,29 +1,30 @@
 #pragma once
 
 #include "Shader.h"
+#include "VulkanDevice.h"
 
 namespace Chilli
 {
-	//enum class ShaderUniformTypes
-	//{
-	//	UNIFORM,
-	//	SAMPLED_IMAGE
-	//};
-
-	struct ShaderDescAttribs
+	struct DescriptorTypeSpec
 	{
 		ShaderUniformTypes Type;
-		uint32_t MaxCount;
+		uint32_t Count;
 	};
 
-	struct DescriptorPoolsManager
+	struct DescriptorPoolsSpec
+	{
+		std::vector < DescriptorTypeSpec> Types;
+		uint32_t MaxSet;
+	};
+
+	class DescriptorPoolManager
 	{
 	public:
-		DescriptorPoolsManager() {}
-		~DescriptorPoolsManager() {}
+		DescriptorPoolManager() {}
+		~DescriptorPoolManager() {}
 
-		void Init(VkDevice device, const std::vector< ShaderDescAttribs>& Attribs, uint32_t MaxSets);
-		void Destroy();
+		void Init(VkDevice device, const DescriptorPoolsSpec& Spec);
+		void ShutDown();
 
 		void CreateDescSets(std::vector<VkDescriptorSet>& Sets, uint32_t Count, std::vector<VkDescriptorSetLayout>& Layouts);
 		void FreeDescSets(std::vector<VkDescriptorSet>& Sets);
@@ -31,35 +32,76 @@ namespace Chilli
 		VkDevice Device = VK_NULL_HANDLE;
 	private:
 		VkDescriptorPool _Pool;
-		uint32_t _SetsCount;
+		DescriptorPoolsSpec _Spec;
 	};
 
-	struct CommandPoolsManager
+	class CommandPoolManager
 	{
 	public:
-		CommandPoolsManager() {}
-		~CommandPoolsManager() {}
+		CommandPoolManager() {}
+		~CommandPoolManager() {}
 
-		void Init(VkDevice device, QueueFamilyIndicies Indicies, QueueFamilies ChosenFamily);
-		void Destroy();
+		void Init(VkDevice Device, QueueFamilyIndicies Indicies, QueueFamilies Family);
+		void ShutDown(VkDevice Device);
 
-		void CreateCommandBuffers(std::vector<VkCommandBuffer>& Buffers, uint32_t Count,
-			VkCommandBufferLevel Level);
-		void FreeCommandBuffer(std::vector<VkCommandBuffer>& Buffers);
+		void CreateCommmandBuffers(std::vector<VkCommandBuffer>& Buffers, uint32_t Count);
+		void FreeCommandBuffers(std::vector<VkCommandBuffer>& Buffers);
+
+		QueueFamilies GetUsingFamily() const { return _UsingFamily; }
 
 		VkDevice Device = VK_NULL_HANDLE;
-
-		uint32_t GetBuffersCount() { return _BuffersCount; }
-		uint32_t GetPoolsCount() { return 0; }
 	private:
 		VkCommandPool _Pool;
-		uint32_t _BuffersCount;
+		uint32_t _Count;
+		QueueFamilies _UsingFamily;
 	};
 
-	struct VulkanUtilsSpec
+	struct BeginCommandBufferInfo
 	{
-		VkInstance Instance;
-		VulkanDevice* Device;
+		VkCommandBuffer Buffer;
+		QueueFamilies Family;
+	};
+
+	class VulkanPoolsManager
+	{
+	public:
+		VulkanPoolsManager() {}
+		~VulkanPoolsManager() {}
+
+		void Init(const VulkanDevice& Device);
+		void ShutDown();
+
+		void BeginRecording(BeginCommandBufferInfo& Info);
+		void BeginSingleTimeCommand(BeginCommandBufferInfo& Info);
+		void EndSingleTimeCommand(BeginCommandBufferInfo& Info);
+
+		void CreateCommandBuffers(std::vector<VkCommandBuffer>& Buffers, uint32_t Coumt, QueueFamilies Family);
+
+		void CopyBuffers(VkBuffer Src, VkBuffer Dst, VkBufferCopy Copy);
+
+		void CreateDescSets(std::vector<VkDescriptorSet>& Sets, uint32_t Count, std::vector<VkDescriptorSetLayout>& Layouts) { _DescPoolManager.CreateDescSets(Sets, Count, Layouts); }
+		void FreeDescSets(std::vector<VkDescriptorSet>& Sets) { _DescPoolManager.FreeDescSets(Sets); }
+
+	private:
+		VkDevice _Device;
+		VkQueue _Queues[QueueFamilies::COUNT];
+
+		CommandPoolManager _GraphicsPoolManager, _TransferPoolManager;
+		DescriptorPoolManager _DescPoolManager;
+	};
+
+	class VulkanAllocator
+	{
+	public:
+		VulkanAllocator() {}
+		~VulkanAllocator() {}
+
+		void Init(VkInstance Instance, VkPhysicalDevice PhysicalDevice, VkDevice Device);
+		void ShutDown();
+
+		VmaAllocator GetAllocator()  const { return _Allocator; }
+	private:
+		VmaAllocator _Allocator;
 	};
 
 	class VulkanUtils
@@ -71,31 +113,22 @@ namespace Chilli
 			return Instance;
 		}
 
-		static void Init(const VulkanUtilsSpec& Spec);
+		static VulkanPoolsManager& GetPoolManager() { return Get()._PoolManager; }
+		static VulkanAllocator& GetVulkanAllocator() { return Get()._Allocator; }
+
+		static void Init(VkInstance Instance, const VulkanDevice& Device);
 		static void ShutDown();
 
-		static void CreateCommandBuffers(QueueFamilies Family, std::vector<VkCommandBuffer>& Buffers, uint32_t Count);
-		static void FreeCommandBuffers(QueueFamilies Family, std::vector<VkCommandBuffer>& Buffers);
+		static const VulkanDevice& GetDevice() { return Get()._Device; }
+		static VkDevice GetLogicalDevice() { return Get()._Device.GetHandle(); }
 
-		static void CreateDescSets(std::vector<VkDescriptorSet>& Sets, uint32_t Count, std::vector<VkDescriptorSetLayout>& Layouts);
-		static void FreeDescSets(std::vector<VkDescriptorSet>& Sets);
-
-		static void BeginSingleTimeCommands(VkCommandBuffer& SingleTimeBuffer, QueueFamilies Family);
-		static void EndSingleTimeCommands(VkCommandBuffer& SingleTimeBuffer, QueueFamilies Family);
-		static VkResult SubmitQueue(const VkSubmitInfo& SubmitInfo, QueueFamilies Family, VkFence& Fence);
-		static VkResult SubmitQueue(const VkSubmitInfo& SubmitInfo, QueueFamilies Family);
-
-		static void CreateAllocator(VkInstance Instance, VkPhysicalDevice PhysicalDevice, VkDevice Device);
-		static void DestroyAllocator();
-
-		static  VmaAllocator GetAllocator();
 	private:
-		void _CreateCommandPools();
-		void _CreateDescPools();
+		VulkanUtils() {}
+		~VulkanUtils() {}
 	private:
-		VulkanUtilsSpec _Spec;
-		DescriptorPoolsManager _DescManager;
-		CommandPoolsManager _GraphicsCmdManager, _TransferCmdManager;
-		VmaAllocator _Allocator;
+		VulkanDevice _Device;
+
+		VulkanAllocator _Allocator;
+		VulkanPoolsManager _PoolManager;
 	};
 }

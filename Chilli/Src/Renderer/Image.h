@@ -4,8 +4,7 @@ namespace Chilli
 {
 	enum class ImageFormat
 	{
-		RGBA8,
-		D32_FLOAT
+		RGBA8
 	};
 
 	enum class ImageLayout
@@ -31,17 +30,17 @@ namespace Chilli
 		struct {
 			int Width, Height;
 		} Resolution;
-		ImageFormat Format;
-		ImageType Type;
-		ImageTiling Tiling;
 		void* ImageData = nullptr;
+		ImageFormat Format = ImageFormat::RGBA8;
+		ImageType Type = ImageType::IMAGE_TYPE_2D;
+		ImageTiling Tiling = ImageTiling::IMAGE_TILING_OPTIONAL;
 	};
 
 	class Image
 	{
 	public:
 		virtual const ImageSpec& GetSpec() const = 0;
-		virtual void LoadImageData(const void* ImageData) = 0;
-	protected:
+		virtual void LoadImageData(void* ImageData) = 0;
+		virtual void LoadImageData(void* ImageData, int Width, int Height) = 0;
 	};
 }

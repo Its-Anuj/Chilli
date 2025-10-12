@@ -5,9 +5,10 @@
 #include "VulkanDevice.h"
 
 #include "vk_mem_alloc.h"
-#include "VulkanUtils.h"
 #include "VulkanRenderer.h"
-#include "VulkanResourceFactory.h"
+#include "VulkanTexture.h"
+#include "VulkanUtils.h"
+#include "VulkanBuffer.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -25,13 +26,6 @@ namespace Chilli
 		VkImageUsageFlags Usage;
 		VkSharingMode SharingMode;
 		VkSampleCountFlagBits Samples;
-	};
-
-	struct CreateVulkanImageReturn
-	{
-		VkImage Image;
-		VmaAllocation Allocation;
-		VmaAllocationInfo AllocInfo;
 	};
 
 	VkImageTiling TilingToVk(ImageTiling Tiling)
@@ -86,23 +80,10 @@ namespace Chilli
 		{
 		case ImageFormat::RGBA8:
 			return VK_FORMAT_R8G8B8A8_SRGB;
-		case ImageFormat::D32_FLOAT:
-			return VK_FORMAT_D32_SFLOAT;
 		}
 	}
 
-	VkImageAspectFlags ImageAspectToVk(ImageAspect Aspect)
-	{
-		switch (Aspect)
-		{
-		case ImageAspect::COLOR:
-			return VK_IMAGE_ASPECT_COLOR_BIT;
-		case ImageAspect::DEPTH:
-			return VK_IMAGE_ASPECT_DEPTH_BIT;
-		}
-	}
-
-	CreateVulkanImageReturn CreateVulkanImage(VmaAllocator Allocator, const CreateVulkanImageSpec& Spec)
+	std::tuple<VkImage, VmaAllocation, VmaAllocationInfo> CreateVulkanImage(VmaAllocator Allocator, const CreateVulkanImageSpec& Spec)
 	{
 		VkImageCreateInfo imageInfo{};
 		imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -124,10 +105,12 @@ namespace Chilli
 		imageAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
 		imageAllocInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
-		CreateVulkanImageReturn ReturnInfo{};
+		VkImage Image;
+		VmaAllocation Allocation;
+		VmaAllocationInfo AllocationInfo;
 
-		vmaCreateImage(Allocator, &imageInfo, &imageAllocInfo, &ReturnInfo.Image, &ReturnInfo.Allocation, &ReturnInfo.AllocInfo);
-		return ReturnInfo;
+		vmaCreateImage(Allocator, &imageInfo, &imageAllocInfo, &Image, &Allocation, &AllocationInfo);
+		return { Image, Allocation, AllocationInfo };
 	}
 
 	void _TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage Image, VkImageLayout OldLayout, VkImageLayout NewLayout, VkImageAspectFlags aspectFlags)
@@ -183,60 +166,77 @@ namespace Chilli
 		vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 	}
 
-	void VulkanImage::Init(VmaAllocator Allocator, VulkanImageSpec& Spec)
+	VkImageView CreateImageView(VkDevice Device, VkImage Image, VkFormat Format, VkImageAspectFlags AspectFlag,
+		VkImageViewType ViewType)
+	{
+		VkImageViewCreateInfo info{};
+		info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		info.format = Format;
+		info.image = Image;
+		info.viewType = ViewType;
+		info.subresourceRange.aspectMask = AspectFlag;
+		info.subresourceRange.baseMipLevel = 0;
+		info.subresourceRange.levelCount = 1;
+		info.subresourceRange.baseArrayLayer = 0;
+		info.subresourceRange.layerCount = 1;
+		
+		VkImageView View;
+
+		VULKAN_SUCCESS_ASSERT(vkCreateImageView(Device, &info, nullptr, &View), "[VULKAN]: Image View failed!");
+		return View;
+	}
+
+	void VulkanImage::Init(const ImageSpec& Spec)
 	{
 		_Spec = Spec;
-		auto& ImgSpec = Spec.Spec;
+
+		if (_Spec.Resolution.Width == 0 || _Spec.Resolution.Height == 0)
+			VULKAN_ERROR("Invalid Width or Height Given!");
+
 		CreateVulkanImageSpec Info{};
 
-		Info.Width = ImgSpec.Resolution.Width;
-		Info.Height = ImgSpec.Resolution.Height;
-		Info.Tiling = TilingToVk(ImgSpec.Tiling);
-		Info.ImageType = ImageTypeToVk(ImgSpec.Type);
+		Info.Width = _Spec.Resolution.Width;
+		Info.Height = _Spec.Resolution.Height;
+		Info.Tiling = TilingToVk(_Spec.Tiling);
+		Info.ImageType = ImageTypeToVk(_Spec.Type);
 		Info.Layout = VK_IMAGE_LAYOUT_UNDEFINED;
-		Info.Format = FormatToVk(ImgSpec.Format);
+		Info.Format = FormatToVk(_Spec.Format);
 		Info.Samples = VK_SAMPLE_COUNT_1_BIT;
 		Info.SharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		Info.Usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
-		if (Spec.Spec.Aspect == ImageAspect::COLOR)
-			Info.Usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+		auto [Image, Allocation, AllocInfo] = CreateVulkanImage(VulkanUtils::GetVulkanAllocator().GetAllocator(), Info);
+		_Image = Image;
+		_Allocation = Allocation;
+		_AllocationInfo = AllocInfo;
 
-		if (Spec.Spec.Aspect == ImageAspect::DEPTH)
-			Info.Usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-
-		auto ReturnInfo = CreateVulkanImage(Allocator, Info);
-		_Image = ReturnInfo.Image;
-		_Allocation = ReturnInfo.Allocation;
-		_AllocationInfo = ReturnInfo.AllocInfo;
-
-		if (Spec.Spec.ImageData != nullptr)
-			LoadImageData(Spec.Spec.ImageData);
+		if (Spec.ImageData != nullptr)
+			LoadImageData(Spec.ImageData);
 	}
 
-	void VulkanImage::Destroy(VmaAllocator Allocator)
+	void VulkanImage::Destroy()
 	{
-		vmaDestroyImage(Allocator, _Image, _Allocation);
+		if (_Image == VK_NULL_HANDLE)
+			return;
+		vmaDestroyImage(VulkanUtils::GetVulkanAllocator().GetAllocator(), _Image, _Allocation); 
 	}
 
-	void VulkanImage::LoadImageData(const void* ImageData)
+	void VulkanImage::LoadImageData(void* ImageData)
 	{
-		VulkanStageBufferSpec StageBufferSpec{};
-		StageBufferSpec.Allocator = VulkanUtils::GetAllocator();
-		StageBufferSpec.Data = ImageData;
-		VkDeviceSize imageSize = _Spec.Spec.Resolution.Width * _Spec.Spec.Resolution.Height * 4;
-		StageBufferSpec.Size = imageSize;
-
 		VulkanStageBuffer StageBuffer;
-		StageBuffer.Init(StageBufferSpec);
+		StageBuffer.Init(ImageData, _Spec.Resolution.Width * _Spec.Resolution.Height * 4);
 
 		// Make so Image Data in buffer can be copied to Image
-		VkCommandBuffer SingleTime;
-		VulkanUtils::BeginSingleTimeCommands(SingleTime, QueueFamilies::GRAPHICS);
-		_TransitionImageLayout(SingleTime, _Image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, ImageAspectToVk(_Spec.Spec.Aspect));
-		VulkanUtils::EndSingleTimeCommands(SingleTime, QueueFamilies::GRAPHICS);
+
+		BeginCommandBufferInfo Info{};
+		Info.Family = QueueFamilies::GRAPHICS;
+		VulkanUtils::GetPoolManager().BeginSingleTimeCommand(Info);
+		_TransitionImageLayout(Info.Buffer, _Image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+		VulkanUtils::GetPoolManager().EndSingleTimeCommand(Info);
 
 		// Copy buffer to image
-		VulkanUtils::BeginSingleTimeCommands(SingleTime, QueueFamilies::TRANSFER);
+		Info.Family = QueueFamilies::TRANSFER;
+		VulkanUtils::GetPoolManager().BeginSingleTimeCommand(Info);
 
 		// Define region to copy
 		VkBufferImageCopy region{};
@@ -250,106 +250,77 @@ namespace Chilli
 		region.imageSubresource.layerCount = 1;
 
 		region.imageOffset = { 0, 0, 0 };
-		region.imageExtent.width = _Spec.Spec.Resolution.Width;
-		region.imageExtent.height = _Spec.Spec.Resolution.Height;
+		region.imageExtent.width = _Spec.Resolution.Width;
+		region.imageExtent.height = _Spec.Resolution.Height;
 		region.imageExtent.depth = 1;
 
 		// Issue copy command
 		vkCmdCopyBufferToImage(
-			SingleTime,
+			Info.Buffer,
 			StageBuffer.GetHandle(),
 			_Image,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			1,
 			&region);
-		VulkanUtils::EndSingleTimeCommands(SingleTime, QueueFamilies::TRANSFER);
+		VulkanUtils::GetPoolManager().EndSingleTimeCommand(Info);
 
 		// Make Image able to be read by shader
-		VulkanUtils::BeginSingleTimeCommands(SingleTime, QueueFamilies::GRAPHICS);
-		_TransitionImageLayout(SingleTime, _Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ImageAspectToVk(_Spec.Spec.Aspect));
-		VulkanUtils::EndSingleTimeCommands(SingleTime, QueueFamilies::GRAPHICS);
+		Info.Family = QueueFamilies::GRAPHICS;
+		VulkanUtils::GetPoolManager().BeginSingleTimeCommand(Info);
+		_TransitionImageLayout(Info.Buffer, _Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+		VulkanUtils::GetPoolManager().EndSingleTimeCommand(Info);
 
-		StageBuffer.Destroy(VulkanUtils::GetAllocator());
+		StageBuffer.Delete();
 	}
 
-	void VulkanTexture::Init(VmaAllocator Allocator, VkDevice Device, VulkanImageSpec& Spec, float MaxAnisoTropy)
+	void VulkanImage::LoadImageData(void* ImageData, int Width, int Height)
+	{
+		if (Width != _Spec.Resolution.Width || Height != _Spec.Resolution.Height)
+		{
+			Destroy();
+			_Spec.ImageData = ImageData;
+			_Spec.Resolution = { Width, Height };
+			Init(_Spec);
+			return;
+		}
+		LoadImageData(ImageData);
+	}
+
+	void VulkanTexture::Init(const TextureSpec& Spec)
 	{
 		void* pixels = nullptr;
 
-		if (Spec.Spec.FilePath == nullptr)
-		{
-			pixels = Spec.Spec.ImageData;
-		}
-		else
-		{
-			// Load image data using stb_image
-			int texWidth, texHeight, texChannels;
-			pixels = (void*)stbi_load(Spec.Spec.FilePath, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+		// Load image data using stb_image
+		int texWidth, texHeight, texChannels;
+		pixels = (void*)stbi_load(Spec.FilePath, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
 
-			if (!pixels)
-				throw std::runtime_error("failed to load texture image!");
+		if (!pixels)
+			throw std::runtime_error("failed to load texture image!");
 
-			Spec.Spec.Resolution.Width = texWidth;
-			Spec.Spec.Resolution.Height = texHeight;
-		}
+		ImageSpec ImgSpec{};
+		ImgSpec.Format = ImageFormat::RGBA8;
+		ImgSpec.Tiling = Spec.Tiling;
+		ImgSpec.Type = Spec.Type;
+		ImgSpec.Resolution = {texWidth, texHeight};
+		ImgSpec.ImageData = pixels;
 
-		_Image = std::make_shared<VulkanImage>();
-		_Image->Init(Allocator, Spec);
+		_Image.Init(ImgSpec);
 
-		if (pixels != nullptr)
-			_Image->LoadImageData((const void*)pixels);
-
-		if (Spec.Spec.FilePath != nullptr)
+		if (Spec.FilePath != nullptr)
 			stbi_image_free((stbi_uc*)pixels);
 
-		if (Spec.Spec.Aspect == ImageAspect::DEPTH)
-		{
-			// Transition Image Layout to Depth
-			// Make so Image Data in buffer can be copied to Image
-			VkCommandBuffer SingleTime;
-			VulkanUtils::BeginSingleTimeCommands(SingleTime, QueueFamilies::GRAPHICS);
-			_TransitionImageLayout(SingleTime, _Image->GetHandle(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, ImageAspectToVk(Spec.Spec.Aspect));
-			VulkanUtils::EndSingleTimeCommands(SingleTime, QueueFamilies::GRAPHICS);
-		}
-
-		_CreateImageView(Device, ImageAspectToVk(Spec.Spec.Aspect));
-
-		if (Spec.Spec.Aspect == ImageAspect::COLOR) {
-			_CreateSampler(Device, MaxAnisoTropy);
-		}
+		_CreateImageView();
+		_CreateSampler();
 	}
 
-	void VulkanTexture::Destroy(VmaAllocator Allocator, VkDevice Device)
+	void VulkanTexture::_CreateImageView()
 	{
-		_Image->Destroy(Allocator);
-		vkDestroyImageView(Device, _ImageView, nullptr);
-		if (_Sampler != VK_NULL_HANDLE)
-			vkDestroySampler(Device, _Sampler, nullptr);
+		_ImageView = CreateImageView(VulkanUtils::GetLogicalDevice(), _Image.GetHandle(),
+			FormatToVk(_Image.GetSpec().Format), VK_IMAGE_ASPECT_COLOR_BIT
+			, ImageViewTypeToVk(_Image.GetSpec().Type));
 	}
 
-	std::shared_ptr<Image>& VulkanTexture::GetImage()
-	{
-		auto BaseImage = std::static_pointer_cast<Image>(_Image);
-		return BaseImage;
-	}
-
-	void VulkanTexture::_CreateImageView(VkDevice Device, VkImageAspectFlags aspectFlags)
-	{
-		VkImageViewCreateInfo info{};
-		info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-		info.format = FormatToVk(_Image->GetSpec().Format);
-		info.image = _Image->GetHandle();
-		info.viewType = ImageViewTypeToVk(_Image->GetSpec().Type);
-		info.subresourceRange.aspectMask = aspectFlags;
-		info.subresourceRange.baseMipLevel = 0;
-		info.subresourceRange.levelCount = 1;
-		info.subresourceRange.baseArrayLayer = 0;
-		info.subresourceRange.layerCount = 1;
-
-		VULKAN_SUCCESS_ASSERT(vkCreateImageView(Device, &info, nullptr, &_ImageView), "[VULKAN]: Image View failed!");
-	}
-
-	void VulkanTexture::_CreateSampler(VkDevice Device, float MaxAnisoTropy)
+	void VulkanTexture::_CreateSampler()
 	{
 		VkSamplerCreateInfo samplerInfo{};
 		samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -360,7 +331,7 @@ namespace Chilli
 		samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 		samplerInfo.anisotropyEnable = VK_TRUE;
 
-		samplerInfo.maxAnisotropy = MaxAnisoTropy;
+		samplerInfo.maxAnisotropy = VulkanUtils::GetDevice().GetPhysicalDevice()->Info.features.samplerAnisotropy;
 
 		samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
 		samplerInfo.unnormalizedCoordinates = VK_FALSE;
@@ -371,8 +342,14 @@ namespace Chilli
 		samplerInfo.minLod = 0.0f;
 		samplerInfo.maxLod = 0.0f;
 
-		if (vkCreateSampler(Device, &samplerInfo, nullptr, &_Sampler) != VK_SUCCESS)
+		if (vkCreateSampler(VulkanUtils::GetLogicalDevice(), &samplerInfo, nullptr, &_Sampler) != VK_SUCCESS)
 			throw std::runtime_error("failed to create texture sampler!");
 	}
 
+	void VulkanTexture::Destroy()
+	{
+		vkDestroySampler(VulkanUtils::GetLogicalDevice(), _Sampler, nullptr);
+		vkDestroyImageView(VulkanUtils::GetLogicalDevice(), _ImageView, nullptr);
+		_Image.Destroy();
+	}
 }

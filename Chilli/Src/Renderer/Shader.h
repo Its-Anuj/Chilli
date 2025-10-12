@@ -1,10 +1,13 @@
 #pragma once
 
-#include "Texture.h"
-#include "Buffers.h"
+#include "Buffer.h"
 
 namespace Chilli
 {
+	enum class CullMode { None, Front, Back };
+	enum class FillMode { Fill, Wireframe };
+	enum class InputTopologyMode { Triangle_List, Triangle_Strip};
+
 	enum class ShaderVertexTypes
 	{
 		FLOAT1,
@@ -39,22 +42,30 @@ namespace Chilli
 	{
 		VERTEX, FRAGMENT
 	};
+	
+	enum class ShaderUniformUse
+	{
+		PUSH_CONSTANT,
+		DESCRIPTOR
+	};
 
 	struct ShaderUnifromAttrib
 	{
 		ShaderUniformTypes Type;
 		ShaderStageType StageType;
+		ShaderUniformUse Usage;
 		std::string Name;
 		uint32_t Binding = 0;
 	};
 
-	struct GraphicsPipelineSpec
+	struct PipelineSpec
 	{
 		std::string Paths[2];
-		std::vector<VertexBufferAttrib> Attribs;
-		std::vector< ShaderUnifromAttrib> UniformAttribs;
-		std::vector<std::shared_ptr<UniformBuffer>> UBs;;
-		std::shared_ptr<Texture> Texs;;
+		
+		bool ColorBlend = true;
+		InputTopologyMode TopologyMode = InputTopologyMode::Triangle_List;
+		CullMode ShaderCullMode = CullMode::Back;
+		FillMode ShaderFillMode = FillMode::Fill;
 	};
 
 	class GraphicsPipeline
@@ -62,8 +73,7 @@ namespace Chilli
 	public:
 		~GraphicsPipeline() {}
 
-		virtual void LinkUniformBuffer(const std::shared_ptr<UniformBuffer>& UB) = 0;
 		virtual void Bind() = 0;
 	private:
 	};
-} // namespace VEngine
+}

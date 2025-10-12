@@ -1,6 +1,6 @@
 #include "Renderer.h"
 #include "Ch_PCH.h"
-#include "Window/Window.h"
+
 #include "Renderer.h"
 
 #include "vulkan/vulkan.h"
@@ -9,23 +9,26 @@
 
 namespace Chilli
 {
-	void Renderer::Init(RenderAPITypes Type, const RendererSpec& RenderSpec)
+	bool Renderer::Init(const RendererInitSpec& Spec)
 	{
-		if (Type == RenderAPITypes::VULKAN1_3)
+		if (Spec.Type == RenderAPIType::VULKAN1_3)
 		{
 			Get()._Api = new VulkanRenderer();
-			VulkanRendererSpec Spec{};
-			Spec.Name = "Chilli";
-			Spec.EnableValidationLayer = RenderSpec.EnableValidation;
-			Spec.FrameBufferSize.x = RenderSpec.RenderWindow->GetFrameBufferSize().x;
-			Spec.FrameBufferSize.y = RenderSpec.RenderWindow->GetFrameBufferSize().y;
-			Spec.Win32Surface = RenderSpec.RenderWindow->GetWin32Surface();
-			Spec.InFrameFlightCount = RenderSpec.InFrameFlightCount;
-			Spec.VSync = RenderSpec.VSync;
-			Spec.GLFWWINDOW = RenderSpec.RenderWindow->GetRawHandle();
 
-			Get()._Api->Init(&Spec);
+			VulkanRenderInitSpec VulkanSpec{};
+			VulkanSpec.GlfwWindow = Spec.GlfwWindow;
+			VulkanSpec.InFrameFlightCount = Spec.InFrameFlightCount;
+			VulkanSpec.InitialWindowSize.x = Spec.InitialWindowSize.x;
+			VulkanSpec.InitialWindowSize.y = Spec.InitialWindowSize.y;
+			VulkanSpec.InitialFrameBufferSize.x = Spec.InitialFrameBufferSize.x;
+			VulkanSpec.InitialFrameBufferSize.y = Spec.InitialFrameBufferSize.y;
+			VulkanSpec.VSync = Spec.VSync;
+			VulkanSpec.EnableValidationLayer = Spec.EnableValidation;
+			VulkanSpec.Name = Spec.Name;
+
+			Get()._Api->Init((void*)&VulkanSpec);
 		}
+		return true;
 	}
 
 	void Renderer::ShutDown()
@@ -34,45 +37,45 @@ namespace Chilli
 		delete Get()._Api;
 	}
 
-	std::shared_ptr<ResourceFactory> Renderer::GetResourceFactory()
-	{
-		return Get()._Api->GetResourceFactory();
-	}
-	
 	bool Renderer::BeginFrame()
 	{
 		return Get()._Api->BeginFrame();
 	}
 
-	bool Renderer::BeginRenderPass(const BeginRenderPassInfo& Info)
+	void Renderer::BeginRenderPass()
 	{
-		return Get()._Api->BeginRenderPass(Info);
+		Get()._Api->BeginRenderPass();;
 	}
 
-	void Renderer::Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline, const std::shared_ptr<VertexBuffer>& VB
-		, const std::shared_ptr<IndexBuffer>& IB)
+	void Renderer::Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline, const std::shared_ptr<VertexBuffer>& VertexBuffer
+		, const std::shared_ptr<IndexBuffer>& IndexBuffer)
 	{
-		Get()._Api->Submit(Pipeline, VB, IB);
+		Get()._Api->Submit(Pipeline, VertexBuffer, IndexBuffer);
+	}
+
+	void Renderer::Submit(const Material& Mat, const std::shared_ptr<VertexBuffer>& VertexBuffer, const std::shared_ptr<IndexBuffer>& IndexBuffer)
+	{
+		Get()._Api->Submit(Mat, VertexBuffer, IndexBuffer);
 	}
 
 	void Renderer::EndRenderPass()
 	{
-		Get()._Api->EndRenderPass();
+		Get()._Api->EndRenderPass();;
 	}
 
-	void Renderer::RenderFrame()
+	void Renderer::Render()
 	{
-		Get()._Api->RenderFrame();
+		Get()._Api->Render();;
 	}
 
 	void Renderer::Present()
 	{
-		Get()._Api->Present();
+		Get()._Api->Present();;
 	}
 
 	void Renderer::EndFrame()
 	{
-		Get()._Api->EndFrame();
+		Get()._Api->EndFrame();;
 	}
 
 	void Renderer::FinishRendering()
@@ -80,13 +83,50 @@ namespace Chilli
 		Get()._Api->FinishRendering();
 	}
 
+	ResourceFactory& Renderer::GetResourceFactory()
+	{
+		return Get()._Api->GetResourceFactory();
+	}
+
 	void Renderer::FrameBufferReSized(int Width, int Height)
 	{
 		Get()._Api->FrameBufferReSized(Width, Height);
 	}
 
-	Vec2 Chilli::Renderer::GetFrameBufferSize()
+	Material::Material(const std::shared_ptr<GraphicsPipeline>& Shader)
 	{
-		return Vec2(Get()._Api->GetFrameBufferWidth(), Get()._Api->GetFrameBufferHeight());
+		SetShader(_Shader);
+	}
+
+	void Material::SetShader(const std::shared_ptr<GraphicsPipeline>& Shader)
+	{
+		_Shader = Shader;
+		// Make Vulkan Backend
+		if (Renderer::GetType() == RenderAPIType::VULKAN1_3)
+			_Backend = std::make_shared<VulkanMaterialBackend>(Shader);
+	}
+
+	void Material::SetTexture(const char* Name, const std::shared_ptr<Texture>& Texture)
+	{
+		_Textures[Name] = Texture;
+		_Dirty = true;
+	}
+
+	void Material::Update()
+	{
+		if(_Dirty)
+			_Backend->Update(_Shader, _Uniforms, _Textures);
+		_Dirty = false;
+	}
+
+	void Material::SetUniformBuffer(const char* Name, const std::shared_ptr<UniformBuffer>& BufferHandle)
+	{
+		_Uniforms[Name] = BufferHandle;
+		_Dirty = true;
+	}
+
+	Material::Material()
+	{
+
 	}
 }

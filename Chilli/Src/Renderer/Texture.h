@@ -4,22 +4,18 @@
 
 namespace Chilli
 {
-	enum class ImageAspect
-	{
-		DEPTH,COLOR
-	};
-
-	struct TextureSpec : public ImageSpec
+	struct TextureSpec 
 	{
 		const char* FilePath;
-		ImageAspect Aspect;
+		ImageTiling	 Tiling;
+		ImageType Type;
 	};
 
 	class Texture
 	{
 	public:
-		virtual const ImageSpec& GetSpec() const = 0;
-		virtual std::shared_ptr<Image>& GetImage() = 0;
+		virtual const TextureSpec& GetSpec() const = 0;
+
 	private:
 	};
 }

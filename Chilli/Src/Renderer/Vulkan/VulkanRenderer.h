@@ -2,52 +2,47 @@
 
 #include "RenderAPI.h"
 #include "VulkanDevice.h"
-#include "VulkanSwapChainKHR.h"
+#include "VulkanResources.h"
+#include "VulkanSwapChain.h"
+
+const char* VkResultToChar(VkResult Result);
 
 #define VULKAN_SUCCESS_ASSERT(x, err) \
     {                                 \
         if (x != VK_SUCCESS)          \
         {                             \
-            VULKAN_ERROR(err);        \
+            VULKAN_ERROR(err << " , VkResult: " << VkResultToChar(x));        \
         }                             \
     }
 namespace Chilli
 {
-	struct VulkanRendererSpec
+	struct VulkanRenderInitSpec
 	{
-		const char* Name;
-		bool EnableValidationLayer = false;
-		void* Win32Surface;
-
-		struct
-		{
-			float x, y;
-		} FrameBufferSize;
-		std::vector<const char*> DeviceExtensions;
-		std::vector<const char*> InstanceExtensions;
-		std::vector<const char*> InstanceLayers;
-
-		uint32_t InFrameFlightCount = 0;
-		bool VSync;
-		void* GLFWWINDOW;
-	};
-
-	struct VulkanVersion
-	{
-		int Major, Minor, Patch;
-	};
-
-	struct VulkanRendererData
-	{
-		VkInstance Instance;
-		VkDebugUtilsMessengerEXT DebugMessenger;
-		VkSurfaceKHR SurfaceKHR;
+		void* GlfwWindow;
+		uint16_t InFrameFlightCount = 0;
+		bool VSync = false;
 
 		struct {
 			int x, y;
-		} FrameBufferSize;
+		} InitialWindowSize;
+		struct {
+			int x, y;
+		} InitialFrameBufferSize;
 
-		VulkanSwapChainKHR SwapChainKHR;
+		bool EnableValidationLayer = false;
+		std::vector<const char*> DeviceExtensions;
+		std::vector<const char*> InstanceExtensions;
+		std::vector<const char*> InstanceLayers;
+		const char* Name;
+
+	};
+
+	struct VulkanBackendData
+	{
+		// Core
+		VkInstance Instance;
+		VkDebugUtilsMessengerEXT DebugMessenger;
+		VkSurfaceKHR SurfaceKHR;
 
 		// Devices
 		std::vector<VulkanPhysicalDevice> PhysicalDevices;
@@ -55,56 +50,47 @@ namespace Chilli
 
 		VulkanDevice Device;
 
-		// Commands
-		std::vector<VkCommandBuffer >GraphicsCommandBuffers;
+		struct {
+			int Width, Height;
+		} FrameBufferSize;
 
-		std::vector<VkSemaphore >ImageAvailableSemaphores; 
-		std::vector<VkSemaphore >RenderFinishedSemaphores; 
-		std::vector<VkFence >InFlightFences;	
+		uint16_t InFrameFlightCount = 0;
+		uint16_t CurrentFrameIndex = 0;
+		uint32_t CurrentImageIndex = 0;
 
-		uint32_t CurrentImageIndex;
-		uint32_t CurrentFrameIndex = 0;
-		uint32_t FrameInFlightCount = 0;
-		bool VSync;
+		VulkanSwapChainKHR SwapChainKHR;
+
+		std::vector<VkCommandBuffer> GraphicsCommandBuffers;
+
+		std::vector<VkSemaphore> ImageAvailableSemaphores;
+		std::vector<VkSemaphore> RenderFinishedSemaphores;
+		std::vector<VkFence> InFlightFences;
 		bool FrameBufferReSized;
 	};
-
-	struct VulkanResourceFactory;
 
 	class VulkanRenderer : public RenderAPI
 	{
 	public:
-		VulkanRenderer() {}
-		~VulkanRenderer() {}
-
-		inline RenderAPITypes GetType() override {
-			return  RenderAPITypes::VULKAN1_3;
-		}
-
-		inline const char* GetName() override {
-			return "VULKAN_1_3";
-		}
-
-		virtual void Init(void* Spec) override; 
+		virtual void Init(void* Spec) override;
 		virtual void ShutDown() override;
 
+		virtual RenderAPIType GetType() const override { return RenderAPIType::VULKAN1_3; }
+		virtual const char* GetName() const override { return "VULKAN1_3"; }
+		
+		virtual ResourceFactory& GetResourceFactory() override;
 
-		// Rendering related
 		virtual bool BeginFrame() override;
-		virtual bool BeginRenderPass(const BeginRenderPassInfo& Info) override;
-		virtual void Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline
-			, const std::shared_ptr<VertexBuffer>& VB, const std::shared_ptr<IndexBuffer>& IB) override;
-		virtual void EndRenderPass() override;
-		virtual void RenderFrame() override;
+		virtual void BeginRenderPass() override; 
+		virtual void Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline, const std::shared_ptr<VertexBuffer>& VertexBuffer
+			, const std::shared_ptr<IndexBuffer>& IndexBuffer) override;
+		virtual void Submit(const Material& Mat, const std::shared_ptr<VertexBuffer>& VertexBuffer, const std::shared_ptr<IndexBuffer>& IndexBuffer)  override;
+		virtual void EndRenderPass() override;		
+		virtual void Render() override;
 		virtual void Present() override;
-		virtual void EndFrame() override;	
+		virtual void EndFrame() override;
 		virtual void FinishRendering() override;
+
 		virtual void FrameBufferReSized(int Width, int Height) override;
-
-		virtual std::shared_ptr<ResourceFactory> GetResourceFactory() override;
-
-		virtual float GetFrameBufferWidth() override { return _Data.FrameBufferSize.x; }
-		virtual float GetFrameBufferHeight() override{ return _Data.FrameBufferSize.y; }
 	private:
 		void _CreateInstance();
 		void _CreateDebugMessenger();
@@ -120,15 +106,12 @@ namespace Chilli
 		void _CreateSwapChainKHR();
 		void _ReCreateSwapChainKHR();
 
-		void _CreateResourceFactory();
-
-		// Commands
 		void _CreateCommandBuffers();
 
 		void _CreateSyncObjects();
 	private:
-		VulkanRendererSpec _Spec;
-		VulkanRendererData _Data;
-		std::shared_ptr< VulkanResourceFactory> _ResourceFactory;
+		VulkanBackendData _Data;
+		VulkanRenderInitSpec _Spec;
+		VulkanResourceFactory _ResourceFactory;
 	};
 }

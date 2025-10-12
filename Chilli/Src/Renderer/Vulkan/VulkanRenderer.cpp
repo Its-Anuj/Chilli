@@ -4,10 +4,10 @@
 #include "C:\VulkanSDK\1.3.275.0\Include\vulkan\vulkan.h"
 
 #include "vk_mem_alloc.h"
-#include "VulkanDevice.h"
-#include "VulkanUtils.h"
 #include "VulkanRenderer.h"
-#include "VulkanResourceFactory.h"
+#include "VulkanUtils.h"
+#include "VulkanShader.h"
+#include "VulkanBuffer.h"
 
 #include "GLFW/glfw3.h"
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -30,81 +30,79 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 
 namespace Chilli
 {
-	VulkanVersion GetInstanceSupportedVersion()
-	{
-		VulkanVersion Version{};
-		uint32_t ApiVersion = 0;
-		vkEnumerateInstanceVersion(&ApiVersion);
-
-		Version = { VK_API_VERSION_MAJOR(ApiVersion),VK_API_VERSION_MINOR(ApiVersion),VK_API_VERSION_PATCH(ApiVersion) };
-		return Version;
-	}
-
 	void VulkanRenderer::Init(void* Spec)
 	{
-		auto InstanceVersion = GetInstanceSupportedVersion();
-		std::cout << InstanceVersion.Major << "." << InstanceVersion.Minor << "." << InstanceVersion.Patch << "\n";
+		_Spec = *(VulkanRenderInitSpec*)Spec;
 
-		_Spec = *(VulkanRendererSpec*)Spec;
-		VULKAN_PRINTLN("Supports: " << InstanceVersion.Major << "." << InstanceVersion.Minor << "." << InstanceVersion.Patch)
+		_Data.FrameBufferSize.Width = _Spec.InitialFrameBufferSize.x;
+		_Data.FrameBufferSize.Height = _Spec.InitialFrameBufferSize.y;
+		_Data.InFrameFlightCount = _Spec.InFrameFlightCount;
 
-			if (InstanceVersion.Minor != 3)
-				VULKAN_ERROR("Vulkan verson is not supported!, You support: " << InstanceVersion.Major << "." << InstanceVersion.Minor << "." << InstanceVersion.Patch);
-
-		_Data.FrameBufferSize.x = _Spec.FrameBufferSize.x;
-		_Data.FrameBufferSize.y = _Spec.FrameBufferSize.y;
-		_Data.FrameInFlightCount = _Spec.InFrameFlightCount;
-		_Data.VSync = _Spec.VSync;
-
-		// Core related
 		_CreateInstance();
 		_CreateDebugMessenger();
 		_CreateSurfaceKHR();
 
-		// Devices
 		_CreatePhysicalDevice();
 		_CreateLogicalDevice();
 
-		// SwapChain
 		_CreateSwapChainKHR();
 
-		// Utils
-		VulkanUtilsSpec UtilsSpec{};
-		UtilsSpec.Device = &_Data.Device;
-		UtilsSpec.Instance = _Data.Instance;
-		VulkanUtils::Init(UtilsSpec);
+		VulkanUtils::Init(_Data.Instance, _Data.Device);
+		VULKAN_PRINTLN("VulkanPoolsManager Initialized!");
 
-		//  Commands
 		_CreateCommandBuffers();
 		_CreateSyncObjects();
-		VULKAN_PRINTLN("Vulkan Initiated!!");
-		_CreateResourceFactory();
+
+		VulkanResourceFactorySpec ResourceSpec{};
+		ResourceSpec.Device = _Data.Device;
+		ResourceSpec.SwapChainFormat = _Data.SwapChainKHR.GetFormat();
+		_ResourceFactory.Init(ResourceSpec);
+		VULKAN_PRINTLN("Resource Factory Created!")
+
+			VULKAN_PRINTLN("Vulkan Created!")
 	}
 
 	void VulkanRenderer::ShutDown()
 	{
 		vkDeviceWaitIdle(_Data.Device.GetHandle());
-		_ResourceFactory->Destroy();
+
+		_ResourceFactory.ShutDown();
+		VULKAN_PRINTLN("Resource Factory ShutDown!")
+
+			for (int i = 0; i < _Spec.InFrameFlightCount; i++)
+			{
+				vkDestroySemaphore(_Data.Device.GetHandle(), _Data.ImageAvailableSemaphores[i], nullptr);
+				vkDestroySemaphore(_Data.Device.GetHandle(), _Data.RenderFinishedSemaphores[i], nullptr);
+				vkDestroyFence(_Data.Device.GetHandle(), _Data.InFlightFences[i], nullptr);
+			}
+		VULKAN_PRINTLN("Sync Objects ShutDown!")
+
 		VulkanUtils::ShutDown();
+		VULKAN_PRINTLN("VulkanPoolsManager ShutDown!")
 
-		auto device = _Data.Device.GetHandle();
-		for (int i = 0; i < _Data.FrameInFlightCount; i++)
-		{
-			vkDestroySemaphore(device, _Data.ImageAvailableSemaphores[i], nullptr);
-			vkDestroySemaphore(device, _Data.RenderFinishedSemaphores[i], nullptr);
-			vkDestroyFence(device, _Data.InFlightFences[i], nullptr);
-		}
-		_Data.SwapChainKHR.Destroy(_Data.Device);
+			_Data.SwapChainKHR.Destroy(_Data.Device);
+		VULKAN_PRINTLN("SwapChainKHR ShutDown!")
 
-		_Data.Device.Destroy();
+			_Data.Device.Destroy();
+		VULKAN_PRINTLN("Device ShutDown!")
 
-		// Core
-		vkDestroySurfaceKHR(_Data.Instance, _Data.SurfaceKHR, nullptr);
-		if (_Spec.EnableValidationLayer)
-			DestroyDebugUtilsMessengerEXT(_Data.Instance, _Data.DebugMessenger, nullptr);
+			vkDestroySurfaceKHR(_Data.Instance, _Data.SurfaceKHR, nullptr);
+		VULKAN_PRINTLN("Surface KHR ShutDown!")
+
+			if (_Spec.EnableValidationLayer)
+			{
+				DestroyDebugUtilsMessengerEXT(_Data.Instance, _Data.DebugMessenger, nullptr);
+				VULKAN_PRINTLN("Debug Messenger ShutDown!")
+			}
 
 		vkDestroyInstance(_Data.Instance, nullptr);
-		VULKAN_PRINTLN("Vulkan Terminated!!");
+		VULKAN_PRINTLN("Instance ShutDown!");
+		VULKAN_PRINTLN("Vulkan ShutDown!");
+	}
+
+	ResourceFactory& VulkanRenderer::GetResourceFactory()
+	{
+		return _ResourceFactory;
 	}
 
 	bool VulkanRenderer::BeginFrame()
@@ -139,7 +137,7 @@ namespace Chilli
 		return true;
 	}
 
-	bool VulkanRenderer::BeginRenderPass(const BeginRenderPassInfo& Info)
+	void VulkanRenderer::BeginRenderPass()
 	{
 		auto commandBuffer = _Data.GraphicsCommandBuffers[_Data.CurrentFrameIndex];
 
@@ -174,70 +172,36 @@ namespace Chilli
 		renderingInfo.renderArea = { {0, 0}, _Data.SwapChainKHR.GetExtent() };
 		renderingInfo.layerCount = 1;
 
-		std::vector< VkRenderingAttachmentInfo> ColorAttachments;
-		ColorAttachments.reserve(Info.ColorAttachmentCount);
+		VkRenderingAttachmentInfo colorAttachment{};
+		colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+		colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // ✅ Now correct
+		colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		colorAttachment.imageView = _Data.SwapChainKHR.GetImageViews()[_Data.CurrentImageIndex];
+		colorAttachment.clearValue = { {0.2f, 0.2f, 0.2f, 1.0f} };
 
-		for (int i = 0; i < Info.ColorAttachmentCount; i++)
-		{
-			auto& ActiveColorAttachment = Info.ColorAttachments[i];
-			VkRenderingAttachmentInfo colorAttachment{};
-			colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-			colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // ✅ Now correct
-			colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		renderingInfo.colorAttachmentCount = static_cast<uint32_t>(1);
+		renderingInfo.pColorAttachments = &colorAttachment;
 
-			if(ActiveColorAttachment.UseSwapChainTexture)
-				colorAttachment.imageView = _Data.SwapChainKHR.GetImageViews()[_Data.CurrentImageIndex];
-			else
-			{
-				auto VulkanTex = std::static_pointer_cast<VulkanTexture>(ActiveColorAttachment.ColorTexture);
-				colorAttachment.imageView = VulkanTex->GetHandle();
-			}
-			
-			colorAttachment.clearValue = { {ActiveColorAttachment.ClearColor.r,ActiveColorAttachment.ClearColor.g,
-				ActiveColorAttachment.ClearColor.b, ActiveColorAttachment.ClearColor.w} };
-			ColorAttachments.push_back(colorAttachment);
-		}
-
-		VkRenderingAttachmentInfo depthAttachment{};
-		if (Info.DepthAttachment.DepthTexture != VK_NULL_HANDLE)
-		{
-			auto VulkanTex = std::static_pointer_cast<VulkanTexture>(Info.DepthAttachment.DepthTexture);
-			depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-			depthAttachment.imageView = VulkanTex->GetHandle();
-			depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-			depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-			depthAttachment.clearValue.depthStencil = { Info.DepthAttachment.Planes.Far,  Info.DepthAttachment.Planes.Near }; // Clear to far plane
-			renderingInfo.pDepthAttachment = &depthAttachment; 
-		}
-
-		renderingInfo.colorAttachmentCount = static_cast<uint32_t>(ColorAttachments.size());
-		renderingInfo.pColorAttachments = ColorAttachments.data();
-		
 		vkCmdBeginRendering(commandBuffer, &renderingInfo);
-		return true;
 	}
 
-	void VulkanRenderer::Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline
-		, const std::shared_ptr<VertexBuffer>& VB, const std::shared_ptr<IndexBuffer>& IB)
+	void VulkanRenderer::Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline, const std::shared_ptr<VertexBuffer>& VertexBuffer
+		, const std::shared_ptr<IndexBuffer>& IndexBuffer)
 	{
-		auto VulkanVB = std::static_pointer_cast<VulkanVertexBuffer>(VB);
-		auto VulkanIB = std::static_pointer_cast<VulkanIndexBuffer>(IB);
 		auto VulkanPipeline = std::static_pointer_cast<VulkanGraphicsPipeline>(Pipeline);
+		auto VulkanVB = std::static_pointer_cast<VulkanVertexBuffer>(VertexBuffer);
+		auto VulkanIB = std::static_pointer_cast<VulkanIndexBuffer>(IndexBuffer);
 		auto commandBuffer = _Data.GraphicsCommandBuffers[_Data.CurrentFrameIndex];
 		// Bind pipeline (created without render pass)
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VulkanPipeline->GetHandle());
-
-		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VulkanPipeline->GetLayout(),
-			0, 1, &VulkanPipeline->GetSets()[0], 0, nullptr);
 
 		// Set dynamic viewport (matches pipeline dynamic state)
 		VkViewport viewport{};
 		viewport.x = 0.0f;
 		viewport.y = 0.0f;
-		viewport.width = static_cast<float>(_Data.FrameBufferSize.x);
-		viewport.height = static_cast<float>(_Data.FrameBufferSize.y);
+		viewport.width = static_cast<float>(_Data.FrameBufferSize.Width);
+		viewport.height = static_cast<float>(_Data.FrameBufferSize.Height);
 		viewport.minDepth = 0.0f;
 		viewport.maxDepth = 1.0f;
 		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
@@ -245,8 +209,48 @@ namespace Chilli
 		// Set dynamic scissor
 		VkRect2D scissor{};
 		scissor.offset = { 0, 0 };
-		scissor.extent.width = _Data.FrameBufferSize.x;
-		scissor.extent.height = _Data.FrameBufferSize.y;
+		scissor.extent.width = _Data.FrameBufferSize.Width;
+		scissor.extent.height = _Data.FrameBufferSize.Height;
+		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+		// 🆕 Bind vertex buffer
+		VkBuffer vertexBuffers[] = { VulkanVB->GetHandle() };
+		VkDeviceSize offsets[] = { 0 };
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+		vkCmdBindIndexBuffer(commandBuffer, VulkanIB->GetHandle(), 0 , VK_INDEX_TYPE_UINT16);
+
+		vkCmdDraw(commandBuffer, VulkanIB->GetCount(), 1, 0, 0);
+	}
+
+	void VulkanRenderer::Submit(const Material& Mat, const std::shared_ptr<VertexBuffer>& VertexBuffer, const std::shared_ptr<IndexBuffer>& IndexBuffer)
+	{
+		auto VulkanPipeline = std::static_pointer_cast<VulkanGraphicsPipeline>(Mat.GetShader());
+		auto VulkanMatBackend = std::static_pointer_cast<VulkanMaterialBackend>(Mat.GetBackend());
+		auto VulkanVB = std::static_pointer_cast<VulkanVertexBuffer>(VertexBuffer);
+		auto VulkanIB = std::static_pointer_cast<VulkanIndexBuffer>(IndexBuffer);
+		auto commandBuffer = _Data.GraphicsCommandBuffers[_Data.CurrentFrameIndex];
+		// Bind pipeline (created without render pass)
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VulkanPipeline->GetHandle());
+		VkDescriptorSet descriptorSet = VulkanMatBackend->GetSet();
+
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VulkanPipeline->GetPipelineLayout(),
+			0, 1, &descriptorSet, 0, nullptr);
+
+		// Set dynamic viewport (matches pipeline dynamic state)
+		VkViewport viewport{};
+		viewport.x = 0.0f;
+		viewport.y = 0.0f;
+		viewport.width = static_cast<float>(_Data.FrameBufferSize.Width);
+		viewport.height = static_cast<float>(_Data.FrameBufferSize.Height);
+		viewport.minDepth = 0.0f;
+		viewport.maxDepth = 1.0f;
+		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+		// Set dynamic scissor
+		VkRect2D scissor{};
+		scissor.offset = { 0, 0 };
+		scissor.extent.width = _Data.FrameBufferSize.Width;
+		scissor.extent.height = _Data.FrameBufferSize.Height;
 		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
 		// 🆕 Bind vertex buffer
@@ -254,17 +258,14 @@ namespace Chilli
 		VkDeviceSize offsets[] = { 0 };
 		vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 		vkCmdBindIndexBuffer(commandBuffer, VulkanIB->GetHandle(), 0, VK_INDEX_TYPE_UINT16);
-		// 🎨 Draw your geometry
 
-		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(VulkanIB->GetCount()), 1, 0, 0, 0);
+		vkCmdDrawIndexed(commandBuffer, VulkanIB->GetCount(), 1, 0, 0, 0);
 	}
 
 	void VulkanRenderer::EndRenderPass()
 	{
 		auto commandBuffer = _Data.GraphicsCommandBuffers[_Data.CurrentFrameIndex];
-
 		vkCmdEndRendering(commandBuffer);
-
 		// 🆕 TRANSITION: color attachment optimal → present source (for presentation)
 		VkImageMemoryBarrier barrier{};
 		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -293,7 +294,7 @@ namespace Chilli
 		vkEndCommandBuffer(commandBuffer);
 	}
 
-	void VulkanRenderer::RenderFrame()
+	void VulkanRenderer::Render()
 	{
 		VkSubmitInfo submitInfo{};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -340,7 +341,13 @@ namespace Chilli
 			throw std::runtime_error("failed to present swap chain image!");
 		}
 
-		_Data.CurrentFrameIndex = (_Data.CurrentFrameIndex + 1) % _Data.FrameInFlightCount;
+		_Data.CurrentFrameIndex = (_Data.CurrentFrameIndex + 1) % _Spec.InFrameFlightCount;
+	}
+
+	void VulkanRenderer::FrameBufferReSized(int Width, int Height)
+	{
+		_Data.FrameBufferSize = { Width, Height };
+		_Data.FrameBufferReSized = true;
 	}
 
 	void VulkanRenderer::EndFrame()
@@ -350,17 +357,6 @@ namespace Chilli
 	void VulkanRenderer::FinishRendering()
 	{
 		vkDeviceWaitIdle(_Data.Device.GetHandle());
-	}
-
-	void VulkanRenderer::FrameBufferReSized(int Width, int Height)
-	{
-		_Data.FrameBufferSize = { Width, Height };
-		_Data.FrameBufferReSized = true;
-	}
-
-	std::shared_ptr<ResourceFactory> VulkanRenderer::GetResourceFactory()
-	{
-		return _ResourceFactory;
 	}
 
 	void VulkanRenderer::_CreateInstance()
@@ -391,7 +387,7 @@ namespace Chilli
 								  "VK_KHR_buffer_device_address" };
 		VkApplicationInfo appinfo{};
 		appinfo.apiVersion = VK_API_VERSION_1_3;
-		appinfo.pEngineName = _Spec.Name;
+		appinfo.pEngineName = nullptr;
 		appinfo.pApplicationName = _Spec.Name;
 		appinfo.applicationVersion = VK_API_VERSION_1_3;
 		appinfo.engineVersion = VK_API_VERSION_1_3;
@@ -419,8 +415,8 @@ namespace Chilli
 			createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&debugCreateInfo;
 		}
 
-		if (vkCreateInstance(&createInfo, nullptr, &_Data.Instance) != VK_SUCCESS)
-			throw std::runtime_error("Adsa");
+		VULKAN_SUCCESS_ASSERT(vkCreateInstance(&createInfo, nullptr, &_Data.Instance), "Instance Creation Failed!");
+		VULKAN_PRINTLN("Instance Created! for: " << _Spec.Name);
 	}
 
 	void VulkanRenderer::_CreateDebugMessenger()
@@ -448,8 +444,8 @@ namespace Chilli
 
 	void VulkanRenderer::_CreateSurfaceKHR()
 	{
-		glfwCreateWindowSurface(_Data.Instance, (GLFWwindow*)_Spec.GLFWWINDOW, nullptr, &_Data.SurfaceKHR);
-		VULKAN_PRINTLN("[VULKAN]: Window Surface KHR Created!");
+		glfwCreateWindowSurface(_Data.Instance, (GLFWwindow*)_Spec.GlfwWindow, nullptr, &_Data.SurfaceKHR);
+		VULKAN_PRINTLN("Window Surface KHR Created!");
 	}
 
 	SwapChainSupportDetails QuerySwapChainSupport(VkPhysicalDevice device, VkSurfaceKHR surface)
@@ -569,35 +565,25 @@ namespace Chilli
 
 	void VulkanRenderer::_CreateSwapChainKHR()
 	{
-		_Data.SwapChainKHR.Init(_Data.Device, _Data.SurfaceKHR, _Data.FrameBufferSize.x, _Data.FrameBufferSize.y, _Data.VSync);
+		_Data.SwapChainKHR.Init(_Data.Device, _Data.SurfaceKHR, _Data.FrameBufferSize.Width, _Data.FrameBufferSize.Height, _Spec.VSync);
 	}
 
 	void VulkanRenderer::_ReCreateSwapChainKHR()
 	{
-		_Data.SwapChainKHR.Recreate(_Data.Device, _Data.SurfaceKHR, _Data.FrameBufferSize.x, _Data.FrameBufferSize.y, _Data.VSync);
-	}
-
-	void VulkanRenderer::_CreateResourceFactory()
-	{
-		VulkanResourceFactorySpec Spec{};
-		Spec.Device = &_Data.Device;
-		Spec.Instance = _Data.Instance;
-		Spec.SwapChain = &_Data.SwapChainKHR;
-
-		_ResourceFactory = std::make_shared<VulkanResourceFactory>(Spec);
+		_Data.SwapChainKHR.Recreate(_Data.Device, _Data.SurfaceKHR, _Data.FrameBufferSize.Width, _Data.FrameBufferSize.Height, _Spec.VSync);
 	}
 
 	void VulkanRenderer::_CreateCommandBuffers()
 	{
-		VulkanUtils::CreateCommandBuffers(QueueFamilies::GRAPHICS, _Data.GraphicsCommandBuffers, _Data.FrameInFlightCount);
-		VULKAN_PRINTLN("[VULKAN]: Graphics Command Buffers Created !!");
+		VulkanUtils::GetPoolManager().CreateCommandBuffers(_Data.GraphicsCommandBuffers, _Spec.InFrameFlightCount, QueueFamilies::GRAPHICS);
+		VULKAN_PRINTLN("Command Buffers Craeted!");
 	}
 
 	void VulkanRenderer::_CreateSyncObjects()
 	{
-		_Data.InFlightFences.resize(_Data.FrameInFlightCount);
-		_Data.RenderFinishedSemaphores.resize(_Data.FrameInFlightCount);
-		_Data.ImageAvailableSemaphores.resize(_Data.FrameInFlightCount);
+		_Data.InFlightFences.resize(_Spec.InFrameFlightCount);
+		_Data.RenderFinishedSemaphores.resize(_Spec.InFrameFlightCount);
+		_Data.ImageAvailableSemaphores.resize(_Spec.InFrameFlightCount);
 
 		VkSemaphoreCreateInfo semaphoreInfo{};
 		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -607,12 +593,13 @@ namespace Chilli
 		fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT; // Start signaled so first frame doesn't wait forever
 		auto device = _Data.Device.GetHandle();
 
-		for (int i = 0; i < _Data.FrameInFlightCount; i++)
+		for (int i = 0; i < _Spec.InFrameFlightCount; i++)
 		{
 			VULKAN_SUCCESS_ASSERT(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &_Data.ImageAvailableSemaphores[i]), "Image Available Sempahore Failed!");
 			VULKAN_SUCCESS_ASSERT(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &_Data.RenderFinishedSemaphores[i]), "Render Finished Semaphore Failed!");
 			VULKAN_SUCCESS_ASSERT(vkCreateFence(device, &fenceInfo, nullptr, &_Data.InFlightFences[i]), "Fences Failed To create!");
 		}
+		VULKAN_PRINTLN("Sync Objects Craeted!");
 	}
 }
 
@@ -635,5 +622,59 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
 	if (func != nullptr)
 	{
 		func(instance, debugMessenger, pAllocator);
+	}
+}
+const char* VkResultToChar(VkResult result)
+{
+	switch (result)
+	{
+	case VK_SUCCESS: return "VK_SUCCESS";
+	case VK_NOT_READY: return "VK_NOT_READY";
+	case VK_TIMEOUT: return "VK_TIMEOUT";
+	case VK_EVENT_SET: return "VK_EVENT_SET";
+	case VK_EVENT_RESET: return "VK_EVENT_RESET";
+	case VK_INCOMPLETE: return "VK_INCOMPLETE";
+	case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
+	case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
+	case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
+	case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
+	case VK_ERROR_MEMORY_MAP_FAILED: return "VK_ERROR_MEMORY_MAP_FAILED";
+	case VK_ERROR_LAYER_NOT_PRESENT: return "VK_ERROR_LAYER_NOT_PRESENT";
+	case VK_ERROR_EXTENSION_NOT_PRESENT: return "VK_ERROR_EXTENSION_NOT_PRESENT";
+	case VK_ERROR_FEATURE_NOT_PRESENT: return "VK_ERROR_FEATURE_NOT_PRESENT";
+	case VK_ERROR_INCOMPATIBLE_DRIVER: return "VK_ERROR_INCOMPATIBLE_DRIVER";
+	case VK_ERROR_TOO_MANY_OBJECTS: return "VK_ERROR_TOO_MANY_OBJECTS";
+	case VK_ERROR_FORMAT_NOT_SUPPORTED: return "VK_ERROR_FORMAT_NOT_SUPPORTED";
+	case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL";
+	case VK_ERROR_UNKNOWN: return "VK_ERROR_UNKNOWN";
+	case VK_ERROR_OUT_OF_POOL_MEMORY: return "VK_ERROR_OUT_OF_POOL_MEMORY";
+	case VK_ERROR_INVALID_EXTERNAL_HANDLE: return "VK_ERROR_INVALID_EXTERNAL_HANDLE";
+	case VK_ERROR_FRAGMENTATION: return "VK_ERROR_FRAGMENTATION";
+	case VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS: return "VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS";
+	case VK_PIPELINE_COMPILE_REQUIRED: return "VK_PIPELINE_COMPILE_REQUIRED";
+	case VK_ERROR_SURFACE_LOST_KHR: return "VK_ERROR_SURFACE_LOST_KHR";
+	case VK_ERROR_NATIVE_WINDOW_IN_USE_KHR: return "VK_ERROR_NATIVE_WINDOW_IN_USE_KHR";
+	case VK_SUBOPTIMAL_KHR: return "VK_SUBOPTIMAL_KHR";
+	case VK_ERROR_OUT_OF_DATE_KHR: return "VK_ERROR_OUT_OF_DATE_KHR";
+	case VK_ERROR_INCOMPATIBLE_DISPLAY_KHR: return "VK_ERROR_INCOMPATIBLE_DISPLAY_KHR";
+	case VK_ERROR_VALIDATION_FAILED_EXT: return "VK_ERROR_VALIDATION_FAILED_EXT";
+	case VK_ERROR_INVALID_SHADER_NV: return "VK_ERROR_INVALID_SHADER_NV";
+	case VK_ERROR_IMAGE_USAGE_NOT_SUPPORTED_KHR: return "VK_ERROR_IMAGE_USAGE_NOT_SUPPORTED_KHR";
+	case VK_ERROR_VIDEO_PICTURE_LAYOUT_NOT_SUPPORTED_KHR: return "VK_ERROR_VIDEO_PICTURE_LAYOUT_NOT_SUPPORTED_KHR";
+	case VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR: return "VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR";
+	case VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR: return "VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR";
+	case VK_ERROR_VIDEO_PROFILE_CODEC_NOT_SUPPORTED_KHR: return "VK_ERROR_VIDEO_PROFILE_CODEC_NOT_SUPPORTED_KHR";
+	case VK_ERROR_VIDEO_STD_VERSION_NOT_SUPPORTED_KHR: return "VK_ERROR_VIDEO_STD_VERSION_NOT_SUPPORTED_KHR";
+	case VK_ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT: return "VK_ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT";
+	case VK_ERROR_NOT_PERMITTED_KHR: return "VK_ERROR_NOT_PERMITTED_KHR";
+	case VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT: return "VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT";
+	case VK_THREAD_IDLE_KHR: return "VK_THREAD_IDLE_KHR";
+	case VK_THREAD_DONE_KHR: return "VK_THREAD_DONE_KHR";
+	case VK_OPERATION_DEFERRED_KHR: return "VK_OPERATION_DEFERRED_KHR";
+	case VK_OPERATION_NOT_DEFERRED_KHR: return "VK_OPERATION_NOT_DEFERRED_KHR";
+	case VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR: return "VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR";
+	case VK_ERROR_COMPRESSION_EXHAUSTED_EXT: return "VK_ERROR_COMPRESSION_EXHAUSTED_EXT";
+	case VK_ERROR_INCOMPATIBLE_SHADER_BINARY_EXT: return "VK_ERROR_INCOMPATIBLE_SHADER_BINARY_EXT";
+	default: return "VK_ERROR_UNKNOWN_ENUM";
 	}
 }

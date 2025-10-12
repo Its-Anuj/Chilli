@@ -1,17 +1,24 @@
 #pragma once
 
-#include "Maths.h"
 #include "RenderAPI.h"
 
 namespace Chilli
 {
-	struct Window;
-	struct RendererSpec
+	struct RendererInitSpec
 	{
-		Window* RenderWindow;
-		bool EnableValidation = true;
+		RenderAPIType Type;
+		void* GlfwWindow;
 		uint16_t InFrameFlightCount = 0;
-		bool VSync;
+		bool VSync = false;
+
+		struct {
+			int x, y;
+		} InitialWindowSize;
+		struct {
+			int x, y;
+		} InitialFrameBufferSize;
+		const char* Name;
+		bool EnableValidation = false;
 	};
 
 	class Renderer
@@ -23,27 +30,31 @@ namespace Chilli
 			return Instance;
 		}
 
-		static void Init(RenderAPITypes Type, const RendererSpec& RenderSpec);
+		static bool Init(const RendererInitSpec& Spec);
 		static void ShutDown();
 
-		static const char* GetName() { return Get()._Api->GetName(); }
-		static RenderAPITypes GetType() { return Get()._Api->GetType(); }
-
-		static std::shared_ptr<ResourceFactory> GetResourceFactory();
-
-		// Rendering related
 		static bool BeginFrame();
-		static bool BeginRenderPass(const BeginRenderPassInfo& Info);
-		static void Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline
-			, const std::shared_ptr<VertexBuffer>& VB, const std::shared_ptr<IndexBuffer>& IB);
+		static void BeginRenderPass();
+		static void Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline, const std::shared_ptr<VertexBuffer>& VertexBuffer, const std::shared_ptr<IndexBuffer>& IndexBuffer);
+
+		static void Submit(const Material& Mat, const std::shared_ptr<VertexBuffer>& VertexBuffer, const std::shared_ptr<IndexBuffer>& IndexBuffer);
+
 		static void EndRenderPass();
-		static void RenderFrame();
+		static void Render();
 		static void Present();
 		static void EndFrame();
 		static void FinishRendering();
 
+		static RenderAPIType GetType() { return Get()._Api->GetType(); }
+		static const char* GetName(){ return Get()._Api->GetName(); };
+
+		static ResourceFactory& GetResourceFactory();
 		static void FrameBufferReSized(int Width, int Height);
-		static Vec2 GetFrameBufferSize();
+
+	private:
+		Renderer() {}
+		~Renderer() {}
+
 	private:
 		RenderAPI* _Api;
 	};

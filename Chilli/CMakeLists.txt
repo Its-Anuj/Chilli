@@ -15,11 +15,14 @@ include_directories("Libs/SpdLog/include/")
 include_directories("Libs/VMA/include/")
 include_directories("Libs/glm/glm/")
 include_directories("Libs/Stb/")
+include_directories("Libs/SPIRV-Reflect/")
 
 add_subdirectory("Src/Renderer/")
 add_subdirectory("Libs/GLFW/")
 add_subdirectory("Libs/VMA/")
 add_subdirectory("Libs/glm/")
+
+add_library(SPIRV-Reflect STATIC  Libs/SPIRV-Reflect/spirv_reflect.c)
 
 add_library(ChilliCore STATIC ${CHILLI_CORE_SOURCES})
 

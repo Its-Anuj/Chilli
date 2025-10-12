@@ -19,15 +19,21 @@ namespace Chilli
 		_Window.SetEventCallback(CHILLI_EVENT_CALLBACK_FN(OnEvent));
 
 		Input::Init(_Window.GetRawHandle());
-
 		{
-			RendererSpec RenderSpec{};
-			RenderSpec.RenderWindow = &_Window;
-			RenderSpec.EnableValidation = true;
-			RenderSpec.InFrameFlightCount = 2;
-			RenderSpec.VSync = true;
+			RendererInitSpec Spec{};
+			
+			Spec.Type = RenderAPIType::VULKAN1_3;
+			Spec.GlfwWindow = _Window.GetRawHandle();
+			Spec.InFrameFlightCount = 2;
+			Spec.InitialWindowSize.x = _Window.GetWidth();
+			Spec.InitialWindowSize.y = _Window.GetHeight();
+			Spec.InitialFrameBufferSize.x = _Window.GetFrameBufferSize().x;
+			Spec.InitialFrameBufferSize.y = _Window.GetFrameBufferSize().y;
+			Spec.VSync = true;
+			Spec.Name = "Chilli Editor";
+			Spec.EnableValidation = false;
 
-			Renderer::Init(RenderAPITypes::VULKAN1_3, RenderSpec);
+			Renderer::Init(Spec);
 		}
 		CH_CORE_INFO("Using: {0}", Renderer::GetName());
 	}
@@ -50,8 +56,6 @@ namespace Chilli
 			float timestep = StartTime - LastTime;
 			LastTime = StartTime;
 
-			CH_CORE_INFO("{0} ms, FPS: {1}", timestep, 1.0f / timestep);
-
 			_Window.PollEvents();
 
 			for (auto layer : _Layers)
@@ -64,7 +68,6 @@ namespace Chilli
 		if (e.GetType() == FrameBufferResizeEvent::GetStaticType())
 		{
 			auto Fb = static_cast<FrameBufferResizeEvent&>(e);
-			Renderer::FrameBufferReSized(Fb.GetX(), Fb.GetY());
 		}
 		if (e.GetType() == WindowCloseEvent::GetStaticType())
 		{
@@ -75,5 +78,8 @@ namespace Chilli
 			auto keye = static_cast<KeyPressedEvent&>(e);
 			CH_CORE_INFO("Key Pressed: {0}", (keye.GetKeyCode()));
 		}
+
+		for (auto layer : _Layers)
+			layer->OnEvent(e);
 	}
 } // namespace Chilli

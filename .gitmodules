@@ -13,3 +13,6 @@
 [submodule "Chilli/Libs/Stb"]
 	path = Chilli/Libs/Stb
 	url = https://github.com/nothings/stb.git
+[submodule "Chilli/Libs/SPIRV-Reflect"]
+	path = Chilli/Libs/SPIRV-Reflect
+	url = https://github.com/KhronosGroup/SPIRV-Reflect.git
