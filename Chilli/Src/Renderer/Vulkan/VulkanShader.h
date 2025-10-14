@@ -43,7 +43,7 @@ namespace Chilli
 		virtual void Bind() override {}
 
 		VkPipelineLayout GetPipelineLayout() const { return _PipelineLayout; }
-		VkDescriptorSetLayout GetPSetLayout() const { return _Layout; }
+		const std::vector<VkDescriptorSetLayout>& GetSetLayouts() const { return _Info.SetLayouts; }
 
 		const ReflectedShaderInfo& GetInfo() const { return _Info; }
 	private:
@@ -52,7 +52,6 @@ namespace Chilli
 		VkPipeline _Pipeline = VK_NULL_HANDLE;
 		VkPipelineLayout _PipelineLayout = VK_NULL_HANDLE;
 
-		VkDescriptorSetLayout _Layout;
 		ReflectedShaderInfo _Info;
 
 	};

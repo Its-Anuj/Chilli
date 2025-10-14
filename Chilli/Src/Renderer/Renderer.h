@@ -34,7 +34,7 @@ namespace Chilli
 		static void ShutDown();
 
 		static bool BeginFrame();
-		static void BeginRenderPass();
+		static void BeginRenderPass(const RenderPass& Pass);
 		static void Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline, const std::shared_ptr<VertexBuffer>& VertexBuffer, const std::shared_ptr<IndexBuffer>& IndexBuffer);
 
 		static void Submit(const Material& Mat, const std::shared_ptr<VertexBuffer>& VertexBuffer, const std::shared_ptr<IndexBuffer>& IndexBuffer);

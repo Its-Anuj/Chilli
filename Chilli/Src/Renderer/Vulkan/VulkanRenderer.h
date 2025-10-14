@@ -80,7 +80,7 @@ namespace Chilli
 		virtual ResourceFactory& GetResourceFactory() override;
 
 		virtual bool BeginFrame() override;
-		virtual void BeginRenderPass() override; 
+		virtual void BeginRenderPass(const RenderPass& Pass) override;
 		virtual void Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline, const std::shared_ptr<VertexBuffer>& VertexBuffer
 			, const std::shared_ptr<IndexBuffer>& IndexBuffer) override;
 		virtual void Submit(const Material& Mat, const std::shared_ptr<VertexBuffer>& VertexBuffer, const std::shared_ptr<IndexBuffer>& IndexBuffer)  override;

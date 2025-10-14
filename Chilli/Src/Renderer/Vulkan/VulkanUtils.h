@@ -26,7 +26,7 @@ namespace Chilli
 		void Init(VkDevice device, const DescriptorPoolsSpec& Spec);
 		void ShutDown();
 
-		void CreateDescSets(std::vector<VkDescriptorSet>& Sets, uint32_t Count, std::vector<VkDescriptorSetLayout>& Layouts);
+		void CreateDescSets(std::vector<VkDescriptorSet>& Sets, uint32_t Count, const std::vector<VkDescriptorSetLayout>& Layouts);
 		void FreeDescSets(std::vector<VkDescriptorSet>& Sets);
 
 		VkDevice Device = VK_NULL_HANDLE;
@@ -79,7 +79,7 @@ namespace Chilli
 
 		void CopyBuffers(VkBuffer Src, VkBuffer Dst, VkBufferCopy Copy);
 
-		void CreateDescSets(std::vector<VkDescriptorSet>& Sets, uint32_t Count, std::vector<VkDescriptorSetLayout>& Layouts) { _DescPoolManager.CreateDescSets(Sets, Count, Layouts); }
+		void CreateDescSets(std::vector<VkDescriptorSet>& Sets, uint32_t Count, const  std::vector<VkDescriptorSetLayout>& Layouts) { _DescPoolManager.CreateDescSets(Sets, Count, Layouts); }
 		void FreeDescSets(std::vector<VkDescriptorSet>& Sets) { _DescPoolManager.FreeDescSets(Sets); }
 
 	private:

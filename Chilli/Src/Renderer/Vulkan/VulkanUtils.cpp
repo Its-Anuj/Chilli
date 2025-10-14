@@ -202,7 +202,7 @@ namespace Chilli
 		vkDestroyDescriptorPool(Device, _Pool, nullptr);
 	}
 
-	void DescriptorPoolManager::CreateDescSets(std::vector<VkDescriptorSet>& Sets, uint32_t Count, std::vector<VkDescriptorSetLayout>& Layouts)
+	void DescriptorPoolManager::CreateDescSets(std::vector<VkDescriptorSet>& Sets, uint32_t Count, const std::vector<VkDescriptorSetLayout>& Layouts)
 	{
 		VkDescriptorSetAllocateInfo allocInfo{};
 		allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;

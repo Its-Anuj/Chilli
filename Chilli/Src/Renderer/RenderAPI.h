@@ -2,6 +2,7 @@
 
 #include "Resources.h"
 #include "Material.h"
+#include "RenderPass.h"
 
 namespace Chilli
 {
@@ -22,7 +23,7 @@ namespace Chilli
 		virtual ResourceFactory& GetResourceFactory() = 0;
 
 		virtual bool BeginFrame() = 0;
-		virtual void BeginRenderPass() = 0;
+		virtual void BeginRenderPass(const RenderPass& Pass) = 0;
 		virtual void Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline, const std::shared_ptr<VertexBuffer>& VertexBuffer
 			, const std::shared_ptr<IndexBuffer>& IndexBuffer) = 0;
 		virtual void Submit(const Material& Mat, const std::shared_ptr<VertexBuffer>& VertexBuffer, const std::shared_ptr<IndexBuffer>& IndexBuffer) = 0;

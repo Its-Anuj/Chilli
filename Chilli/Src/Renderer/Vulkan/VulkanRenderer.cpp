@@ -7,6 +7,7 @@
 #include "VulkanRenderer.h"
 #include "VulkanUtils.h"
 #include "VulkanShader.h"
+#include "VulkanTexture.h"
 #include "VulkanBuffer.h"
 
 #include "GLFW/glfw3.h"
@@ -77,7 +78,7 @@ namespace Chilli
 			}
 		VULKAN_PRINTLN("Sync Objects ShutDown!")
 
-		VulkanUtils::ShutDown();
+			VulkanUtils::ShutDown();
 		VULKAN_PRINTLN("VulkanPoolsManager ShutDown!")
 
 			_Data.SwapChainKHR.Destroy(_Data.Device);
@@ -137,51 +138,107 @@ namespace Chilli
 		return true;
 	}
 
-	void VulkanRenderer::BeginRenderPass()
+	void VulkanRenderer::BeginRenderPass(const RenderPass& Pass)
 	{
 		auto commandBuffer = _Data.GraphicsCommandBuffers[_Data.CurrentFrameIndex];
 
-		// 🆕 TRANSITION: undefined → color attachment optimal (for rendering)
-		VkImageMemoryBarrier barrier{};
-		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-		barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		barrier.image = _Data.SwapChainKHR.GetImages()[_Data.CurrentImageIndex]; // 🆕 Use the actual image
-		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		barrier.subresourceRange.baseMipLevel = 0;
-		barrier.subresourceRange.levelCount = 1;
-		barrier.subresourceRange.baseArrayLayer = 0;
-		barrier.subresourceRange.layerCount = 1;
-		barrier.srcAccessMask = 0;
-		barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		std::vector< VkRenderingAttachmentInfo> ColorAttachments;
+		ColorAttachments.reserve(Pass.ColorAttachmentCount);
 
-		vkCmdPipelineBarrier(
-			commandBuffer,
-			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,             // Before any operations
-			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // Before color attachment output
-			0,
-			0, nullptr,
-			0, nullptr,
-			1, &barrier);
+		for (int i = 0; i < Pass.ColorAttachmentCount; i++)
+		{
+			auto AttachmentInfo = Pass.ColorAttachments[i];
+			VkRenderingAttachmentInfo colorAttachment{};
+
+			if (AttachmentInfo.UseSwapChainImage) {
+
+				// 🆕 TRANSITION: undefined → color attachment optimal (for rendering)
+				VkImageMemoryBarrier barrier{};
+				barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+				barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				barrier.image = _Data.SwapChainKHR.GetImages()[_Data.CurrentImageIndex]; // 🆕 Use the actual image
+				barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				barrier.subresourceRange.baseMipLevel = 0;
+				barrier.subresourceRange.levelCount = 1;
+				barrier.subresourceRange.baseArrayLayer = 0;
+				barrier.subresourceRange.layerCount = 1;
+				barrier.srcAccessMask = 0;
+				barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+				vkCmdPipelineBarrier(
+					commandBuffer,
+					VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,             // Before any operations
+					VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // Before color attachment output
+					0,
+					0, nullptr,
+					0, nullptr,
+					1, &barrier);
+				colorAttachment.imageView = _Data.SwapChainKHR.GetImageViews()[_Data.CurrentImageIndex];
+			}
+
+			colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+			colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // ✅ Now correct
+			colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			colorAttachment.clearValue = { {AttachmentInfo.ClearColor.r, AttachmentInfo.ClearColor.g
+,				AttachmentInfo.ClearColor.b, AttachmentInfo.ClearColor.w} };
+
+			ColorAttachments.push_back(colorAttachment);
+		}
 
 		// Continue with dynamic rendering...
 		VkRenderingInfo renderingInfo{};
+
+		VkRenderingAttachmentInfoKHR depthAttachment{};
+		if (Pass.DepthAttachment != nullptr)
+		{
+			// Depth attachment
+			auto VulkanTex = std::static_pointer_cast<VulkanTexture>(Pass.DepthAttachment->TextureAttachment);
+
+			// 🆕 TRANSITION: undefined → color attachment optimal (for rendering)
+			VkImageMemoryBarrier barrier{};
+			barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.image = VulkanTex->GetImageHandle(); // 🆕 Use the actual image
+			barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+			barrier.subresourceRange.baseMipLevel = 0;
+			barrier.subresourceRange.levelCount = 1;
+			barrier.subresourceRange.baseArrayLayer = 0;
+			barrier.subresourceRange.layerCount = 1;
+			barrier.srcAccessMask = 0;
+			barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+			vkCmdPipelineBarrier(
+				commandBuffer,
+				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,             // Before any operations
+				VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, // Before color attachment output
+				0,
+				0, nullptr,
+				0, nullptr,
+				1, &barrier);
+
+			depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+			depthAttachment.imageView = VulkanTex->GetHandle();
+			depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+			depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+			depthAttachment.clearValue.depthStencil = { 1.0f, 0 };
+	}
+
 		renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
 		renderingInfo.renderArea = { {0, 0}, _Data.SwapChainKHR.GetExtent() };
 		renderingInfo.layerCount = 1;
 
-		VkRenderingAttachmentInfo colorAttachment{};
-		colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-		colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // ✅ Now correct
-		colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-		colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-		colorAttachment.imageView = _Data.SwapChainKHR.GetImageViews()[_Data.CurrentImageIndex];
-		colorAttachment.clearValue = { {0.2f, 0.2f, 0.2f, 1.0f} };
+		renderingInfo.colorAttachmentCount = static_cast<uint32_t>(ColorAttachments.size());
+		renderingInfo.pColorAttachments = ColorAttachments.data();
 
-		renderingInfo.colorAttachmentCount = static_cast<uint32_t>(1);
-		renderingInfo.pColorAttachments = &colorAttachment;
+		renderingInfo.pDepthAttachment = &depthAttachment;
 
 		vkCmdBeginRendering(commandBuffer, &renderingInfo);
 	}
@@ -217,7 +274,7 @@ namespace Chilli
 		VkBuffer vertexBuffers[] = { VulkanVB->GetHandle() };
 		VkDeviceSize offsets[] = { 0 };
 		vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-		vkCmdBindIndexBuffer(commandBuffer, VulkanIB->GetHandle(), 0 , VK_INDEX_TYPE_UINT16);
+		vkCmdBindIndexBuffer(commandBuffer, VulkanIB->GetHandle(), 0, VK_INDEX_TYPE_UINT16);
 
 		vkCmdDraw(commandBuffer, VulkanIB->GetCount(), 1, 0, 0);
 	}
@@ -231,10 +288,10 @@ namespace Chilli
 		auto commandBuffer = _Data.GraphicsCommandBuffers[_Data.CurrentFrameIndex];
 		// Bind pipeline (created without render pass)
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VulkanPipeline->GetHandle());
-		VkDescriptorSet descriptorSet = VulkanMatBackend->GetSet();
+		std::vector<VkDescriptorSet> descriptorSet = { VulkanMatBackend->GetSet() };
 
 		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VulkanPipeline->GetPipelineLayout(),
-			0, 1, &descriptorSet, 0, nullptr);
+			0, 1, descriptorSet.data(), 0, nullptr);
 
 		// Set dynamic viewport (matches pipeline dynamic state)
 		VkViewport viewport{};

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Buffer.h"
+#include "Image.h"
 
 namespace Chilli
 {
@@ -66,6 +67,12 @@ namespace Chilli
 		InputTopologyMode TopologyMode = InputTopologyMode::Triangle_List;
 		CullMode ShaderCullMode = CullMode::Back;
 		FillMode ShaderFillMode = FillMode::Fill;
+
+		bool EnableDepthStencil = false;
+		bool EnableDepthTest = false;
+		bool EnableDepthWrite = false;
+		bool EnableStencilTest= false;
+		ImageFormat DepthFormat;
 	};
 
 	class GraphicsPipeline

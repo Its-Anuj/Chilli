@@ -37,10 +37,11 @@ namespace Chilli
 
 		const TextureSpec& GetSpec() const override { return _Spec; }
 		VkImageView GetHandle() const { return _ImageView; }
+		VkImage GetImageHandle() const { return _Image.GetHandle(); }
 		VkSampler GetSampler() const { return _Sampler; }
 	private:
 		void _CreateImageView();
-		void _CreateSampler();
+		void _CreateSampler(const TextureSpec& Spec);
 	private:
 		TextureSpec _Spec;
 		VulkanImage _Image;

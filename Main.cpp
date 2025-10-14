@@ -1,6 +1,8 @@
 #include "Ch_PCH.h"
 #include "Chilli/Chilli.h"
-#include "glm.hpp"
+#define GLM_FORCE_RADIANS
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>	
 
 class Editor : public Chilli::Layer
 {
@@ -10,7 +12,18 @@ public:
 
 	struct UBO
 	{
-		glm::mat4 View, Proj, Transform;
+		glm::mat4 Transform;
+	};
+
+	struct GlobalUBO
+	{
+		glm::mat4 ViewProjMatrix;
+	};
+
+	struct BirdData
+	{
+		glm::vec3 Position{ 0.0f };
+		glm::vec3 Scale{ 0.2f };
 	};
 
 	virtual void Init() override
@@ -23,11 +36,41 @@ public:
 
 		{
 			const std::vector<Vertex> Vertices = {
-				//   Position              //    UV
-				{{ 0.5f, -0.5f, 0.0f },   { 1.0f, 1.0f }},  // Bottom-right
-				{{ 0.5f,  0.5f, 0.0f },   { 1.0f, 0.0f }},  // Top-right
-				{{-0.5f,  0.5f, 0.0f },   { 0.0f, 0.0f }},  // Top-left
-				{{-0.5f, -0.5f, 0.0f },   { 0.0f, 1.0f }}   // Bottom-left
+				// Front face
+				{{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}},
+				{{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.0f}},
+				{{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f}},
+				{{-0.5f,  0.5f,  0.5f}, {0.0f, 1.0f}},
+
+				// Back face
+				{{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f}},
+				{{ 0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}},
+				{{ 0.5f,  0.5f, -0.5f}, {0.0f, 1.0f}},
+				{{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f}},
+
+				// Left face
+				{{-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}},
+				{{-0.5f, -0.5f,  0.5f}, {1.0f, 0.0f}},
+				{{-0.5f,  0.5f,  0.5f}, {1.0f, 1.0f}},
+				{{-0.5f,  0.5f, -0.5f}, {0.0f, 1.0f}},
+
+				// Right face
+				{{ 0.5f, -0.5f, -0.5f}, {1.0f, 0.0f}},
+				{{ 0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}},
+				{{ 0.5f,  0.5f,  0.5f}, {0.0f, 1.0f}},
+				{{ 0.5f,  0.5f, -0.5f}, {1.0f, 1.0f}},
+
+				// Top face
+				{{-0.5f,  0.5f,  0.5f}, {0.0f, 0.0f}},
+				{{ 0.5f,  0.5f,  0.5f}, {1.0f, 0.0f}},
+				{{ 0.5f,  0.5f, -0.5f}, {1.0f, 1.0f}},
+				{{-0.5f,  0.5f, -0.5f}, {0.0f, 1.0f}},
+
+				// Bottom face
+				{{-0.5f, -0.5f,  0.5f}, {0.0f, 1.0f}},
+				{{ 0.5f, -0.5f,  0.5f}, {1.0f, 1.0f}},
+				{{ 0.5f, -0.5f, -0.5f}, {1.0f, 0.0f}},
+				{{-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}}
 			};
 
 			Chilli::VertexBufferSpec Spec{};
@@ -39,8 +82,12 @@ public:
 		}
 		{
 			const std::vector<uint16_t> Indicies = {
-			   0, 1, 2,   // First triangle
-			   2, 3, 0    // Second triangle
+	0, 1, 2, 2, 3, 0,       // Front
+	4, 5, 6, 6, 7, 4,       // Back
+	8, 9,10,10,11, 8,       // Left
+   12,13,14,14,15,12,       // Right
+   16,17,18,18,19,16,       // Top
+   20,21,22,22,23,20        // Bottom
 			};
 
 			Chilli::IndexBufferSpec Spec{};
@@ -50,39 +97,66 @@ public:
 			Spec.State = Chilli::BufferState::STATIC_DRAW;
 			IndexBuffer = Chilli::Renderer::GetResourceFactory().CreateIndexBuffer(Spec);
 		}
-		UniformBuffer = Chilli::Renderer::GetResourceFactory().CreateUniformBuffer(sizeof(UBO));
+		GlobalUB = Chilli::Renderer::GetResourceFactory().CreateUniformBuffer(sizeof(GlobalUBO));
+		BirdUBO = Chilli::Renderer::GetResourceFactory().CreateUniformBuffer(sizeof(UBO));
 		{
 			Chilli::PipelineSpec Spec{};
 			Spec.Paths[0] = "vert.spv";
 			Spec.Paths[1] = "frag.spv";
 			Spec.ShaderCullMode = Chilli::CullMode::Back;
+			Spec.EnableDepthStencil = true;
+			Spec.EnableDepthTest = true;
+			Spec.EnableDepthWrite = true;
+			Spec.EnableStencilTest= true;
+			Spec.DepthFormat = Chilli::ImageFormat::D24_S8;
 
 			Shader = Chilli::Renderer::GetResourceFactory().CreateGraphicsPipeline(Spec);
 		}
 		{
 			Chilli::TextureSpec Spec{};
-			Spec.FilePath = "A.png";
-			Spec.Tiling = Chilli::ImageTiling::IMAGE_TILING_OPTIONAL;
+			Spec.FilePath = "flappy-bird.png";
+			Spec.Tiling = Chilli::ImageTiling::IMAGE_TILING_OPTIOMAL;
 			Spec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
+			Spec.Mode = Chilli::SamplerMode::REPEAT;
+			Spec.Filter = Chilli::SamplerFilter::LINEAR;
 
 			Texture = Chilli::Renderer::GetResourceFactory().CreateTexture(Spec);
 		}
 		{
-			Mat.SetShader(Shader);
-			Mat.SetUniformBuffer("ubo", UniformBuffer);
-			Mat.SetTexture("Tex", Texture);
+			Chilli::TextureSpec Spec{};
+			Spec.FilePath = nullptr;
+			Spec.Tiling = Chilli::ImageTiling::IMAGE_TILING_OPTIOMAL;
+			Spec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
+			Spec.Format = Chilli::ImageFormat::D24_S8;
+			Spec.Resolution = { 800, 600 };
+			Spec.Usage = Chilli::ImageUsage::DEPTH;
 
-			Mat.Update();
+			DepthTexture = Chilli::Renderer::GetResourceFactory().CreateTexture(Spec);
 		}
-	}
+		{
+			Mat1.SetShader(Shader);
+			Mat1.SetUniformBuffer("GlobalUBO", GlobalUB);
+			Mat1.SetUniformBuffer("ubo", BirdUBO);
+			Mat1.SetTexture("Tex", Texture);
 
-	void UpdateUBO()
-	{
-		UBO ubo;
-		ubo.Transform = glm::mat4(1.0f);
-		ubo.View = glm::mat4(1.0f);
-		ubo.Proj = glm::mat4(1.0f);
-		UniformBuffer->MapData((void*)&ubo, sizeof(ubo));
+			Mat1.Update();
+		}
+		// Projection matrix (800x600 resolution, 45° FOV)
+		glm::mat4 projection = glm::perspective(
+			glm::radians(45.0f),      // Field of view
+			800.0f / 600.0f,          // Aspect ratio (800x600)
+			0.1f, 100.0f              // Near and far planes
+		);
+
+		// View matrix (camera at Z = -3, looking at origin)
+		glm::mat4 view = glm::lookAt(
+			glm::vec3(0.0f, 0.0f, 2.0f),  // Camera position (back 3 units)
+			glm::vec3(0.0f, 0.0f, 0.0f),   // Look at origin
+			glm::vec3(0.0f, 1.0f, 0.0f)    // Up vector
+		);
+
+		globalobject.ViewProjMatrix = projection * view;  // View-projection matrix
+		GlobalUB->MapData((void*)&globalobject, sizeof(globalobject));
 	}
 
 	virtual void Update() override
@@ -91,11 +165,27 @@ public:
 		if (!Continue)
 			return;
 
-		Chilli::Renderer::BeginRenderPass();
+		Chilli::ColorAttachment ColorAttachment{};
+		ColorAttachment.UseSwapChainImage = true;
+		ColorAttachment.ClearColor = { 0.2f, 0.2f, 0.2f, 1.0f };
 
-		UpdateUBO();
+		Chilli::DepthAttachment DepthAttachment{};
+		DepthAttachment.TextureAttachment = DepthTexture;
 
-		Chilli::Renderer::Submit(Mat, VertexBuffer, IndexBuffer);
+		RenderPass.ColorAttachmentCount = 1;
+		RenderPass.ColorAttachments = &ColorAttachment;
+		RenderPass.DepthAttachment = &DepthAttachment;
+
+		Chilli::Renderer::BeginRenderPass(RenderPass);
+
+		static float decrease = 0.0f;
+		UBO ubo;
+		ubo.Transform = glm::translate(glm::mat4(1.0f), BirdData.Position);
+		ubo.Transform = glm::rotate(ubo.Transform, 45.0f, glm::vec3(0.0f, 1.0f, 0.0f));
+		BirdUBO->MapData((void*)&ubo, sizeof(ubo));
+
+		Chilli::Renderer::Submit(Mat1, VertexBuffer, IndexBuffer);
+
 		Chilli::Renderer::EndRenderPass();
 
 		Chilli::Renderer::Render();
@@ -109,8 +199,10 @@ public:
 		Chilli::Renderer::GetResourceFactory().DestroyGraphicsPipeline(Shader);
 		Chilli::Renderer::GetResourceFactory().DestroyVertexBuffer(VertexBuffer);
 		Chilli::Renderer::GetResourceFactory().DestroyIndexBuffer(IndexBuffer);
-		Chilli::Renderer::GetResourceFactory().DestroyUniformBuffer(UniformBuffer);
+		Chilli::Renderer::GetResourceFactory().DestroyUniformBuffer(GlobalUB);
+		Chilli::Renderer::GetResourceFactory().DestroyUniformBuffer(BirdUBO);
 		Chilli::Renderer::GetResourceFactory().DestroyTexture(Texture);
+		Chilli::Renderer::GetResourceFactory().DestroyTexture(DepthTexture);
 	}
 
 	virtual void OnEvent(Chilli::Event& e) override {
@@ -125,9 +217,13 @@ private:
 	std::shared_ptr<Chilli::GraphicsPipeline> Shader;
 	std::shared_ptr<Chilli::VertexBuffer> VertexBuffer;
 	std::shared_ptr<Chilli::IndexBuffer> IndexBuffer;
-	std::shared_ptr<Chilli::UniformBuffer> UniformBuffer;
-	std::shared_ptr<Chilli::Texture> Texture;
-	Chilli::Material Mat;
+	std::shared_ptr<Chilli::UniformBuffer> GlobalUB;
+	std::shared_ptr<Chilli::UniformBuffer> BirdUBO;
+	std::shared_ptr<Chilli::Texture> Texture, DepthTexture;
+	GlobalUBO globalobject;
+	Chilli::Material Mat1;
+	Chilli::RenderPass RenderPass{};
+	BirdData BirdData;
 };
 
 int main()

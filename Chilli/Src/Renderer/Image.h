@@ -4,11 +4,15 @@ namespace Chilli
 {
 	enum class ImageFormat
 	{
-		RGBA8
+		RGBA8,
+		D32,
+		D24_S8,
+		D32_S8
 	};
 
-	enum class ImageLayout
+	enum class ImageUsage
 	{
+		SAMPLED,
 		COLOR,
 		DEPTH
 	};
@@ -22,7 +26,7 @@ namespace Chilli
 
 	enum class ImageTiling
 	{
-		IMAGE_TILING_OPTIONAL
+		IMAGE_TILING_OPTIOMAL
 	};
 
 	struct ImageSpec
@@ -33,7 +37,8 @@ namespace Chilli
 		void* ImageData = nullptr;
 		ImageFormat Format = ImageFormat::RGBA8;
 		ImageType Type = ImageType::IMAGE_TYPE_2D;
-		ImageTiling Tiling = ImageTiling::IMAGE_TILING_OPTIONAL;
+		ImageTiling Tiling = ImageTiling::IMAGE_TILING_OPTIOMAL;
+		ImageUsage Usage = ImageUsage::COLOR;
 	};
 
 	class Image

@@ -155,7 +155,7 @@ namespace Chilli
 		spvReflectEnumerateInputVariables(&module, &VertexInputCount, nullptr);
 		std::vector<SpvReflectInterfaceVariable*> VertexInputs(VertexInputCount);
 		spvReflectEnumerateInputVariables(&module, &VertexInputCount, VertexInputs.data());
-		
+
 		uint32_t VertexInputOffset = 0;
 
 		for (auto* VertexInputInfo : VertexInputs)
@@ -180,7 +180,6 @@ namespace Chilli
 		std::vector<SpvReflectDescriptorSet*> sets(setCount);
 		spvReflectEnumerateDescriptorSets(&module, &setCount, sets.data());
 
-		uint32_t SetLayoutIndex = 0;
 		for (auto* set : sets)
 		{
 			std::vector<VkDescriptorSetLayoutBinding> bindings;
@@ -210,13 +209,11 @@ namespace Chilli
 
 				UniformInfo.Count = 1;
 				UniformInfo.pImmutableSamplers = nullptr;
-				UniformInfo.SetLayoutIndex = SetLayoutIndex;
+				UniformInfo.SetLayoutIndex = refl.set;
 				UniformInfo.Name = refl.name ? refl.name : "";
 
 				info.Bindings.push_back(UniformInfo);
 			}
-
-			SetLayoutIndex++;
 		}
 
 		// ---------- Reflect Push Constants ----------
@@ -291,7 +288,6 @@ namespace Chilli
 		size_t Stride = 0;
 
 		_FillInfo();
-		_Layout = _Info.SetLayouts[0];
 
 		std::vector<VkVertexInputAttributeDescription> NewAttributeDescriptions;
 		NewAttributeDescriptions.reserve(_Info.VertexInputs.size());
@@ -372,6 +368,7 @@ namespace Chilli
 			colorBlending.attachmentCount = 1;
 			colorBlending.pAttachments = &colorBlendAttachment;
 		}
+
 		// Dynamic state
 		std::vector<VkDynamicState> dynamicStates = {
 			VK_DYNAMIC_STATE_VIEWPORT,
@@ -389,10 +386,19 @@ namespace Chilli
 		renderingInfo.colorAttachmentCount = 1;
 		renderingInfo.pColorAttachmentFormats = &SwapChainFormat;
 
+		if (Spec.EnableDepthStencil) {
+			if (Spec.DepthFormat == ImageFormat::D24_S8)
+				renderingInfo.depthAttachmentFormat = VK_FORMAT_D24_UNORM_S8_UINT;
+			else if (Spec.DepthFormat == ImageFormat::D32)
+				renderingInfo.depthAttachmentFormat = VK_FORMAT_D32_SFLOAT;
+			else if (Spec.DepthFormat == ImageFormat::D32_S8)
+				renderingInfo.depthAttachmentFormat = VK_FORMAT_D32_SFLOAT_S8_UINT;
+		}
+
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.pSetLayouts = &_Layout;
-		pipelineLayoutInfo.setLayoutCount = 1;
+		pipelineLayoutInfo.pSetLayouts = _Info.SetLayouts.data();
+		pipelineLayoutInfo.setLayoutCount = (uint32_t)_Info.SetLayouts.size();
 
 		vkCreatePipelineLayout(Device, &pipelineLayoutInfo, nullptr, &_PipelineLayout);
 
@@ -414,6 +420,20 @@ namespace Chilli
 		pipelineInfo.renderPass = VK_NULL_HANDLE; // No render pass with dynamic rendering
 		pipelineInfo.subpass = 0;
 
+		VkPipelineDepthStencilStateCreateInfo depthStencil{};
+
+		if (Spec.EnableDepthStencil)
+		{
+			// Depth stencil state - THIS IS KEY!
+			depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+			depthStencil.depthTestEnable = Spec.EnableDepthTest;
+			depthStencil.depthWriteEnable = Spec.EnableDepthWrite;
+			depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+			depthStencil.depthBoundsTestEnable = VK_FALSE;
+			depthStencil.stencilTestEnable = Spec.EnableStencilTest;
+			pipelineInfo.pDepthStencilState = &depthStencil;
+		}
+
 		vkCreateGraphicsPipelines(Device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &_Pipeline);
 
 		// Cleanup shader modules
@@ -423,7 +443,8 @@ namespace Chilli
 
 	void VulkanGraphicsPipeline::Destroy(VkDevice Device)
 	{
-		vkDestroyDescriptorSetLayout(Device, _Layout, nullptr);
+		for (auto layout : _Info.SetLayouts)
+			vkDestroyDescriptorSetLayout(Device, layout, nullptr);
 		vkDestroyPipelineLayout(Device, _PipelineLayout, nullptr);
 		vkDestroyPipeline(Device, _Pipeline, nullptr);
 	}
@@ -445,7 +466,7 @@ namespace Chilli
 			_Info.Bindings.push_back(i);
 
 		std::vector<VkDescriptorSetLayout> Layouts;
-		
+
 		std::vector<int> UniqueSetNums;
 
 		for (auto& BindingInfo : _Info.Bindings)
@@ -483,7 +504,7 @@ namespace Chilli
 						layoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 					if (BindingInfo.Stage == ShaderStageType::FRAGMENT)
 						layoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-					
+
 					Bindings.push_back(layoutBinding);
 				}
 			}
@@ -499,5 +520,5 @@ namespace Chilli
 				throw std::runtime_error("Failed to create descriptor set layout!");
 			_Info.SetLayouts.push_back(setLayout);
 		}
-	} 
+	}
 }

@@ -42,9 +42,9 @@ namespace Chilli
 		return Get()._Api->BeginFrame();
 	}
 
-	void Renderer::BeginRenderPass()
+	void Renderer::BeginRenderPass(const RenderPass& Pass)
 	{
-		Get()._Api->BeginRenderPass();;
+		Get()._Api->BeginRenderPass(Pass);;
 	}
 
 	void Renderer::Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline, const std::shared_ptr<VertexBuffer>& VertexBuffer

@@ -94,8 +94,7 @@ namespace Chilli
 	{
 		auto VulkanPipeleine = std::static_pointer_cast<VulkanGraphicsPipeline>(Shader);
 		std::vector<VkDescriptorSet> Sets;
-		std::vector<VkDescriptorSetLayout> Layouts = { VulkanPipeleine->GetPSetLayout() };
-		VulkanUtils::GetPoolManager().CreateDescSets(Sets, 1, Layouts);
+		VulkanUtils::GetPoolManager().CreateDescSets(Sets, VulkanPipeleine->GetSetLayouts().size(), VulkanPipeleine->GetSetLayouts());
 		_Set = Sets[0];
 	}
 
@@ -119,6 +118,14 @@ namespace Chilli
 		BufferInfos.reserve(UBOs.size());
 		std::vector < VkDescriptorImageInfo> ImageInfos{};
 		ImageInfos.reserve(UBOs.size());
+
+		std::set<uint32_t> SetLayoutIndexes;
+		for (auto& BindingInfo : Info.Bindings)
+		{
+			SetLayoutIndexes.insert(BindingInfo.SetLayoutIndex);
+		}
+
+		uint32_t i = 0;
 
 		for (auto& BindingInfo : Info.Bindings)
 		{
@@ -156,14 +163,14 @@ namespace Chilli
 			}
 
 			WriteInfo.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			WriteInfo.dstSet = _Set;;
 			WriteInfo.dstBinding = BindingInfo.Binding;
 			WriteInfo.dstArrayElement = 0;
-			WriteInfo.descriptorCount = 1;
+			WriteInfo.descriptorCount = BindingInfo.Count;
+
+			WriteInfo.dstSet = _Set;;
 
 			WriteSets.push_back(WriteInfo);
 		}
-
 
 		auto Device = VulkanUtils::GetLogicalDevice();
 		vkUpdateDescriptorSets(Device, static_cast<uint32_t>(WriteSets.size()), WriteSets.data(), 0, nullptr);

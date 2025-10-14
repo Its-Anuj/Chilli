@@ -32,7 +32,7 @@ namespace Chilli
 	{
 		switch (Tiling)
 		{
-		case ImageTiling::IMAGE_TILING_OPTIONAL:
+		case ImageTiling::IMAGE_TILING_OPTIOMAL:
 			return VK_IMAGE_TILING_OPTIMAL;
 		};
 	}
@@ -63,14 +63,25 @@ namespace Chilli
 		};
 	}
 
-	VkImageLayout ImageLayoutToVk(ImageLayout Layout)
+	VkImageLayout ImageLayoutToVk(ImageUsage Layout)
 	{
 		switch (Layout)
 		{
-		case ImageLayout::COLOR:
+		case ImageUsage::COLOR:
 			return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		case ImageLayout::DEPTH:
+		case ImageUsage::DEPTH:
 			return VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+		}
+	}
+
+	VkFormatFeatureFlags GetFeatureFromUsage(ImageUsage Usage)
+	{
+		switch (Usage)
+		{
+		case ImageUsage::DEPTH:
+			return VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+		case ImageUsage::COLOR:
+			return VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
 		}
 	}
 
@@ -80,7 +91,26 @@ namespace Chilli
 		{
 		case ImageFormat::RGBA8:
 			return VK_FORMAT_R8G8B8A8_SRGB;
+		case ImageFormat::D32:
+			return VK_FORMAT_D32_SFLOAT;
+		case ImageFormat::D24_S8:
+			return VK_FORMAT_D24_UNORM_S8_UINT;
+		case ImageFormat::D32_S8:
+			return VK_FORMAT_D32_SFLOAT_S8_UINT;
 		}
+	}
+
+	bool DoesVkFormatExist(VkPhysicalDevice physicalDevice, const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features)
+	{
+		for (VkFormat format : candidates) {
+			VkFormatProperties props;
+			vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &props);
+			if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features)
+				return true;
+			else if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features)
+				return true;
+		}
+		return false;
 	}
 
 	std::tuple<VkImage, VmaAllocation, VmaAllocationInfo> CreateVulkanImage(VmaAllocator Allocator, const CreateVulkanImageSpec& Spec)
@@ -179,7 +209,7 @@ namespace Chilli
 		info.subresourceRange.levelCount = 1;
 		info.subresourceRange.baseArrayLayer = 0;
 		info.subresourceRange.layerCount = 1;
-		
+
 		VkImageView View;
 
 		VULKAN_SUCCESS_ASSERT(vkCreateImageView(Device, &info, nullptr, &View), "[VULKAN]: Image View failed!");
@@ -203,7 +233,15 @@ namespace Chilli
 		Info.Format = FormatToVk(_Spec.Format);
 		Info.Samples = VK_SAMPLE_COUNT_1_BIT;
 		Info.SharingMode = VK_SHARING_MODE_EXCLUSIVE;
-		Info.Usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+
+		if (_Spec.Usage == ImageUsage::COLOR)
+			Info.Usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+		else if (_Spec.Usage == ImageUsage::DEPTH)
+			Info.Usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+
+		if (!DoesVkFormatExist(VulkanUtils::GetDevice().GetPhysicalDevice()->PhysicalDevice, { Info.Format }
+			, Info.Tiling, GetFeatureFromUsage(_Spec.Usage)))
+			VULKAN_ERROR("Format is not Supported!");
 
 		auto [Image, Allocation, AllocInfo] = CreateVulkanImage(VulkanUtils::GetVulkanAllocator().GetAllocator(), Info);
 		_Image = Image;
@@ -218,7 +256,7 @@ namespace Chilli
 	{
 		if (_Image == VK_NULL_HANDLE)
 			return;
-		vmaDestroyImage(VulkanUtils::GetVulkanAllocator().GetAllocator(), _Image, _Allocation); 
+		vmaDestroyImage(VulkanUtils::GetVulkanAllocator().GetAllocator(), _Image, _Allocation);
 	}
 
 	void VulkanImage::LoadImageData(void* ImageData)
@@ -288,21 +326,34 @@ namespace Chilli
 
 	void VulkanTexture::Init(const TextureSpec& Spec)
 	{
+		_Spec = Spec;
+
 		void* pixels = nullptr;
-
-		// Load image data using stb_image
 		int texWidth, texHeight, texChannels;
-		pixels = (void*)stbi_load(Spec.FilePath, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-
-		if (!pixels)
-			throw std::runtime_error("failed to load texture image!");
-
+		
 		ImageSpec ImgSpec{};
-		ImgSpec.Format = ImageFormat::RGBA8;
+		
+		if (Spec.FilePath != nullptr)
+		{
+			stbi_set_flip_vertically_on_load(Spec.YFlip);
+
+			// Load image data using stb_image
+			pixels = (void*)stbi_load(Spec.FilePath, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+
+			if (!pixels)
+				throw std::runtime_error("failed to load texture image!");
+			ImgSpec.Resolution = { texWidth, texHeight };
+		}
+		else
+		{
+			ImgSpec.Resolution = { Spec.Resolution.Width, Spec.Resolution.Height };
+		}
+
+		ImgSpec.Format = Spec.Format;
 		ImgSpec.Tiling = Spec.Tiling;
 		ImgSpec.Type = Spec.Type;
-		ImgSpec.Resolution = {texWidth, texHeight};
 		ImgSpec.ImageData = pixels;
+		ImgSpec.Usage = Spec.Usage;
 
 		_Image.Init(ImgSpec);
 
@@ -310,27 +361,63 @@ namespace Chilli
 			stbi_image_free((stbi_uc*)pixels);
 
 		_CreateImageView();
-		_CreateSampler();
+
+		if (ImgSpec.Usage == ImageUsage::COLOR)
+			_CreateSampler(Spec);
 	}
 
 	void VulkanTexture::_CreateImageView()
 	{
+		VkImageAspectFlags AspectFlag;
+
+		if (_Image.GetSpec().Usage == ImageUsage::COLOR)
+			AspectFlag = VK_IMAGE_ASPECT_COLOR_BIT;
+		if (_Image.GetSpec().Usage == ImageUsage::DEPTH)
+			AspectFlag = VK_IMAGE_ASPECT_DEPTH_BIT;
+
 		_ImageView = CreateImageView(VulkanUtils::GetLogicalDevice(), _Image.GetHandle(),
-			FormatToVk(_Image.GetSpec().Format), VK_IMAGE_ASPECT_COLOR_BIT
+			FormatToVk(_Image.GetSpec().Format), AspectFlag
 			, ImageViewTypeToVk(_Image.GetSpec().Type));
 	}
 
-	void VulkanTexture::_CreateSampler()
+	VkSamplerAddressMode SamplerModeToVk(SamplerMode Mode)
+	{
+		switch (Mode)
+		{
+		case SamplerMode::REPEAT:
+			return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+		case SamplerMode::CLAMP_TO_BORDER:
+			return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+		case SamplerMode::CLAMP_TO_EDGE:
+			return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		case SamplerMode::MIRRORED_REPEAT:
+			return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+		}
+	}
+
+	VkFilter SamplerFilterToVk(SamplerFilter Filter)
+	{
+		switch (Filter)
+		{
+		case SamplerFilter::LINEAR:
+			return VK_FILTER_LINEAR;
+		case SamplerFilter::NEAREST:
+			return VK_FILTER_NEAREST;
+		}
+	}
+
+	void VulkanTexture::_CreateSampler(const TextureSpec& Spec)
 	{
 		VkSamplerCreateInfo samplerInfo{};
 		samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-		samplerInfo.magFilter = VK_FILTER_LINEAR;
-		samplerInfo.minFilter = VK_FILTER_LINEAR;
-		samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-		samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-		samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-		samplerInfo.anisotropyEnable = VK_TRUE;
+		samplerInfo.magFilter = SamplerFilterToVk(Spec.Filter);
+		samplerInfo.minFilter = SamplerFilterToVk(Spec.Filter);
 
+		samplerInfo.addressModeU = SamplerModeToVk(Spec.Mode);
+		samplerInfo.addressModeV = SamplerModeToVk(Spec.Mode);
+		samplerInfo.addressModeW = SamplerModeToVk(Spec.Mode);
+
+		samplerInfo.anisotropyEnable = VK_TRUE;
 		samplerInfo.maxAnisotropy = VulkanUtils::GetDevice().GetPhysicalDevice()->Info.features.samplerAnisotropy;
 
 		samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;

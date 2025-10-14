@@ -43,8 +43,8 @@ On ColorAttachment.UseSwapChainTexture the RenderPass allows the attachment to r
 
 ````````
 		Chilli::ColorAttachment ColorAttachment{};
-		ColorAttachment.UseSwapChainTexture = true;
-		ColorAttachment.ClearColor = { 0.4f, 0.8f, 0.4f, 1.0f };
+		ColorAttachment.UseSwapChainImage = true;
+		ColorAttachment.ClearColor = { 0.2f, 0.2f, 0.2f, 1.0f };
 ````````
 
 ### 2. Depth Attachment
@@ -53,10 +53,7 @@ We have to provide a pre made Depth Texture
 
 ````````
 		Chilli::DepthAttachment DepthAttachment{};
-		DepthAttachment.DepthTexture = DepthTexture;
-		DepthAttachment.Planes.Far = 1.0f;
-		DepthAttachment.Planes.Near = 0;
-		DepthAttachment.UseSwapChainTexture = false;
+		DepthAttachment.TextureAttachment = DepthTexture;
 ````````
 
 ### 3. RenderPass(NEW)
@@ -64,10 +61,10 @@ We have to provide a pre made Depth Texture
 Based on vulkan dynamic rendering info also allowing multiple color attachments and only a single depth attachment
 
 ````````
-		Chilli::BeginRenderPassInfo NormalPassInfo;
-		NormalPassInfo.ColorAttachments = &ColorAttachment;
-		NormalPassInfo.ColorAttachmentCount = 1;
-		NormalPassInfo.DepthAttachment = DepthAttachment;
+		Chilli::RenderPass RenderPass;
+		RenderPass.ColorAttachmentCount = 1;
+		RenderPass.ColorAttachments = &ColorAttachment;
+		RenderPass.DepthAttachment = &DepthAttachment;
 ````````
 
 ### 4. Texture(NEW)
@@ -75,63 +72,54 @@ Based on vulkan dynamic rendering info also allowing multiple color attachments 
 ## a. Image Texture
 
 ````````
-		Chilli::TextureSpec Spec{};
-		Spec.FilePath = "A.png";
-		Spec.Format = Chilli::ImageFormat::RGBA8;
-		Spec.Tiling = Chilli::ImageTiling::IMAGE_TILING_OPTIONAL;
-		Spec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
-		Spec.Aspect = Chilli::ImageAspect::COLOR;
+	Chilli::TextureSpec Spec{};
+	Spec.FilePath = "flappy-bird.png";
+	Spec.Tiling = Chilli::ImageTiling::IMAGE_TILING_OPTIOMAL;
+	Spec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
+	Spec.Mode = Chilli::SamplerMode::REPEAT;
+	Spec.Filter = Chilli::SamplerFilter::LINEAR;
 
-		Texture = Chilli::Renderer::GetResourceFactory()->CreateTexture(Spec);
+	Texture = Chilli::Renderer::GetResourceFactory().CreateTexture(Spec);
+		
 ````````
 
 ## b. Depth Texture
 
 ````````
-		Chilli::TextureSpec Spec{};
-		Spec.Resolution.Width = Chilli::Renderer::GetFrameBufferSize().x;
-		Spec.Resolution.Height = Chilli::Renderer::GetFrameBufferSize().y;
-		Spec.Format = Chilli::ImageFormat::D32_FLOAT;
-		Spec.Tiling = Chilli::ImageTiling::IMAGE_TILING_OPTIONAL;
-		Spec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
-		Spec.ImageData = nullptr;
-		Spec.FilePath = nullptr;
-		Spec.Aspect = Chilli::ImageAspect::DEPTH;
+			Chilli::TextureSpec Spec{};
+			Spec.FilePath = nullptr;
+			Spec.Tiling = Chilli::ImageTiling::IMAGE_TILING_OPTIOMAL;
+			Spec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
+			Spec.Format = Chilli::ImageFormat::D24_S8;
+			Spec.Resolution = { 800, 600 };
+			Spec.Usage = Chilli::ImageUsage::DEPTH;
 
-		DepthTexture = Chilli::Renderer::GetResourceFactory()->CreateTexture(Spec);
+			DepthTexture = Chilli::Renderer::GetResourceFactory().CreateTexture(Spec);
 ````````
 
-## c. Checkerboard Texture
+### 6. Material
+
+## Creation
+````````
+			Chilli::Material Mat1;
+			Mat1.SetShader(Shader);
+			Mat1.SetUniformBuffer("GlobalUBO", GlobalUB);
+			Mat1.SetUniformBuffer("ubo", BirdUBO);
+			Mat1.SetTexture("Tex", Texture);
+
+			Mat1.Update();
+````````
+
+Using to provide a Uniform Buffer
 
 ````````
-		Chilli::TextureSpec Spec{};
+		static float decrease = 0.0f;
+		UBO ubo;
+		ubo.Transform = glm::translate(glm::mat4(1.0f), BirdData.Position);
+		ubo.Transform = glm::rotate(ubo.Transform, 45.0f, glm::vec3(0.0f, 1.0f, 0.0f));
+		BirdUBO->MapData((void*)&ubo, sizeof(ubo));
 
-		Spec.Format = Chilli::ImageFormat::RGBA8;
-		Spec.Tiling = Chilli::ImageTiling::IMAGE_TILING_OPTIONAL;
-		Spec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
-		Spec.Resolution.Width = 800;
-		Spec.Resolution.Height = 800;
-		Spec.FilePath = nullptr;
-		Spec.Aspect = Chilli::ImageAspect::COLOR;
-
-		uint32_t* ImageData = new uint32_t[800 * 800];
-		for (int y = 0; y < 800; y++)
-		{
-			for (int x = 0; x < 800; x++)
-			{
-				if ((x / 50 + y / 50) % 2 == 0) {
-					ImageData[y * 800 + x] = 0xFFFF0000;
-				}
-				else {
-					ImageData[y * 800 + x] = 0xFF0000FF;
-				}
-			}
-		}
-
-		Spec.ImageData = ImageData;
-
-		WhiteTexture = Chilli::Renderer::GetResourceFactory()->CreateTexture(Spec);
-		delete[] ImageData;
+		Chilli::Renderer::Submit(Mat1, VertexBuffer, IndexBuffer);
 ````````
 
 ### 5. New Features in New Renderer
@@ -163,15 +151,34 @@ Based on vulkan dynamic rendering info also allowing multiple color attachments 
 ### 2. Render Loop
 
 ````````
-		Chilli::Renderer::BeginFrame();
+		bool Continue = Chilli::Renderer::BeginFrame();
+		if (!Continue)
+			return;
 
-		Chilli::Renderer::BeginRenderPass();
+		Chilli::ColorAttachment ColorAttachment{};
+		ColorAttachment.UseSwapChainImage = true;
+		ColorAttachment.ClearColor = { 0.2f, 0.2f, 0.2f, 1.0f };
 
-		Chilli::Renderer::Submit(Shader, VertexBuffer, IndexBuffer);
+		Chilli::DepthAttachment DepthAttachment{};
+		DepthAttachment.TextureAttachment = DepthTexture;
+
+		RenderPass.ColorAttachmentCount = 1;
+		RenderPass.ColorAttachments = &ColorAttachment;
+		RenderPass.DepthAttachment = &DepthAttachment;
+
+		Chilli::Renderer::BeginRenderPass(RenderPass);
+
+		static float decrease = 0.0f;
+		UBO ubo;
+		ubo.Transform = glm::translate(glm::mat4(1.0f), BirdData.Position);
+		ubo.Transform = glm::rotate(ubo.Transform, 45.0f, glm::vec3(0.0f, 1.0f, 0.0f));
+		BirdUBO->MapData((void*)&ubo, sizeof(ubo));
+
+		Chilli::Renderer::Submit(Mat1, VertexBuffer, IndexBuffer);
 
 		Chilli::Renderer::EndRenderPass();
 
-		Chilli::Renderer::RenderFrame();
+		Chilli::Renderer::Render();
 		Chilli::Renderer::Present();
 
 		Chilli::Renderer::EndFrame();
@@ -183,12 +190,15 @@ Based on vulkan dynamic rendering info also allowing multiple color attachments 
 		Chilli::Renderer::GetResourceFactory()->DestroyVertexBuffer(VertexBuffer);
 ````````
 
+## Examples
+![3d Cube ](Screenshots/image-2.png)
+
 ## Screenshots
 
 _Add screenshots of your application here!_
 
-![Screenshot](image.png)
-![New CheckerBoard Texture](image-1.png)
+![Screenshot](Screenshots/image.png)
+![New CheckerBoard Texture](Screenshots/image-1.png)
 ---
 
 For more details, see the documentation and source code.

@@ -13,9 +13,12 @@ namespace Chilli
 		virtual void Update(const std::shared_ptr<GraphicsPipeline>& Shader,
 			const std::unordered_map<std::string, std::shared_ptr<UniformBuffer>>& UBOs,
 			const std::unordered_map<std::string, std::shared_ptr<Texture>>& Textures) override;
+
+		VkDescriptorSet GetGlobalSet() const { return _GlobalSet; }
 		VkDescriptorSet GetSet() const { return _Set; }
 	private:
-		VkDescriptorSet _Set;
+		VkDescriptorSet _GlobalSet ;// Having Set Index 0
+		VkDescriptorSet _Set; // Having Set Index 1
 	};
 
 	struct VulkanResourceFactorySpec
