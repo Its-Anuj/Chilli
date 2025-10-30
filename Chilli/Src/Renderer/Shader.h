@@ -1,14 +1,9 @@
 #pragma once
 
-#include "Buffer.h"
 #include "Image.h"
 
 namespace Chilli
 {
-	enum class CullMode { None, Front, Back };
-	enum class FillMode { Fill, Wireframe };
-	enum class InputTopologyMode { Triangle_List, Triangle_Strip};
-
 	enum class ShaderVertexTypes
 	{
 		FLOAT1,
@@ -25,62 +20,62 @@ namespace Chilli
 		UINT4,
 	};
 
-	struct VertexBufferAttrib
+	enum class ShaderStageType
 	{
-		const char* Name;
-		ShaderVertexTypes Type;
-		int Binding = 0;
-		int Location = 0;
+		VERTEX, FRAGMENT, ALL
 	};
 
 	enum class ShaderUniformTypes
 	{
-		UNIFORM,
-		SAMPLED_IMAGE
+		UNIFORM_BUFFER,
+		STORAGE_BUFFER,
+		SAMPLED_IMAGE,
+		SAMPLER
 	};
 
-	enum class ShaderStageType
+	enum class ShaderUniformSetsBindings
 	{
-		VERTEX, FRAGMENT
-	};
-	
-	enum class ShaderUniformUse
-	{
-		PUSH_CONSTANT,
-		DESCRIPTOR
+		GLOBAL = 0,
+		SCENE = 1,
+		PER_OBJECT = 2,
+		USER = 3,
+		COUNT,
 	};
 
-	struct ShaderUnifromAttrib
-	{
-		ShaderUniformTypes Type;
-		ShaderStageType StageType;
-		ShaderUniformUse Usage;
-		std::string Name;
-		uint32_t Binding = 0;
-	};
+	enum class CullMode { None, Front, Back };
+	enum class PolygonMode { Fill, Wireframe };
+	enum class InputTopologyMode { Triangle_List, Triangle_Strip };
+	enum class FrontFaceMode { Clock_Wise, Counter_Clock_Wise };
 
-	struct PipelineSpec
+	struct GraphicsPipelineSpec
 	{
-		std::string Paths[2];
-		
+		std::string VertPath;
+		std::string FragPath;
+
 		bool ColorBlend = true;
 		InputTopologyMode TopologyMode = InputTopologyMode::Triangle_List;
 		CullMode ShaderCullMode = CullMode::Back;
-		FillMode ShaderFillMode = FillMode::Fill;
+		PolygonMode  ShaderFillMode = PolygonMode::Fill;
+		FrontFaceMode FrontFace = FrontFaceMode::Clock_Wise;
 
 		bool EnableDepthStencil = false;
 		bool EnableDepthTest = false;
 		bool EnableDepthWrite = false;
-		bool EnableStencilTest= false;
+		bool EnableStencilTest = false;
 		ImageFormat DepthFormat;
 	};
 
 	class GraphicsPipeline
 	{
 	public:
-		~GraphicsPipeline() {}
+		virtual void Init(const GraphicsPipelineSpec& Spec) = 0;
+		virtual void ReCreate(const GraphicsPipelineSpec& Spec) = 0;
+		virtual void Destroy() = 0;
 
-		virtual void Bind() = 0;
-	private:
+		virtual void Bind() const = 0;
+
+		virtual const GraphicsPipelineSpec& GetSpec() const = 0;
+
+		static std::shared_ptr<GraphicsPipeline> Create(const GraphicsPipelineSpec& Spec);
 	};
 }

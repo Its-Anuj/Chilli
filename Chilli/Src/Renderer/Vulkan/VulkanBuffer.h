@@ -9,18 +9,18 @@ namespace Chilli
 		void* Data = nullptr;
 		uint32_t Size = 0;
 		BufferState State = BufferState::STATIC_DRAW;
-		VkBufferUsageFlagBits UsageFlag;
+		VkBufferUsageFlags UsageFlag;
 	};
 
 	class VulkanBuffer
 	{
 	public:
-		VulkanBuffer(){} 
-		~VulkanBuffer(){}
+		VulkanBuffer() {}
+		~VulkanBuffer() {}
 
 		void Init(const VulkanBufferSpec& Spec);
-		void Delete ();
-		void MapData(void* Data, size_t Size);
+		void Delete();
+		void MapData(void* Data, size_t Size, uint32_t Offset = 0);
 
 		VkBuffer GetHandle() const { return _Buffer; }
 	private:
@@ -49,17 +49,14 @@ namespace Chilli
 	public:
 		VulkanVertexBuffer() {}
 		VulkanVertexBuffer(const VertexBufferSpec& Spec) { Init(Spec); }
-		~VulkanVertexBuffer(){}
+		~VulkanVertexBuffer() {}
 
-		void Init(const VertexBufferSpec& Spec);
-		void Delete();
-
-		VkBuffer GetHandle() const { return _Buffer.GetHandle(); }
+		virtual void Init(const VertexBufferSpec& Spec) override;
+		virtual void Destroy() override;
 		virtual void MapData(void* Data, size_t Size) override;
 
-		// Returns size in bytes
-		virtual size_t GetSize() const override { return _Spec.Size; }
-		virtual uint32_t GetCount() const override { return _Spec.Count; }
+		virtual const VertexBufferSpec& GetSpec() const override { return _Spec; }
+		VkBuffer GetHandle() const { return _Buffer.GetHandle(); }
 
 	private:
 		VulkanBuffer _Buffer;
@@ -73,34 +70,52 @@ namespace Chilli
 		VulkanIndexBuffer(const IndexBufferSpec& Spec) { Init(Spec); }
 		~VulkanIndexBuffer() {}
 
-		void Init(const IndexBufferSpec& Spec);
-		void Delete();
-		virtual void MapData(void* Data, size_t Size) override;
+		virtual void Init(const IndexBufferSpec& Spec) override;
+		virtual void Destroy() override;
+		virtual void MapData(void* Data, size_t Size) override;   
+
+		virtual const IndexBufferSpec& GetSpec() const override { return _Spec; }
 
 		VkBuffer GetHandle() const { return _Buffer.GetHandle(); }
-
-		// Returns size in bytes
-		virtual size_t GetSize() const override { return _Spec.Size; }
-		virtual uint32_t GetCount() const override { return _Spec.Count; }
-		virtual IndexBufferType GetType() const override { return _Spec.Type; }
 
 	private:
 		VulkanBuffer _Buffer;
 		IndexBufferSpec _Spec;
 	};
 
-	class VulkanUniformBuffer: public UniformBuffer
+	class VulkanUniformBuffer : public UniformBuffer
 	{
 	public:
 		VulkanUniformBuffer() {}
-		VulkanUniformBuffer(size_t Size){ Init(Size); }
+		VulkanUniformBuffer(size_t Size) { Init(Size); }
 		~VulkanUniformBuffer() {}
 
-		void Init(size_t Size);
-		void Delete();
+		virtual void Init(size_t Size) override;
+		virtual void Destroy() override;
 		virtual void MapData(void* Data, size_t Size) override;
 
 		virtual size_t GetSize() const override { return _Size; }
+
+		VkBuffer GetHandle() const { return _Buffer.GetHandle(); }
+
+	private:
+		VulkanBuffer _Buffer;
+		size_t _Size = 0;
+	};
+
+	class VulkanStorageBuffer : public StorageBuffer
+	{
+	public:
+		VulkanStorageBuffer() {}
+		VulkanStorageBuffer(size_t Size) { Init(Size); }
+		~VulkanStorageBuffer() {}
+
+		virtual void Init(size_t Size) override;
+		virtual void Destroy() override;
+		virtual void MapData(void* Data, size_t Size, uint32_t Offset = 0) override;
+
+		virtual size_t GetSize() const override { return _Size; }
+
 		VkBuffer GetHandle() const { return _Buffer.GetHandle(); }
 
 	private:

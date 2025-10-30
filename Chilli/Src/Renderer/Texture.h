@@ -1,43 +1,49 @@
 #pragma once
 
 #include "Image.h"
+#include "Samplers.h"
+#include "UUID/UUID.h"
 
 namespace Chilli
 {
-	enum class SamplerMode
+	struct TextureSpec : public ImageSpec
 	{
-		REPEAT,
-		MIRRORED_REPEAT,
-		CLAMP_TO_EDGE,
-		CLAMP_TO_BORDER
-	};
-
-	enum class SamplerFilter
-	{
-		NEAREST,
-		LINEAR
-	};
-
-	struct TextureSpec
-	{
-		const char* FilePath;
-		ImageTiling	 Tiling;
-		ImageType Type;
-		SamplerMode Mode = SamplerMode::REPEAT;
-		SamplerFilter Filter = SamplerFilter::LINEAR;
-		ImageUsage Usage = ImageUsage::COLOR;
-		ImageFormat Format = ImageFormat::RGBA8;
-		bool YFlip = true;
-		struct {
-			int Width, Height;
-		}Resolution;
+		std::string FilePath;
 	};
 
 	class Texture
 	{
 	public:
+		virtual void Init(const TextureSpec& Spec) = 0;
+		virtual void Destroy() = 0;
+
 		virtual const TextureSpec& GetSpec() const = 0;
+		virtual void* GetNativeHandle() const = 0;
+
+		static std::shared_ptr< Texture> Create(const TextureSpec& Spec);
+		
+		const UUID& ID() const { return _ID; }
+	private:
+		UUID _ID;
+	};
+	using TextureHandle = std::shared_ptr<Texture>;
+
+	class TextureManager
+	{
+	public:
+		TextureManager() {}
+		~TextureManager() {}
+
+		const UUID& Add(const TextureSpec& Spec);
+		const TextureHandle& Get(UUID ID);
+		bool Exist(UUID ID);
+
+		void Flush();
+		void Destroy(const UUID& ID);
+
+		size_t Count() const { return _Textures.size(); }
 
 	private:
+		std::unordered_map<UUID, TextureHandle> _Textures;
 	};
 }

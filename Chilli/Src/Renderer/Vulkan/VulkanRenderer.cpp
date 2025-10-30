@@ -1,14 +1,12 @@
 ﻿#include "ChV_PCH.h"
 
 #define VK_USE_PLATFORM_WIN32_KHR
+#define VK_ENABLE_BETA_EXTENSIONS
 #include "C:\VulkanSDK\1.3.275.0\Include\vulkan\vulkan.h"
 
 #include "vk_mem_alloc.h"
 #include "VulkanRenderer.h"
 #include "VulkanUtils.h"
-#include "VulkanShader.h"
-#include "VulkanTexture.h"
-#include "VulkanBuffer.h"
 
 #include "GLFW/glfw3.h"
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -48,62 +46,56 @@ namespace Chilli
 
 		_CreateSwapChainKHR();
 
-		VulkanUtils::Init(_Data.Instance, _Data.Device);
+		VulkanUtils::Init(_Data.Instance, _Data.Device, _Data.SwapChainKHR);
 		VULKAN_PRINTLN("VulkanPoolsManager Initialized!");
 
 		_CreateCommandBuffers();
 		_CreateSyncObjects();
 
-		VulkanResourceFactorySpec ResourceSpec{};
-		ResourceSpec.Device = _Data.Device;
-		ResourceSpec.SwapChainFormat = _Data.SwapChainKHR.GetFormat();
-		_ResourceFactory.Init(ResourceSpec);
-		VULKAN_PRINTLN("Resource Factory Created!")
-
-			VULKAN_PRINTLN("Vulkan Created!")
+		VULKAN_PRINTLN("Vulkan Created!");
+		_Data.BindlessManager.Init();
 	}
 
 	void VulkanRenderer::ShutDown()
 	{
 		vkDeviceWaitIdle(_Data.Device.GetHandle());
+		_Data.BindlessManager.Free();
+		VulkanPipelineLayoutCache::GetPipelineLayoutCache().Flush();
 
-		_ResourceFactory.ShutDown();
-		VULKAN_PRINTLN("Resource Factory ShutDown!")
+		for (int i = 0; i < _Spec.InFrameFlightCount; i++)
+		{
+			vkDestroySemaphore(_Data.Device.GetHandle(), _Data.ImageAvailableSemaphores[i], nullptr);
+			vkDestroySemaphore(_Data.Device.GetHandle(), _Data.RenderFinishedSemaphores[i], nullptr);
+			vkDestroyFence(_Data.Device.GetHandle(), _Data.InFlightFences[i], nullptr);
+		}
+		VULKAN_PRINTLN("Sync Objects ShutDown!");
 
-			for (int i = 0; i < _Spec.InFrameFlightCount; i++)
-			{
-				vkDestroySemaphore(_Data.Device.GetHandle(), _Data.ImageAvailableSemaphores[i], nullptr);
-				vkDestroySemaphore(_Data.Device.GetHandle(), _Data.RenderFinishedSemaphores[i], nullptr);
-				vkDestroyFence(_Data.Device.GetHandle(), _Data.InFlightFences[i], nullptr);
-			}
-		VULKAN_PRINTLN("Sync Objects ShutDown!")
+		VulkanUtils::ShutDown();
+		VULKAN_PRINTLN("VulkanPoolsManager ShutDown!");
 
-			VulkanUtils::ShutDown();
-		VULKAN_PRINTLN("VulkanPoolsManager ShutDown!")
-
-			_Data.SwapChainKHR.Destroy(_Data.Device);
+		_Data.SwapChainKHR.Destroy(_Data.Device);
 		VULKAN_PRINTLN("SwapChainKHR ShutDown!")
 
 			_Data.Device.Destroy();
 		VULKAN_PRINTLN("Device ShutDown!")
 
 			vkDestroySurfaceKHR(_Data.Instance, _Data.SurfaceKHR, nullptr);
-		VULKAN_PRINTLN("Surface KHR ShutDown!")
+		VULKAN_PRINTLN("Surface KHR ShutDown!");
 
-			if (_Spec.EnableValidationLayer)
-			{
-				DestroyDebugUtilsMessengerEXT(_Data.Instance, _Data.DebugMessenger, nullptr);
-				VULKAN_PRINTLN("Debug Messenger ShutDown!")
-			}
+		if (_Spec.EnableValidationLayer)
+		{
+			DestroyDebugUtilsMessengerEXT(_Data.Instance, _Data.DebugMessenger, nullptr);
+			VULKAN_PRINTLN("Debug Messenger ShutDown!");
+		}
 
 		vkDestroyInstance(_Data.Instance, nullptr);
 		VULKAN_PRINTLN("Instance ShutDown!");
 		VULKAN_PRINTLN("Vulkan ShutDown!");
 	}
 
-	ResourceFactory& VulkanRenderer::GetResourceFactory()
+	BindlessSetManager& VulkanRenderer::GetBindlessSetManager()
 	{
-		return _ResourceFactory;
+		return _Data.BindlessManager;
 	}
 
 	bool VulkanRenderer::BeginFrame()
@@ -135,123 +127,97 @@ namespace Chilli
 		VkCommandBufferBeginInfo beginInfo{};
 		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 		vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+		VulkanUtils::SetActiveCommandBuffer(commandBuffer);
+
+		VkDescriptorSet Sets[] = { _Data.BindlessManager.GetGlobalSet().Set };
+
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS
+			, VulkanPipelineLayoutCache::GetPipelineLayoutCache().GetOrCreate(0), 0, 1, Sets, 0, nullptr);
+		{
+			VkDescriptorSet Sets[] = { _Data.BindlessManager.GetTexSamplerSet().Set };
+
+			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS
+				, VulkanPipelineLayoutCache::GetPipelineLayoutCache().GetOrCreate(0), 2, 1, Sets, 0, nullptr);
+		} {
+			VkDescriptorSet Sets[] = { _Data.BindlessManager.GetMaterialSet().Set };
+
+			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS
+				, VulkanPipelineLayoutCache::GetPipelineLayoutCache().GetOrCreate(0), 3, 1, Sets, 0, nullptr);
+		} {
+			VkDescriptorSet Sets[] = { _Data.BindlessManager.GetObjectSets().Set };
+
+			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS
+				, VulkanPipelineLayoutCache::GetPipelineLayoutCache().GetOrCreate(0), 4, 1, Sets, 0, nullptr);
+		}
 		return true;
 	}
 
-	void VulkanRenderer::BeginRenderPass(const RenderPass& Pass)
+	void  VulkanRenderer::BeginScene()
+	{
+		auto commandBuffer = _Data.GraphicsCommandBuffers[_Data.CurrentFrameIndex];
+		VkDescriptorSet Sets[] = { _Data.BindlessManager.GetSceneSet().Set };
+
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS
+			, VulkanPipelineLayoutCache::GetPipelineLayoutCache().GetOrCreate(0), 1, 1, Sets, 0, nullptr);
+
+	}
+
+	void VulkanRenderer::BeginRenderPass()
 	{
 		auto commandBuffer = _Data.GraphicsCommandBuffers[_Data.CurrentFrameIndex];
 
-		std::vector< VkRenderingAttachmentInfo> ColorAttachments;
-		ColorAttachments.reserve(Pass.ColorAttachmentCount);
+		VkRenderingAttachmentInfo colorAttachment{};
+		// 🆕 TRANSITION: undefined → color attachment optimal (for rendering)
+		VkImageMemoryBarrier barrier{};
+		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.image = _Data.SwapChainKHR.GetImages()[_Data.CurrentImageIndex]; // 🆕 Use the actual image
+		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		barrier.subresourceRange.baseMipLevel = 0;
+		barrier.subresourceRange.levelCount = 1;
+		barrier.subresourceRange.baseArrayLayer = 0;
+		barrier.subresourceRange.layerCount = 1;
+		barrier.srcAccessMask = 0;
+		barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
-		for (int i = 0; i < Pass.ColorAttachmentCount; i++)
-		{
-			auto AttachmentInfo = Pass.ColorAttachments[i];
-			VkRenderingAttachmentInfo colorAttachment{};
+		vkCmdPipelineBarrier(
+			commandBuffer,
+			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,             // Before any operations
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // Before color attachment output
+			0,
+			0, nullptr,
+			0, nullptr,
+			1, &barrier);
+		colorAttachment.imageView = _Data.SwapChainKHR.GetImageViews()[_Data.CurrentImageIndex];
 
-			if (AttachmentInfo.UseSwapChainImage) {
-
-				// 🆕 TRANSITION: undefined → color attachment optimal (for rendering)
-				VkImageMemoryBarrier barrier{};
-				barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-				barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-				barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-				barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				barrier.image = _Data.SwapChainKHR.GetImages()[_Data.CurrentImageIndex]; // 🆕 Use the actual image
-				barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-				barrier.subresourceRange.baseMipLevel = 0;
-				barrier.subresourceRange.levelCount = 1;
-				barrier.subresourceRange.baseArrayLayer = 0;
-				barrier.subresourceRange.layerCount = 1;
-				barrier.srcAccessMask = 0;
-				barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-
-				vkCmdPipelineBarrier(
-					commandBuffer,
-					VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,             // Before any operations
-					VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // Before color attachment output
-					0,
-					0, nullptr,
-					0, nullptr,
-					1, &barrier);
-				colorAttachment.imageView = _Data.SwapChainKHR.GetImageViews()[_Data.CurrentImageIndex];
-			}
-
-			colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-			colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // ✅ Now correct
-			colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-			colorAttachment.clearValue = { {AttachmentInfo.ClearColor.r, AttachmentInfo.ClearColor.g
-,				AttachmentInfo.ClearColor.b, AttachmentInfo.ClearColor.w} };
-
-			ColorAttachments.push_back(colorAttachment);
-		}
+		colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+		colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // ✅ Now correct
+		colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		colorAttachment.clearValue = { {0.2f, 0.2f, 0.2f, 1.0f} };
 
 		// Continue with dynamic rendering...
 		VkRenderingInfo renderingInfo{};
-
-		VkRenderingAttachmentInfoKHR depthAttachment{};
-		if (Pass.DepthAttachment != nullptr)
-		{
-			// Depth attachment
-			auto VulkanTex = std::static_pointer_cast<VulkanTexture>(Pass.DepthAttachment->TextureAttachment);
-
-			// 🆕 TRANSITION: undefined → color attachment optimal (for rendering)
-			VkImageMemoryBarrier barrier{};
-			barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-			barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			barrier.image = VulkanTex->GetImageHandle(); // 🆕 Use the actual image
-			barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-			barrier.subresourceRange.baseMipLevel = 0;
-			barrier.subresourceRange.levelCount = 1;
-			barrier.subresourceRange.baseArrayLayer = 0;
-			barrier.subresourceRange.layerCount = 1;
-			barrier.srcAccessMask = 0;
-			barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-
-			vkCmdPipelineBarrier(
-				commandBuffer,
-				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,             // Before any operations
-				VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, // Before color attachment output
-				0,
-				0, nullptr,
-				0, nullptr,
-				1, &barrier);
-
-			depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
-			depthAttachment.imageView = VulkanTex->GetHandle();
-			depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-			depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-			depthAttachment.clearValue.depthStencil = { 1.0f, 0 };
-	}
-
 		renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
 		renderingInfo.renderArea = { {0, 0}, _Data.SwapChainKHR.GetExtent() };
 		renderingInfo.layerCount = 1;
 
-		renderingInfo.colorAttachmentCount = static_cast<uint32_t>(ColorAttachments.size());
-		renderingInfo.pColorAttachments = ColorAttachments.data();
-
-		renderingInfo.pDepthAttachment = &depthAttachment;
+		renderingInfo.colorAttachmentCount = static_cast<uint32_t>(1);
+		renderingInfo.pColorAttachments = &colorAttachment;
 
 		vkCmdBeginRendering(commandBuffer, &renderingInfo);
 	}
 
-	void VulkanRenderer::Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline, const std::shared_ptr<VertexBuffer>& VertexBuffer
-		, const std::shared_ptr<IndexBuffer>& IndexBuffer)
+	void VulkanRenderer::Submit(const std::shared_ptr<GraphicsPipeline>& Shader, const std::shared_ptr<VertexBuffer>& VB)
 	{
-		auto VulkanPipeline = std::static_pointer_cast<VulkanGraphicsPipeline>(Pipeline);
-		auto VulkanVB = std::static_pointer_cast<VulkanVertexBuffer>(VertexBuffer);
-		auto VulkanIB = std::static_pointer_cast<VulkanIndexBuffer>(IndexBuffer);
+		auto VulkanVB = std::static_pointer_cast<VulkanVertexBuffer>(VB);
 		auto commandBuffer = _Data.GraphicsCommandBuffers[_Data.CurrentFrameIndex];
-		// Bind pipeline (created without render pass)
-		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VulkanPipeline->GetHandle());
+
+		Shader->Bind();
 
 		// Set dynamic viewport (matches pipeline dynamic state)
 		VkViewport viewport{};
@@ -274,24 +240,22 @@ namespace Chilli
 		VkBuffer vertexBuffers[] = { VulkanVB->GetHandle() };
 		VkDeviceSize offsets[] = { 0 };
 		vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-		vkCmdBindIndexBuffer(commandBuffer, VulkanIB->GetHandle(), 0, VK_INDEX_TYPE_UINT16);
 
-		vkCmdDraw(commandBuffer, VulkanIB->GetCount(), 1, 0, 0);
+		VulkanPushConstantObject PushConstantValues = { 0,0 };
+
+		vkCmdPushConstants(commandBuffer, VulkanPipelineLayoutCache::GetPipelineLayoutCache().GetOrCreate(0),
+			VK_SHADER_STAGE_ALL, 0, sizeof(VulkanPushConstantObject), &PushConstantValues);
+
+		vkCmdDraw(commandBuffer, VulkanVB->GetSpec().Count, 1, 0, 0);
 	}
 
-	void VulkanRenderer::Submit(const Material& Mat, const std::shared_ptr<VertexBuffer>& VertexBuffer, const std::shared_ptr<IndexBuffer>& IndexBuffer)
+	void VulkanRenderer::Submit(const std::shared_ptr<GraphicsPipeline>& Shader, const std::shared_ptr<VertexBuffer>& VB, const std::shared_ptr<IndexBuffer>& IB)
 	{
-		auto VulkanPipeline = std::static_pointer_cast<VulkanGraphicsPipeline>(Mat.GetShader());
-		auto VulkanMatBackend = std::static_pointer_cast<VulkanMaterialBackend>(Mat.GetBackend());
-		auto VulkanVB = std::static_pointer_cast<VulkanVertexBuffer>(VertexBuffer);
-		auto VulkanIB = std::static_pointer_cast<VulkanIndexBuffer>(IndexBuffer);
+		auto VulkanVB = std::static_pointer_cast<VulkanVertexBuffer>(VB);
+		auto VulkanIB = std::static_pointer_cast<VulkanIndexBuffer>(IB);
 		auto commandBuffer = _Data.GraphicsCommandBuffers[_Data.CurrentFrameIndex];
-		// Bind pipeline (created without render pass)
-		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VulkanPipeline->GetHandle());
-		std::vector<VkDescriptorSet> descriptorSet = { VulkanMatBackend->GetSet() };
 
-		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VulkanPipeline->GetPipelineLayout(),
-			0, 1, descriptorSet.data(), 0, nullptr);
+		Shader->Bind();
 
 		// Set dynamic viewport (matches pipeline dynamic state)
 		VkViewport viewport{};
@@ -316,7 +280,45 @@ namespace Chilli
 		vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 		vkCmdBindIndexBuffer(commandBuffer, VulkanIB->GetHandle(), 0, VK_INDEX_TYPE_UINT16);
 
-		vkCmdDrawIndexed(commandBuffer, VulkanIB->GetCount(), 1, 0, 0, 0);
+		vkCmdDrawIndexed(commandBuffer, VulkanIB->GetSpec().Count, 1, 0, 0, 0);
+	}
+
+	void VulkanRenderer::Submit(const std::shared_ptr<GraphicsPipeline>& Shader, const std::shared_ptr<VertexBuffer>& VB, 
+		const std::shared_ptr<IndexBuffer>& IB, const RenderCommandSpec& CommandSpec)
+	{
+		auto VulkanVB = std::static_pointer_cast<VulkanVertexBuffer>(VB);
+		auto commandBuffer = _Data.GraphicsCommandBuffers[_Data.CurrentFrameIndex];
+
+		Shader->Bind();
+
+		// Set dynamic viewport (matches pipeline dynamic state)
+		VkViewport viewport{};
+		viewport.x = 0.0f;
+		viewport.y = 0.0f;
+		viewport.width = static_cast<float>(_Data.FrameBufferSize.Width);
+		viewport.height = static_cast<float>(_Data.FrameBufferSize.Height);
+		viewport.minDepth = 0.0f;
+		viewport.maxDepth = 1.0f;
+		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+		// Set dynamic scissor
+		VkRect2D scissor{};
+		scissor.offset = { 0, 0 };
+		scissor.extent.width = _Data.FrameBufferSize.Width;
+		scissor.extent.height = _Data.FrameBufferSize.Height;
+		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+		// 🆕 Bind vertex buffer
+		VkBuffer vertexBuffers[] = { VulkanVB->GetHandle() };
+		VkDeviceSize offsets[] = { 0 };
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+
+		RenderCommandSpec CopyCommandSpec = _Data.BindlessManager.FromRenderCommand(CommandSpec);
+
+		vkCmdPushConstants(commandBuffer, VulkanPipelineLayoutCache::GetPipelineLayoutCache().GetOrCreate(0),
+			VK_SHADER_STAGE_ALL, 0, sizeof(CopyCommandSpec), &CopyCommandSpec);
+
+		vkCmdDraw(commandBuffer, VulkanVB->GetSpec().Count, 1, 0, 0);
 	}
 
 	void VulkanRenderer::EndRenderPass()
@@ -348,11 +350,17 @@ namespace Chilli
 			0, nullptr,
 			1, &barrier);
 
-		vkEndCommandBuffer(commandBuffer);
+	}
+
+	void VulkanRenderer::EndScene()
+	{
 	}
 
 	void VulkanRenderer::Render()
 	{
+		auto commandBuffer = _Data.GraphicsCommandBuffers[_Data.CurrentFrameIndex];
+		vkEndCommandBuffer(commandBuffer);
+
 		VkSubmitInfo submitInfo{};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
@@ -397,7 +405,11 @@ namespace Chilli
 		else if (result != VK_SUCCESS) {
 			throw std::runtime_error("failed to present swap chain image!");
 		}
+	}
 
+	void VulkanRenderer::EndFrame()
+	{
+		VulkanUtils::SetActiveCommandBuffer(VK_NULL_HANDLE);
 		_Data.CurrentFrameIndex = (_Data.CurrentFrameIndex + 1) % _Spec.InFrameFlightCount;
 	}
 
@@ -405,10 +417,6 @@ namespace Chilli
 	{
 		_Data.FrameBufferSize = { Width, Height };
 		_Data.FrameBufferReSized = true;
-	}
-
-	void VulkanRenderer::EndFrame()
-	{
 	}
 
 	void VulkanRenderer::FinishRendering()
@@ -433,15 +441,12 @@ namespace Chilli
 			RequiredExts.push_back("VK_EXT_debug_utils");
 		}
 
-		_Spec.DeviceExtensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-								  "VK_KHR_dynamic_rendering",
-								  "VK_KHR_synchronization2",
-								  "VK_KHR_maintenance4",
-								  "VK_EXT_pipeline_creation_cache_control",
-								  "VK_EXT_shader_demote_to_helper_invocation",
-								  "VK_KHR_shader_terminate_invocation",
-								  "VK_EXT_sampler_filter_minmax",
-								  "VK_KHR_buffer_device_address" };
+		_Spec.DeviceExtensions = {
+			VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+			// Add only extensions NOT promoted to core in 1.3
+			"VK_EXT_descriptor_indexing" // optional if not core on your driver
+		};
+
 		VkApplicationInfo appinfo{};
 		appinfo.apiVersion = VK_API_VERSION_1_3;
 		appinfo.pEngineName = nullptr;

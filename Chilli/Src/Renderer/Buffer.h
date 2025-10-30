@@ -20,20 +20,21 @@ namespace Chilli
 	struct VertexBufferSpec
 	{
 		void* Data = nullptr;
-		uint32_t Size = 0;
+		size_t Size = 0;
 		uint32_t Count = 0;
-		BufferState State = BufferState::STATIC_DRAW;
+		BufferState State;
 	};
 
 	class VertexBuffer
 	{
 	public:
-		// Returns size in bytes
-		virtual size_t GetSize() const = 0;
-		virtual uint32_t GetCount() const = 0;
-
+		virtual void Init(const VertexBufferSpec& Spec) = 0;
+		virtual void Destroy() = 0;
 		virtual void MapData(void* Data, size_t Size) = 0;
-	private:
+
+		virtual const VertexBufferSpec& GetSpec() const = 0;
+
+		static std::shared_ptr<VertexBuffer> Create(const VertexBufferSpec& Spec);
 	};
 
 	struct IndexBufferSpec
@@ -48,20 +49,36 @@ namespace Chilli
 	class IndexBuffer
 	{
 	public:
-		// Returns size in bytes
-		virtual size_t GetSize() const = 0;
-		virtual uint32_t GetCount() const = 0;
-		virtual IndexBufferType GetType() const = 0;
-		
+		virtual void Init(const IndexBufferSpec& Spec) = 0;
+		virtual void Destroy() = 0;
 		virtual void MapData(void* Data, size_t Size) = 0;
-	private:
+
+		virtual const IndexBufferSpec& GetSpec() const = 0;
+
+		static std::shared_ptr<IndexBuffer> Create(const IndexBufferSpec& Spec);
 	};
 
 	class UniformBuffer
 	{
 	public:
+		virtual void Init(size_t Size) = 0;
+		virtual void Destroy() = 0;
 		virtual void MapData(void* Data, size_t Size) = 0;
+
 		virtual size_t GetSize() const = 0;
-	private:
+
+		static std::shared_ptr<UniformBuffer> Create(size_t Size);
+	};
+
+	class StorageBuffer
+	{
+	public:
+		virtual void Init(size_t Size) = 0;
+		virtual void Destroy() = 0;
+		virtual void MapData(void* Data, size_t Size, uint32_t Offset = 0) = 0;
+
+		virtual size_t GetSize() const = 0;
+
+		static std::shared_ptr<StorageBuffer> Create(size_t Size);
 	};
 }

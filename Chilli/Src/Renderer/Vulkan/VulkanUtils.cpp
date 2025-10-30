@@ -1,6 +1,7 @@
 #include "ChV_PCH.h"
 
 #define VK_USE_PLATFORM_WIN32_KHR
+#define VK_ENABLE_BETA_EXTENSIONS
 #include "C:\VulkanSDK\1.3.275.0\Include\vulkan\vulkan.h"
 
 #define VMA_IMPLEMENTATION
@@ -11,9 +12,10 @@
 
 namespace Chilli
 {
-	void VulkanUtils::Init(VkInstance Instance, const VulkanDevice& Device)
+	void VulkanUtils::Init(VkInstance Instance, const VulkanDevice& Device, const VulkanSwapChainKHR& SwapChain)
 	{
 		Get()._Device = Device;
+		Get()._SwapChain = SwapChain;
 		Get()._PoolManager.Init(Device);
 		Get()._Allocator.Init(Instance, Device.GetPhysicalDevice()->PhysicalDevice, Device.GetHandle());
 	}
@@ -34,22 +36,12 @@ namespace Chilli
 		_Device = Device.GetHandle();
 		_Queues[QueueFamilies::GRAPHICS] = Device.GetQueue(QueueFamilies::GRAPHICS);
 		_Queues[QueueFamilies::TRANSFER] = Device.GetQueue(QueueFamilies::TRANSFER);
-
-		DescriptorPoolsSpec DescSpec{};
-		DescSpec.Types = {
-			{ShaderUniformTypes::UNIFORM, 1000},
-			{ShaderUniformTypes::SAMPLED_IMAGE, 500}
-		};
-		DescSpec.MaxSet = 500;
-
-		_DescPoolManager.Init(Device.GetHandle(), DescSpec);
 	}
 
 	void VulkanPoolsManager::ShutDown()
 	{
 		_GraphicsPoolManager.ShutDown(_Device);
 		_TransferPoolManager.ShutDown(_Device);
-		_DescPoolManager.ShutDown();
 	}
 
 	void VulkanPoolsManager::BeginRecording(BeginCommandBufferInfo& Info)
@@ -100,7 +92,7 @@ namespace Chilli
 		Manager->CreateCommmandBuffers(Buffers, Count);
 	}
 
-	void VulkanPoolsManager::CopyBuffers(VkBuffer Src, VkBuffer Dst, VkBufferCopy Copy)
+	void VulkanPoolsManager::CopyBufferToBuffer(const VkBufferCopy& Copy, VkBuffer Src, VkBuffer Dst)
 	{
 		BeginCommandBufferInfo Info{};
 		Info.Family = QueueFamilies::TRANSFER;
@@ -145,6 +137,26 @@ namespace Chilli
 		vkFreeCommandBuffers(Device, _Pool, Buffers.size(), Buffers.data());
 	}
 
+	void VulkanPoolsManager::CopyBufferToImage(const VkBufferImageCopy& Copy, VkBuffer SrcBuffer, VkImage DstImage)
+	{
+		BeginCommandBufferInfo Info{};
+		Info.Buffer = VK_NULL_HANDLE;
+		Info.Family = QueueFamilies::TRANSFER;
+
+		VulkanUtils::GetPoolManager().BeginSingleTimeCommand(Info);
+
+		// Issue copy command
+		vkCmdCopyBufferToImage(
+			Info.Buffer,
+			SrcBuffer,
+			DstImage,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1,
+			&Copy);
+		VulkanUtils::GetPoolManager().EndSingleTimeCommand(Info);
+
+	}
+
 	void VulkanAllocator::Init(VkInstance Instance, VkPhysicalDevice PhysicalDevice, VkDevice Device)
 	{
 		VmaAllocatorCreateInfo allocatorInfo = {};
@@ -159,65 +171,4 @@ namespace Chilli
 	{
 		vmaDestroyAllocator(_Allocator);
 	}
-
-	VkDescriptorType ShaderUTypesToVk(ShaderUniformTypes Type)
-	{
-		switch (Type)
-		{
-		case ShaderUniformTypes::UNIFORM: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		case ShaderUniformTypes::SAMPLED_IMAGE: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		}
-	}
-
-	void DescriptorPoolManager::Init(VkDevice device, const DescriptorPoolsSpec& Spec)
-	{
-		_Spec = Spec;
-
-		std::vector<VkDescriptorPoolSize> Sizes;
-		Sizes.reserve(Spec.Types.size());
-
-		for (auto& attrib : Spec.Types)
-		{
-			VkDescriptorPoolSize size;
-			size.descriptorCount = attrib.Count;
-			size.type = ShaderUTypesToVk(attrib.Type);
-			Sizes.push_back(size);
-		}
-
-		VkDescriptorPoolCreateInfo poolInfo{};
-		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-		poolInfo.poolSizeCount = Sizes.size();
-		poolInfo.pPoolSizes = Sizes.data();
-		poolInfo.maxSets = Spec.MaxSet;
-
-		if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &_Pool) != VK_SUCCESS) {
-			throw std::runtime_error("failed to create descriptor pool!");
-		}
-
-		this->Device = device;
-	}
-
-	void DescriptorPoolManager::ShutDown()
-	{
-		vkDestroyDescriptorPool(Device, _Pool, nullptr);
-	}
-
-	void DescriptorPoolManager::CreateDescSets(std::vector<VkDescriptorSet>& Sets, uint32_t Count, const std::vector<VkDescriptorSetLayout>& Layouts)
-	{
-		VkDescriptorSetAllocateInfo allocInfo{};
-		allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-		allocInfo.descriptorPool = _Pool;
-		allocInfo.descriptorSetCount = static_cast<uint32_t>(Count);
-		allocInfo.pSetLayouts = Layouts.data();
-
-		Sets.resize(Count);
-		if (vkAllocateDescriptorSets(Device, &allocInfo, Sets.data()) != VK_SUCCESS)
-			throw std::runtime_error("failed to allocate descriptor sets!");
-	}
-
-	void DescriptorPoolManager::FreeDescSets(std::vector<VkDescriptorSet>& Sets)
-	{
-		vkFreeDescriptorSets(Device, _Pool, Sets.size(), Sets.data());
-	}
-
 }

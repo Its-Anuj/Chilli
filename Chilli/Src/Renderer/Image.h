@@ -2,31 +2,16 @@
 
 namespace Chilli
 {
-	enum class ImageFormat
-	{
-		RGBA8,
-		D32,
-		D24_S8,
-		D32_S8
-	};
-
-	enum class ImageUsage
-	{
-		SAMPLED,
-		COLOR,
-		DEPTH
-	};
-
 	enum class ImageType
 	{
 		IMAGE_TYPE_1D,
 		IMAGE_TYPE_2D,
-		IMAGE_TYPE_3D
+		IMAGE_TYPE_3D,
 	};
 
-	enum class ImageTiling
+	enum class ImageFormat
 	{
-		IMAGE_TILING_OPTIOMAL
+		RGBA8, D32, D24_S8, D32_S8
 	};
 
 	struct ImageSpec
@@ -34,18 +19,18 @@ namespace Chilli
 		struct {
 			int Width, Height;
 		} Resolution;
+		ImageFormat Format;
+		ImageType Type;
 		void* ImageData = nullptr;
-		ImageFormat Format = ImageFormat::RGBA8;
-		ImageType Type = ImageType::IMAGE_TYPE_2D;
-		ImageTiling Tiling = ImageTiling::IMAGE_TILING_OPTIOMAL;
-		ImageUsage Usage = ImageUsage::COLOR;
+		bool YFlip = false;
 	};
 
 	class Image
 	{
 	public:
-		virtual const ImageSpec& GetSpec() const = 0;
-		virtual void LoadImageData(void* ImageData) = 0;
-		virtual void LoadImageData(void* ImageData, int Width, int Height) = 0;
+		virtual void Init(const ImageSpec& Spec) = 0;
+		virtual void Destroy () = 0;
+
+		static std::shared_ptr<Image> Create(const ImageSpec& Spec);
 	};
 }

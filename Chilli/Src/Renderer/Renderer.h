@@ -21,6 +21,11 @@ namespace Chilli
 		bool EnableValidation = false;
 	};
 
+	struct RenderCommand
+	{
+		Object& RenderObject;
+	};
+
 	class Renderer
 	{
 	public:
@@ -34,12 +39,18 @@ namespace Chilli
 		static void ShutDown();
 
 		static bool BeginFrame();
-		static void BeginRenderPass(const RenderPass& Pass);
-		static void Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline, const std::shared_ptr<VertexBuffer>& VertexBuffer, const std::shared_ptr<IndexBuffer>& IndexBuffer);
+		static void BeginScene();
+		static void BeginRenderPass();
 
-		static void Submit(const Material& Mat, const std::shared_ptr<VertexBuffer>& VertexBuffer, const std::shared_ptr<IndexBuffer>& IndexBuffer);
+		static void Submit(const std::shared_ptr<GraphicsPipeline>& Shader, const std::shared_ptr<VertexBuffer>& VB);
+		static void Submit(const std::shared_ptr<GraphicsPipeline>& Shader, const std::shared_ptr<VertexBuffer>& VB
+			, const std::shared_ptr<IndexBuffer>& IB);
+
+		static void Submit(const std::shared_ptr<GraphicsPipeline>& Shader, const std::shared_ptr<VertexBuffer>& VB
+			, const std::shared_ptr<IndexBuffer>& IB, const RenderCommandSpec& CommandSpec);
 
 		static void EndRenderPass();
+		static void EndScene();
 		static void Render();
 		static void Present();
 		static void EndFrame();
@@ -48,8 +59,8 @@ namespace Chilli
 		static RenderAPIType GetType() { return Get()._Api->GetType(); }
 		static const char* GetName(){ return Get()._Api->GetName(); };
 
-		static ResourceFactory& GetResourceFactory();
 		static void FrameBufferReSized(int Width, int Height);
+		static BindlessSetManager& GetBindlessSetManager();
 
 	private:
 		Renderer() {}

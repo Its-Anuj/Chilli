@@ -1,3 +1,6 @@
+#include "InputCodes.h"
+#include "InputCodes.h"
+#include "InputCodes.h"
 #include "Ch_PCH.h"
 
 #include "Input.h"
@@ -82,7 +85,7 @@ namespace Chilli
 		ModStates[mod] = state;
 	}
 
-	const char* Input ::KeyToString(Input_key Key)
+	const char* Input::KeyToString(Input_key Key)
 	{
 		return InputKeyToString(Key);
 	}
@@ -387,6 +390,165 @@ namespace Chilli
 			return GLFW_MOD_NUM_LOCK;
 		default:
 			return 0;
+		}
+	}
+
+	Input_key GLFWToInputKeys(int key)
+	{
+		switch (key)
+		{
+		case GLFW_KEY_0: return Input_key_0;
+		case GLFW_KEY_1: return Input_key_1;
+		case GLFW_KEY_2: return Input_key_2;
+		case GLFW_KEY_3: return Input_key_3;
+		case GLFW_KEY_4: return Input_key_4;
+		case GLFW_KEY_5: return Input_key_5;
+		case GLFW_KEY_6: return Input_key_6;
+		case GLFW_KEY_7: return Input_key_7;
+		case GLFW_KEY_8: return Input_key_8;
+		case GLFW_KEY_9: return Input_key_9;
+		case GLFW_KEY_A: return Input_key_A;
+		case GLFW_KEY_B: return Input_key_B;
+		case GLFW_KEY_C: return Input_key_C;
+		case GLFW_KEY_D: return Input_key_D;
+		case GLFW_KEY_E: return Input_key_E;
+		case GLFW_KEY_F: return Input_key_F;
+		case GLFW_KEY_G: return Input_key_G;
+		case GLFW_KEY_H: return Input_key_H;
+		case GLFW_KEY_I: return Input_key_I;
+		case GLFW_KEY_J: return Input_key_J;
+		case GLFW_KEY_K: return Input_key_K;
+		case GLFW_KEY_L: return Input_key_L;
+		case GLFW_KEY_M: return Input_key_M;
+		case GLFW_KEY_N: return Input_key_N;
+		case GLFW_KEY_O: return Input_key_O;
+		case GLFW_KEY_P: return Input_key_P;
+		case GLFW_KEY_Q: return Input_key_Q;
+		case GLFW_KEY_R: return Input_key_R;
+		case GLFW_KEY_S: return Input_key_S;
+		case GLFW_KEY_T: return Input_key_T;
+		case GLFW_KEY_U: return Input_key_U;
+		case GLFW_KEY_V: return Input_key_V;
+		case GLFW_KEY_W: return Input_key_W;
+		case GLFW_KEY_X: return Input_key_X;
+		case GLFW_KEY_Y: return Input_key_Y;
+		case GLFW_KEY_Z: return Input_key_Z;
+		case GLFW_KEY_SPACE: return Input_key_Space;
+		case GLFW_KEY_ESCAPE: return Input_key_Escape;
+		case GLFW_KEY_ENTER: return Input_key_Enter;
+		case GLFW_KEY_TAB: return Input_key_Tab;
+		case GLFW_KEY_BACKSPACE: return Input_key_Backspace;
+		case GLFW_KEY_LEFT: return Input_key_Left;
+		case GLFW_KEY_RIGHT: return Input_key_Right;
+		case GLFW_KEY_UP: return Input_key_Up;
+		case GLFW_KEY_DOWN: return Input_key_Down;
+		case GLFW_KEY_LEFT_SHIFT: return Input_key_LeftShift;
+		case GLFW_KEY_RIGHT_SHIFT: return Input_key_RightShift;
+		case GLFW_KEY_LEFT_CONTROL: return Input_key_LeftControl;
+		case GLFW_KEY_RIGHT_CONTROL: return Input_key_RightControl;
+		case GLFW_KEY_LEFT_ALT: return Input_key_LeftAlt;
+		case GLFW_KEY_RIGHT_ALT: return Input_key_RightAlt;
+		case GLFW_KEY_F1: return Input_key_F1;
+		case GLFW_KEY_F2: return Input_key_F2;
+		case GLFW_KEY_F3: return Input_key_F3;
+		case GLFW_KEY_F4: return Input_key_F4;
+		case GLFW_KEY_F5: return Input_key_F5;
+		case GLFW_KEY_F6: return Input_key_F6;
+		case GLFW_KEY_F7: return Input_key_F7;
+		case GLFW_KEY_F8: return Input_key_F8;
+		case GLFW_KEY_F9: return Input_key_F9;
+		case GLFW_KEY_F10: return Input_key_F10;
+		case GLFW_KEY_F11: return Input_key_F11;
+		case GLFW_KEY_F12: return Input_key_F12;
+		case GLFW_KEY_APOSTROPHE: return Input_key_Apostrophe;
+		case GLFW_KEY_COMMA: return Input_key_Comma;
+		case GLFW_KEY_MINUS: return Input_key_Minus;
+		case GLFW_KEY_PERIOD: return Input_key_Period;
+		case GLFW_KEY_SLASH: return Input_key_Slash;
+		case GLFW_KEY_SEMICOLON: return Input_key_Semicolon;
+		case GLFW_KEY_EQUAL: return Input_key_Equal;
+		case GLFW_KEY_LEFT_BRACKET: return Input_key_LeftBracket;
+		case GLFW_KEY_BACKSLASH: return Input_key_Backslash;
+		case GLFW_KEY_RIGHT_BRACKET: return Input_key_RightBracket;
+		case GLFW_KEY_GRAVE_ACCENT: return Input_key_GraveAccent;
+		case GLFW_KEY_WORLD_1: return Input_key_World1;
+		case GLFW_KEY_WORLD_2: return Input_key_World2;
+		case GLFW_KEY_INSERT: return Input_key_Insert;
+		case GLFW_KEY_DELETE: return Input_key_Delete;
+		case GLFW_KEY_PAGE_UP: return Input_key_PageUp;
+		case GLFW_KEY_PAGE_DOWN: return Input_key_PageDown;
+		case GLFW_KEY_HOME: return Input_key_Home;
+		case GLFW_KEY_END: return Input_key_End;
+		case GLFW_KEY_CAPS_LOCK: return Input_key_CapsLock;
+		case GLFW_KEY_SCROLL_LOCK: return Input_key_ScrollLock;
+		case GLFW_KEY_NUM_LOCK: return Input_key_NumLock;
+		case GLFW_KEY_PRINT_SCREEN: return Input_key_PrintScreen;
+		case GLFW_KEY_PAUSE: return Input_key_Pause;
+		case GLFW_KEY_F13: return Input_key_F13;
+		case GLFW_KEY_F14: return Input_key_F14;
+		case GLFW_KEY_F15: return Input_key_F15;
+		case GLFW_KEY_F16: return Input_key_F16;
+		case GLFW_KEY_F17: return Input_key_F17;
+		case GLFW_KEY_F18: return Input_key_F18;
+		case GLFW_KEY_F19: return Input_key_F19;
+		case GLFW_KEY_F20: return Input_key_F20;
+		case GLFW_KEY_F21: return Input_key_F21;
+		case GLFW_KEY_F22: return Input_key_F22;
+		case GLFW_KEY_F23: return Input_key_F23;
+		case GLFW_KEY_F24: return Input_key_F24;
+		case GLFW_KEY_F25: return Input_key_F25;
+		case GLFW_KEY_KP_0: return Input_key_Kp0;
+		case GLFW_KEY_KP_1: return Input_key_Kp1;
+		case GLFW_KEY_KP_2: return Input_key_Kp2;
+		case GLFW_KEY_KP_3: return Input_key_Kp3;
+		case GLFW_KEY_KP_4: return Input_key_Kp4;
+		case GLFW_KEY_KP_5: return Input_key_Kp5;
+		case GLFW_KEY_KP_6: return Input_key_Kp6;
+		case GLFW_KEY_KP_7: return Input_key_Kp7;
+		case GLFW_KEY_KP_8: return Input_key_Kp8;
+		case GLFW_KEY_KP_9: return Input_key_Kp9;
+		case GLFW_KEY_KP_DECIMAL: return Input_key_KpDecimal;
+		case GLFW_KEY_KP_DIVIDE: return Input_key_KpDivide;
+		case GLFW_KEY_KP_MULTIPLY: return Input_key_KpMultiply;
+		case GLFW_KEY_KP_SUBTRACT: return Input_key_KpSubtract;
+		case GLFW_KEY_KP_ADD: return Input_key_KpAdd;
+		case GLFW_KEY_KP_ENTER: return Input_key_KpEnter;
+		case GLFW_KEY_KP_EQUAL: return Input_key_KpEqual;
+		case GLFW_KEY_LEFT_SUPER: return Input_key_LeftSuper;
+		case GLFW_KEY_RIGHT_SUPER: return Input_key_RightSuper;
+		case GLFW_KEY_MENU: return Input_key_Menu;
+		case GLFW_KEY_UNKNOWN: return Input_key_Unknown;
+		default: return Input_key_Unknown;
+		}
+	}
+
+	Input_mouse GLFWToInputMouse(int mouse)
+	{
+		switch (mouse)
+		{
+		case GLFW_MOUSE_BUTTON_LEFT:   return Input_mouse_Left;
+		case GLFW_MOUSE_BUTTON_RIGHT:  return Input_mouse_Right;
+		case GLFW_MOUSE_BUTTON_MIDDLE: return Input_mouse_Middle;
+		case GLFW_MOUSE_BUTTON_4:      return Input_mouse_Button4;
+		case GLFW_MOUSE_BUTTON_5:      return Input_mouse_Button5;
+		case GLFW_MOUSE_BUTTON_6:      return Input_mouse_Button6;
+		case GLFW_MOUSE_BUTTON_7:      return Input_mouse_Button7;
+		case GLFW_MOUSE_BUTTON_8:      return Input_mouse_Button8;
+		default:                       return Input_mouse_Left; // Or a custom 'Unknown' if defined
+		}
+	}
+
+	Input_mod GLFWToInputMods(int mod)
+	{
+		switch (mod)
+		{
+		case GLFW_MOD_SHIFT:    return Input_mod_Shift;
+		case GLFW_MOD_CONTROL:  return Input_mod_Control;
+		case GLFW_MOD_ALT:      return Input_mod_Alt;
+		case GLFW_MOD_SUPER:    return Input_mod_Super;
+		case GLFW_MOD_CAPS_LOCK:return Input_mod_CapsLock;
+		case GLFW_MOD_NUM_LOCK: return Input_mod_NumLock;
+		default:                return Input_mod_Shift; // Or a custom 'Unknown' if defined
 		}
 	}
 

@@ -1,9 +1,11 @@
 #include "ChV_PCH.h"
 
 #define VK_USE_PLATFORM_WIN32_KHR
+#define VK_ENABLE_BETA_EXTENSIONS
 #include "vulkan/vulkan.h"
 #include "VulkanDevice.h"
 
+#include "vk_mem_alloc.h"
 #include "VulkanRenderer.h"
 #include "VulkanSwapChain.h"
 #include <cstdint>

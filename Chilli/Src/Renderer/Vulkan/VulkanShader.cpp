@@ -1,19 +1,22 @@
 ﻿#include "ChV_PCH.h"
 
-#define VK_USE_PLATFORM_WIN32_KHR
-#include "vulkan/vulkan.h"
-#include "VulkanDevice.h"
+#define USE_PLATFORM_WIN32_KHR
+#define VK_ENABLE_BETA_EXTENSIONS
+#include "C:\VulkanSDK\1.3.275.0\Include\vulkan\vulkan.h"
 
 #include "vk_mem_alloc.h"
+#include "VulkanDevice.h"
 #include "VulkanRenderer.h"
-#include "VulkanResources.h"
-#include "VulkanBuffer.h"
-#include "VulkanShader.h"
 #include "VulkanUtils.h"
+#include "VulkanShader.h"
+#include "VulkanConversions.h"
+
 #include "spirv_reflect.h"
 
 namespace Chilli
 {
+	static VulkanPipelineLayoutCache s_LayoutCache;
+
 	void _ReadFile(const char* FilePath, std::vector<char>& CharData)
 	{
 		std::ifstream file(FilePath, std::ios::ate | std::ios::binary);
@@ -28,6 +31,42 @@ namespace Chilli
 		file.read(CharData.data(), fileSize);
 		file.close();
 	}
+
+	VkShaderModule _CreateShaderModule(VkDevice device, std::vector<char>& code)
+	{
+		VkShaderModuleCreateInfo createinfo{};
+		createinfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+		createinfo.codeSize = code.size();
+		createinfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
+
+		VkShaderModule shaderModule;
+		if (vkCreateShaderModule(device, &createinfo, nullptr, &shaderModule) != VK_SUCCESS)
+			throw std::runtime_error("failed to create shader module!");
+
+		return shaderModule;
+	}
+
+	VkPipelineShaderStageCreateInfo _CreateShaderStages(VkShaderModule module, VkShaderStageFlagBits type, const char* Name)
+	{
+		VkPipelineShaderStageCreateInfo stage{};
+		stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+		stage.module = module;
+		stage.pName = Name;
+		stage.stage = type;
+
+		return stage;
+	}
+
+	VkVertexInputAttributeDescription GetAttributeDescription(int Binding, int Location, int Offset, VkFormat Format)
+	{
+		VkVertexInputAttributeDescription attributeDescriptions{};
+		attributeDescriptions.binding = Binding;
+		attributeDescriptions.location = Location;
+		attributeDescriptions.format = Format; // vec3
+		attributeDescriptions.offset = Offset;
+		return attributeDescriptions;
+	}
+
 	// Helper to map SPIR-V format to VkFormat
 	VkFormat SPVFormatToVkFormat(SpvReflectFormat fmt)
 	{
@@ -39,7 +78,6 @@ namespace Chilli
 		default: return VK_FORMAT_UNDEFINED;
 		}
 	}
-
 
 	int ShaderTypeToSize(ShaderVertexTypes Type)
 	{
@@ -190,7 +228,7 @@ namespace Chilli
 				VkDescriptorSetLayoutBinding layoutBinding{};
 				layoutBinding.binding = refl.binding;
 				layoutBinding.descriptorType = (VkDescriptorType)refl.descriptor_type;
-				layoutBinding.descriptorCount = 1;
+				layoutBinding.descriptorCount = refl.count;
 				layoutBinding.stageFlags = stageFlag;
 				layoutBinding.pImmutableSamplers = nullptr;
 
@@ -198,7 +236,7 @@ namespace Chilli
 				UniformInfo.Binding = refl.binding;
 
 				if (layoutBinding.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
-					UniformInfo.Type = ShaderUniformTypes::UNIFORM;
+					UniformInfo.Type = ShaderUniformTypes::UNIFORM_BUFFER;
 				if (layoutBinding.descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
 					UniformInfo.Type = ShaderUniformTypes::SAMPLED_IMAGE;
 
@@ -235,46 +273,61 @@ namespace Chilli
 		return info;
 	}
 
-	VkShaderModule _CreateShaderModule(VkDevice device, std::vector<char>& code)
+	bool MergeBindingStage(std::vector<ReflectedUniformInput>& bindings,
+		const ReflectedUniformInput& candidate)
 	{
-		VkShaderModuleCreateInfo createinfo{};
-		createinfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-		createinfo.codeSize = code.size();
-		createinfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
-
-		VkShaderModule shaderModule;
-		if (vkCreateShaderModule(device, &createinfo, nullptr, &shaderModule) != VK_SUCCESS)
-			throw std::runtime_error("failed to create shader module!");
-
-		return shaderModule;
+		for (auto& existing : bindings)
+		{
+			// Match by set and binding index
+			if (existing.Binding == candidate.Binding && existing.SetLayoutIndex == candidate.SetLayoutIndex)
+			{
+				// Merge stage flags: if one is vertex and one is fragment → set to ALL
+				if ((existing.Stage == ShaderStageType::VERTEX && candidate.Stage == ShaderStageType::FRAGMENT) ||
+					(existing.Stage == ShaderStageType::FRAGMENT && candidate.Stage == ShaderStageType::VERTEX))
+				{
+					existing.Stage = ShaderStageType::ALL;
+				}
+				return true; // already exists and merged
+			}
+		}
+		return false;
 	}
 
-	VkPipelineShaderStageCreateInfo _CreateShaderStages(VkShaderModule module, VkShaderStageFlagBits type, const char* Name)
+	void MergeReflectedShaderInfos(ReflectedShaderInfo& base, const ReflectedShaderInfo& extra)
 	{
-		VkPipelineShaderStageCreateInfo stage{};
-		stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-		stage.module = module;
-		stage.pName = Name;
-		stage.stage = type;
+		// Merge uniform bindings
+		for (const auto& b : extra.Bindings)
+		{
+			if (!MergeBindingStage(base.Bindings, b))
+				base.Bindings.push_back(b);
+		}
 
-		return stage;
+		// Merge push constants (avoid duplicates)
+		for (const auto& pc : extra.PushConstantRanges)
+		{
+			bool exists = false;
+			for (const auto& existing : base.PushConstantRanges)
+			{
+				if (existing.offset == pc.offset && existing.size == pc.size)
+				{
+					exists = true;
+					break;
+				}
+			}
+			if (!exists)
+				base.PushConstantRanges.push_back(pc);
+		}
+
+		// (Optional) Vertex inputs only exist for vertex shader — no need to merge
 	}
 
-	VkVertexInputAttributeDescription GetAttributeDescription(int Binding, int Location, int Offset, VkFormat Format)
+	void VulkanGraphiscPipeline::Init(const GraphicsPipelineSpec& Spec)
 	{
-		VkVertexInputAttributeDescription attributeDescriptions{};
-		attributeDescriptions.binding = Binding;
-		attributeDescriptions.location = Location;
-		attributeDescriptions.format = Format; // vec3
-		attributeDescriptions.offset = Offset;
-		return attributeDescriptions;
-	}
+		auto Device = VulkanUtils::GetLogicalDevice();
 
-	void VulkanGraphicsPipeline::Init(VkDevice Device, VkFormat SwapChainFormat, const PipelineSpec& Spec)
-	{
 		std::vector<char> VertShaderCode, FragShaderCode;
-		_ReadFile(Spec.Paths[0].c_str(), VertShaderCode);
-		_ReadFile(Spec.Paths[1].c_str(), FragShaderCode);
+		_ReadFile(Spec.VertPath.c_str(), VertShaderCode);
+		_ReadFile(Spec.FragPath.c_str(), FragShaderCode);
 		// Create shader modules
 		VkShaderModule vertShaderModule = _CreateShaderModule(Device, VertShaderCode);
 		VkShaderModule fragShaderModule = _CreateShaderModule(Device, FragShaderCode);
@@ -284,10 +337,10 @@ namespace Chilli
 		shaderStages[0] = _CreateShaderStages(vertShaderModule, VK_SHADER_STAGE_VERTEX_BIT, "main");
 		shaderStages[1] = _CreateShaderStages(fragShaderModule, VK_SHADER_STAGE_FRAGMENT_BIT, "main");
 
-		// Calculate Stride
-		size_t Stride = 0;
-
+		_Spec = Spec;
 		_FillInfo();
+
+		uint32_t Stride = 0;
 
 		std::vector<VkVertexInputAttributeDescription> NewAttributeDescriptions;
 		NewAttributeDescriptions.reserve(_Info.VertexInputs.size());
@@ -298,9 +351,9 @@ namespace Chilli
 				InputInfo.Format));
 			Stride += ShaderTypeToSize(FormatToShaderType(InputInfo.Format));
 		}
+
 		// 🆕 UPDATED: Vertex input descriptions for the new shader
 		VkVertexInputBindingDescription bindingDescriptions;
-
 		bindingDescriptions.binding = 0;
 		bindingDescriptions.stride = Stride;
 		bindingDescriptions.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
@@ -316,10 +369,7 @@ namespace Chilli
 		VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
 		inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
 		inputAssembly.primitiveRestartEnable = VK_FALSE;
-		if (Spec.TopologyMode == InputTopologyMode::Triangle_List)
-			inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-		else if (Spec.TopologyMode == InputTopologyMode::Triangle_Strip)
-			inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+		inputAssembly.topology = TopologyToVk(Spec.TopologyMode);
 
 		// Viewport and scissor (dynamic)
 		VkPipelineViewportStateCreateInfo viewportState{};
@@ -333,18 +383,10 @@ namespace Chilli
 		rasterizer.depthClampEnable = VK_FALSE;
 		rasterizer.rasterizerDiscardEnable = VK_FALSE;
 		rasterizer.lineWidth = 1.0f;
-		rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+		rasterizer.frontFace = FrontFaceToVk(Spec.FrontFace);
 		rasterizer.depthBiasEnable = VK_FALSE;
-
-		if (Spec.ShaderCullMode == CullMode::None)
-			rasterizer.cullMode = VK_CULL_MODE_NONE;
-		else if (Spec.ShaderCullMode == CullMode::Back)
-			rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-		else if (Spec.ShaderCullMode == CullMode::Front)
-			rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
-
-		if (Spec.ShaderFillMode == FillMode::Fill)
-			rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+		rasterizer.cullMode = CullModeToVk(Spec.ShaderCullMode);
+		rasterizer.polygonMode = PolygonModeToVk(Spec.ShaderFillMode);
 
 		// Multisampling
 		VkPipelineMultisampleStateCreateInfo multisampling{};
@@ -384,23 +426,11 @@ namespace Chilli
 		VkPipelineRenderingCreateInfo renderingInfo{};
 		renderingInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
 		renderingInfo.colorAttachmentCount = 1;
+		auto SwapChainFormat = VulkanUtils::GetSwapChainKHR().GetFormat();
 		renderingInfo.pColorAttachmentFormats = &SwapChainFormat;
 
-		if (Spec.EnableDepthStencil) {
-			if (Spec.DepthFormat == ImageFormat::D24_S8)
-				renderingInfo.depthAttachmentFormat = VK_FORMAT_D24_UNORM_S8_UINT;
-			else if (Spec.DepthFormat == ImageFormat::D32)
-				renderingInfo.depthAttachmentFormat = VK_FORMAT_D32_SFLOAT;
-			else if (Spec.DepthFormat == ImageFormat::D32_S8)
-				renderingInfo.depthAttachmentFormat = VK_FORMAT_D32_SFLOAT_S8_UINT;
-		}
-
-		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.pSetLayouts = _Info.SetLayouts.data();
-		pipelineLayoutInfo.setLayoutCount = (uint32_t)_Info.SetLayouts.size();
-
-		vkCreatePipelineLayout(Device, &pipelineLayoutInfo, nullptr, &_PipelineLayout);
+		_PipelineLayoutHash = 0;
+		auto PipelineLayout = VulkanPipelineLayoutCache::GetPipelineLayoutCache().GetOrCreate(0);
 
 		// Create graphics pipeline
 		VkGraphicsPipelineCreateInfo pipelineInfo{};
@@ -416,10 +446,10 @@ namespace Chilli
 		pipelineInfo.pDepthStencilState = nullptr;
 		pipelineInfo.pColorBlendState = &colorBlending;
 		pipelineInfo.pDynamicState = &dynamicState;
-		pipelineInfo.layout = _PipelineLayout;
+		pipelineInfo.layout = PipelineLayout;
 		pipelineInfo.renderPass = VK_NULL_HANDLE; // No render pass with dynamic rendering
 		pipelineInfo.subpass = 0;
-
+		
 		VkPipelineDepthStencilStateCreateInfo depthStencil{};
 
 		if (Spec.EnableDepthStencil)
@@ -441,84 +471,533 @@ namespace Chilli
 		vkDestroyShaderModule(Device, fragShaderModule, nullptr);
 	}
 
-	void VulkanGraphicsPipeline::Destroy(VkDevice Device)
+	void VulkanGraphiscPipeline::ReCreate(const GraphicsPipelineSpec& Spec)
 	{
-		for (auto layout : _Info.SetLayouts)
-			vkDestroyDescriptorSetLayout(Device, layout, nullptr);
-		vkDestroyPipelineLayout(Device, _PipelineLayout, nullptr);
-		vkDestroyPipeline(Device, _Pipeline, nullptr);
+		Destroy();
+		Init(Spec);
 	}
 
-	void VulkanGraphicsPipeline::ReCreate(VkDevice Device, VkFormat SwapChainFormat, const PipelineSpec& Spec)
+	void VulkanGraphiscPipeline::Destroy()
 	{
-		if (_Pipeline != VK_NULL_HANDLE)
-			Destroy(Device);
-		Init(Device, SwapChainFormat, Spec);
+		vkDestroyPipeline(VulkanUtils::GetLogicalDevice(), _Pipeline, nullptr);
 	}
 
-	void VulkanGraphicsPipeline::_FillInfo()
+	void VulkanGraphiscPipeline::Bind() const
 	{
-		_Info = ReflectShaderModule(VulkanUtils::GetLogicalDevice(), "vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
-		auto FragInfo = ReflectShaderModule(VulkanUtils::GetLogicalDevice(), "frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-		_Info.Bindings.reserve(_Info.Bindings.size() + FragInfo.Bindings.size());
+		vkCmdBindPipeline(VulkanUtils::GetActiveCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, _Pipeline);
+	}
 
-		for (auto& i : FragInfo.Bindings)
-			_Info.Bindings.push_back(i);
+	void VulkanGraphiscPipeline::_FillInfo()
+	{
+		_Info = ReflectShaderModule(VulkanUtils::GetLogicalDevice(), _Spec.VertPath, VK_SHADER_STAGE_VERTEX_BIT);
+		auto FragInfo = ReflectShaderModule(VulkanUtils::GetLogicalDevice(), _Spec.FragPath, VK_SHADER_STAGE_FRAGMENT_BIT);
 
-		std::vector<VkDescriptorSetLayout> Layouts;
+		MergeReflectedShaderInfos(_Info, FragInfo);
+	}
 
-		std::vector<int> UniqueSetNums;
+	VkDescriptorPool _CreatePool(VkDevice device, uint32_t MaxSetCount
+		, VkDescriptorPoolCreateFlags Flag, const std::vector<std::tuple< ShaderUniformTypes, uint32_t>>& PoolSizeInfos,
+		void* pNext = nullptr)
+	{
+		VkDescriptorPoolCreateInfo PoolInfo{};
+		PoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+		PoolInfo.flags = Flag;
+		PoolInfo.maxSets = MaxSetCount;
 
-		for (auto& BindingInfo : _Info.Bindings)
+		std::vector<VkDescriptorPoolSize> PoolSizes;
+		PoolSizes.reserve(PoolSizeInfos.size());
+
+		for (auto& SizeInfo : PoolSizeInfos)
 		{
-			if (UniqueSetNums.size() == 0)
-				UniqueSetNums.push_back(BindingInfo.SetLayoutIndex);
-			else
-			{
-				if (std::find(UniqueSetNums.begin(), UniqueSetNums.end(), BindingInfo.SetLayoutIndex) ==
-					UniqueSetNums.end())
-				{
-					UniqueSetNums.push_back(BindingInfo.SetLayoutIndex);
-				}
+			auto& [Type, Count] = SizeInfo;
+			PoolSizes.push_back({ UniformTypeToVk(Type), Count });
+		}
+		PoolInfo.poolSizeCount = PoolSizes.size();
+		PoolInfo.pPoolSizes = PoolSizes.data();
+		PoolInfo.pNext = pNext;
+
+		VkDescriptorPool Pool;
+		VULKAN_SUCCESS_ASSERT(vkCreateDescriptorPool(device, &PoolInfo, nullptr, &Pool), "Descrptor pool Failed to Create!");
+		return Pool;
+	}
+
+	VkDescriptorSet _CreateDescSet(VkDevice device, uint32_t Count, VkDescriptorPool Pool, const VkDescriptorSetLayout* pLayout
+		, void* pNext = nullptr)
+	{
+		VkDescriptorSetAllocateInfo AllocInfo{};
+		AllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		AllocInfo.descriptorPool = Pool;
+		AllocInfo.descriptorSetCount = Count;;
+		AllocInfo.pSetLayouts = pLayout;;
+		AllocInfo.pNext = pNext;
+		VkDescriptorSet Set;
+
+		VULKAN_SUCCESS_ASSERT(vkAllocateDescriptorSets(device, &AllocInfo, &Set), "Descriptor Set Failed to Create!");
+		return Set;
+	}
+
+	void VulkanBindlessSetManager::Init()
+	{
+		_InitPool();
+		_InitSetLayouts();
+		_InitSets();
+	}
+
+	void VulkanBindlessSetManager::Free()
+	{
+		_DelLayouts();
+		_DelSets();
+		_DelPool();
+		_DelBuffers();
+	}
+
+	VkDescriptorSetLayoutBinding _FillBindingInfo(uint32_t Binding, uint32_t Count, VkDescriptorType Type, VkShaderStageFlags Stage, VkSampler* pSampler)
+	{
+		VkDescriptorSetLayoutBinding BindingInfo{};
+		BindingInfo.binding = Binding;
+		BindingInfo.descriptorCount = Count;
+		BindingInfo.descriptorType = Type;
+		BindingInfo.stageFlags = Stage;
+		BindingInfo.pImmutableSamplers = pSampler;
+		return BindingInfo;
+	}
+
+	void VulkanBindlessSetManager::CreateMaterialSBO(size_t SizeInBytes, uint32_t MaxIndex)
+	{
+		_MaterialSBO = Chilli::StorageBuffer::Create(SizeInBytes);
+		_MaxMaterialCount = MaxIndex;
+		auto device = VulkanUtils::GetLogicalDevice();
+
+		VkDescriptorBufferInfo BufferInfo{};
+		BufferInfo.buffer = std::static_pointer_cast<VulkanStorageBuffer>(_MaterialSBO)->GetHandle();
+		BufferInfo.offset = 0;
+		BufferInfo.range = _MaterialSBO->GetSize();
+
+		VkWriteDescriptorSet write = {
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = _MaterialsDataSet.Set,
+			.dstBinding = 0, // Texture array binding
+			.dstArrayElement = 0,
+			.descriptorCount = 1,
+			.descriptorType = UniformTypeToVk(ShaderUniformTypes::STORAGE_BUFFER),
+			.pBufferInfo = &BufferInfo
+		};
+
+		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+	}
+
+	void VulkanBindlessSetManager::CreateObjectSBO(size_t SizeInBytes, uint32_t MaxIndex)
+	{
+		_ObjectSBO = Chilli::StorageBuffer::Create(SizeInBytes);
+		_MaxObjectCount = MaxIndex;
+		auto device = VulkanUtils::GetLogicalDevice();
+
+		VkDescriptorBufferInfo BufferInfo{};
+		BufferInfo.buffer = std::static_pointer_cast<VulkanStorageBuffer>(_ObjectSBO)->GetHandle();
+		BufferInfo.offset = 0;
+		BufferInfo.range = _ObjectSBO->GetSize();
+
+		VkWriteDescriptorSet write = {
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = _ObjectDataSet.Set,
+			.dstBinding = 0, // Texture array binding
+			.dstArrayElement = 0,
+			.descriptorCount = 1,
+			.descriptorType = UniformTypeToVk(ShaderUniformTypes::STORAGE_BUFFER),
+			.pBufferInfo = &BufferInfo
+		};
+
+		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+	}
+
+	bool VulkanBindlessSetManager::Bind(VkCommandBuffer CommandBuffer, VkPipelineLayout Layout)
+	{
+		return true;
+	}
+
+	void VulkanBindlessSetManager::UpdateSceneUBO(void* Data)
+	{
+		_SceneUniformBuffer->MapData(Data, _SceneUniformBuffer->GetSize());
+	}
+
+	void VulkanBindlessSetManager::SetSceneUBO(size_t SceneUBOSize)
+	{
+		_SceneUniformBuffer = Chilli::UniformBuffer::Create(SceneUBOSize);
+		auto device = VulkanUtils::GetLogicalDevice();
+
+		VkDescriptorBufferInfo BufferInfo{};
+		BufferInfo.buffer = std::static_pointer_cast<VulkanUniformBuffer>(_SceneUniformBuffer)->GetHandle();
+		BufferInfo.offset = 0;
+		BufferInfo.range = _SceneUniformBuffer->GetSize();
+
+		VkWriteDescriptorSet write = {
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = _SceneDataSet.Set,
+			.dstBinding = 0, // Texture array binding
+			.dstArrayElement = 0,
+			.descriptorCount = 1,
+			.descriptorType = UniformTypeToVk(ShaderUniformTypes::UNIFORM_BUFFER),
+			.pBufferInfo = &BufferInfo
+		};
+
+		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+	}
+
+	void VulkanBindlessSetManager::UpdateGlobalUBO(void* Data)
+	{
+		_GlobalUniformBuffer->MapData(Data, _GlobalUniformBuffer->GetSize());
+	}
+
+	void VulkanBindlessSetManager::SetGlobalUBO(size_t GlobalUBOSize)
+	{
+		_GlobalUniformBuffer = Chilli::UniformBuffer::Create(GlobalUBOSize);
+		auto device = VulkanUtils::GetLogicalDevice();
+
+		VkDescriptorBufferInfo BufferInfo{};
+		BufferInfo.buffer = std::static_pointer_cast<VulkanUniformBuffer>(_GlobalUniformBuffer)->GetHandle();
+		BufferInfo.offset = 0;
+		BufferInfo.range = _GlobalUniformBuffer->GetSize();
+
+		VkWriteDescriptorSet write = {
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = _GlobalUBOSet.Set,
+			.dstBinding = 0, // Texture array binding
+			.dstArrayElement = 0,
+			.descriptorCount = 1,
+			.descriptorType = UniformTypeToVk(ShaderUniformTypes::UNIFORM_BUFFER),
+			.pBufferInfo = &BufferInfo
+		};
+
+		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+	}
+
+	uint32_t VulkanBindlessSetManager::AddTexture(const std::shared_ptr<Texture>& Tex)
+	{
+		auto Index = _TextureManager.Add((Tex)->ID());
+		// Update the descriptor
+		auto device = VulkanUtils::GetLogicalDevice();
+
+		VkDescriptorImageInfo ImageInfo{};
+		ImageInfo.imageView = std::static_pointer_cast<VulkanTexture>(Tex)->GetHandle();
+		ImageInfo.sampler = nullptr;
+		ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		VkWriteDescriptorSet write = {
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = _TexSamplersSet.Set,
+			.dstBinding = 1, // Texture array binding
+			.dstArrayElement = Index,
+			.descriptorCount = 1,
+			.descriptorType = UniformTypeToVk(ShaderUniformTypes::SAMPLED_IMAGE),
+			.pImageInfo = &ImageInfo
+		};
+
+		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+		return Index;
+	}
+
+	void VulkanBindlessSetManager::AddSampler(const std::shared_ptr<Sampler>& Sam)
+	{
+		auto Index = _SamplerManager.Add((Sam)->ID());
+		// Update the descriptor
+		auto device = VulkanUtils::GetLogicalDevice();
+
+		VkDescriptorImageInfo ImageInfo{};
+		ImageInfo.imageView = VK_NULL_HANDLE;
+		ImageInfo.sampler = std::static_pointer_cast<VulkanSampler>(Sam)->GetHandle();
+		ImageInfo.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+		VkWriteDescriptorSet write = {
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = _TexSamplersSet.Set,
+			.dstBinding = 0, // Sampler array binding
+			.dstArrayElement = Index,
+			.descriptorCount = 1,
+			.descriptorType = UniformTypeToVk(ShaderUniformTypes::SAMPLER),
+			.pImageInfo = &ImageInfo
+		};
+
+		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+	}
+
+	void VulkanBindlessSetManager::UpdateMaterial(const Material& Mat, uint32_t Index)
+	{
+		MaterialShaderData CopyMat{};
+		// Turn Texture handle to shader index
+		CopyMat.Indicies.x = _TextureManager.GetIndex(Mat.AlbedoTexture);
+		CopyMat.Indicies.y = _SamplerManager.GetIndex(Mat.AlbedoSampler);
+		CopyMat.AlbedoColor = Mat.AlbedoColor;
+
+		_MaterialSBO->MapData((void*)&CopyMat, sizeof(MaterialShaderData), sizeof(MaterialShaderData) * Index);
+		_MaterialManager.Add(Mat.ID, Index);
+	}
+
+	void VulkanBindlessSetManager::UpdateObject(const Object& Obj, uint32_t Index)
+	{
+		ObjectShaderData CopyData{};
+		CopyData.TransformationMat = Obj.Transform.TransformationMat;
+
+		_ObjectSBO->MapData((void*)&CopyData, sizeof(ObjectShaderData), sizeof(ObjectShaderData) * Index);
+		_ObjectManager.Add(Obj.ID, Index);
+	}
+
+	RenderCommandSpec VulkanBindlessSetManager::FromRenderCommand(const RenderCommandSpec& Spec)
+	{
+		RenderCommandSpec ReturnSpec{};
+		ReturnSpec.MaterialIndex = _MaterialManager.GetIndex(Spec.MaterialIndex);
+		ReturnSpec.ObjectIndex = _ObjectManager.GetIndex(Spec.ObjectIndex);
+		return ReturnSpec;
+	}
+
+	uint32_t VulkanBindlessSetManager::GetTextureIndex(const std::shared_ptr<Texture>& Tex)
+	{
+		return _TextureManager.GetIndex((Tex)->ID());
+	}
+
+	void VulkanBindlessSetManager::RemoveTexture(const std::shared_ptr<Texture>& Tex)
+	{
+	}
+
+	bool VulkanBindlessSetManager::IsTexPresent(const std::shared_ptr<Texture>& Tex) const
+	{
+		return _TextureManager.IsTexPresent(Tex->ID());
+	}
+
+	void VulkanBindlessSetManager::_InitSetLayouts()
+	{
+		auto device = VulkanUtils::GetLogicalDevice();
+		{
+			// Global Set(set = 0)
+			VkDescriptorSetLayoutBinding GlobalSetBinding = _FillBindingInfo(0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, nullptr);
+
+			VkDescriptorSetLayoutCreateInfo Info{};
+			Info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+			Info.pBindings = &GlobalSetBinding;
+			Info.bindingCount = 1;
+			Info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+
+			VULKAN_SUCCESS_ASSERT(vkCreateDescriptorSetLayout(device, &Info, nullptr, &_GlobalUBOLayout), "Global UBO Layout failed to create!");
+		}
+		{
+			// Scene Data Set(set = 1)
+			VkDescriptorSetLayoutBinding SceneSetBinding = _FillBindingInfo(0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, nullptr);
+
+			VkDescriptorSetLayoutCreateInfo Info{};
+			Info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+			Info.pBindings = &SceneSetBinding;
+			Info.bindingCount = 1;
+			Info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+
+			VULKAN_SUCCESS_ASSERT(vkCreateDescriptorSetLayout(device, &Info, nullptr, &_SceneUBOLayout), "Scene UBO Layout failed to create!");
+		}
+		{
+			// Texture Samplers Array Set(set = 2)
+			std::array< VkDescriptorSetLayoutBinding, 2> TexSamplerSetBindings;
+
+			TexSamplerSetBindings[0] = _FillBindingInfo(0, int(BindingPipelineFeatures::MAX_SAMPLERS), VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_ALL, nullptr);
+			TexSamplerSetBindings[1] = _FillBindingInfo(1, int(BindingPipelineFeatures::MAX_TEXTURES), VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_ALL, nullptr);
+
+			VkDescriptorSetLayoutCreateInfo Info{};
+			Info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+			Info.pBindings = TexSamplerSetBindings.data();
+			Info.bindingCount = 2;
+			Info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+
+			std::vector< VkDescriptorBindingFlags> Flags = {
+				// For Samplers
+				VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+
+				// For Samplerd Image
+				VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT |
+				VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
+				VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT,
+			};
+
+			VkDescriptorSetLayoutBindingFlagsCreateInfo FlagsInfo{};
+			FlagsInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+			FlagsInfo.bindingCount = 2;
+			FlagsInfo.pBindingFlags = Flags.data();
+
+			Info.pNext = &FlagsInfo;
+
+			VULKAN_SUCCESS_ASSERT(vkCreateDescriptorSetLayout(device, &Info, nullptr, &_TexSamplerUBOLayout), "TexSampler UBO Layout failed to create!");
+		}
+		{
+			// Materials Data Buffer Set(set = 3)
+			VkDescriptorSetLayoutBinding MaterialSetBinding = _FillBindingInfo(0, 1,
+				UniformTypeToVk(ShaderUniformTypes::STORAGE_BUFFER), VK_SHADER_STAGE_ALL, nullptr);
+
+			VkDescriptorSetLayoutCreateInfo Info{};
+			Info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+			Info.pBindings = &MaterialSetBinding;
+			Info.bindingCount = 1;
+			Info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+
+			VULKAN_SUCCESS_ASSERT(vkCreateDescriptorSetLayout(device, &Info, nullptr, &_MaterialsUBOLayout), "Materials UBO Layout failed to create!");
+		}
+		{
+			// Objects Data Buffer Set(set = 4)
+			VkDescriptorSetLayoutBinding ObjectSetBinding = _FillBindingInfo(0, 1,
+				UniformTypeToVk(ShaderUniformTypes::STORAGE_BUFFER), VK_SHADER_STAGE_ALL, nullptr);
+
+			VkDescriptorSetLayoutCreateInfo Info{};
+			Info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+			Info.pBindings = &ObjectSetBinding;
+			Info.bindingCount = 1;
+			Info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+
+			VULKAN_SUCCESS_ASSERT(vkCreateDescriptorSetLayout(device, &Info, nullptr, &_ObjectsUBOLayout)
+				, "Objects UBO Layout failed to create!");
+		}
+		VulkanPipelineLayoutInfo PipelienInfo{};
+		PipelienInfo.Layouts.push_back(_GlobalUBOLayout);
+		PipelienInfo.Layouts.push_back(_SceneUBOLayout);
+		PipelienInfo.Layouts.push_back(_TexSamplerUBOLayout);
+		PipelienInfo.Layouts.push_back(_MaterialsUBOLayout);
+		PipelienInfo.Layouts.push_back(_ObjectsUBOLayout);
+
+		VkPushConstantRange PushConstantRange{};
+		PushConstantRange.stageFlags = VK_SHADER_STAGE_ALL;
+		PushConstantRange.size = sizeof(RenderCommandSpec);
+		PushConstantRange.offset = 0;
+		PipelienInfo.PushConstant = PushConstantRange;
+
+		s_LayoutCache.GetOrCreate(PipelienInfo, 0);
+
+	}
+
+	void VulkanBindlessSetManager::_InitPool()
+	{
+		auto device = VulkanUtils::GetLogicalDevice();
+		_Pool = _CreatePool(device, 100, VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT, {
+				{ShaderUniformTypes::UNIFORM_BUFFER, 1000},
+			{ShaderUniformTypes::SAMPLER, int(BindingPipelineFeatures::MAX_SAMPLERS)},
+			{ShaderUniformTypes::SAMPLED_IMAGE, int(BindingPipelineFeatures::MAX_TEXTURES)},
+			{ShaderUniformTypes::STORAGE_BUFFER, 1000},
+			}, nullptr);
+	}
+
+	void VulkanBindlessSetManager::_InitSets()
+	{
+		auto device = VulkanUtils::GetLogicalDevice();
+		_GlobalUBOSet.Set = _CreateDescSet(device, 1, _Pool, &_GlobalUBOLayout, nullptr);
+		_SceneDataSet.Set = _CreateDescSet(device, 1, _Pool, &_SceneUBOLayout, nullptr);
+
+		uint32_t variableDescCount = int(BindingPipelineFeatures::MAX_TEXTURES);
+		VkDescriptorSetVariableDescriptorCountAllocateInfo countInfo{};
+		countInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO;
+		countInfo.descriptorSetCount = 1;
+		countInfo.pDescriptorCounts = &variableDescCount;
+
+		_TexSamplersSet.Set = _CreateDescSet(device, 1, _Pool, &_TexSamplerUBOLayout, &countInfo);
+		_MaterialsDataSet.Set = _CreateDescSet(device, 1, _Pool, &_MaterialsUBOLayout, nullptr);
+		_ObjectDataSet.Set = _CreateDescSet(device, 1, _Pool, &_ObjectsUBOLayout, nullptr);
+	}
+
+	void VulkanBindlessSetManager::_DelPool()
+	{
+		auto device = VulkanUtils::GetLogicalDevice();
+		vkDestroyDescriptorPool(device, _Pool, nullptr);
+	}
+
+	void VulkanBindlessSetManager::_DelSets()
+	{
+		auto device = VulkanUtils::GetLogicalDevice();
+	}
+
+	void VulkanBindlessSetManager::_DelLayouts()
+	{
+		auto device = VulkanUtils::GetLogicalDevice();
+		if (_GlobalUBOLayout != VK_NULL_HANDLE) {
+			vkDestroyDescriptorSetLayout(device, _GlobalUBOLayout, nullptr);
+			_GlobalUBOLayout = VK_NULL_HANDLE;
+		}
+		if (_SceneUBOLayout != VK_NULL_HANDLE) {
+			vkDestroyDescriptorSetLayout(device, _SceneUBOLayout, nullptr);
+			_SceneUBOLayout = VK_NULL_HANDLE;
+		}
+		if (_TexSamplerUBOLayout != VK_NULL_HANDLE) {
+			vkDestroyDescriptorSetLayout(device, _TexSamplerUBOLayout, nullptr);
+			_TexSamplerUBOLayout = VK_NULL_HANDLE;
+		}
+		if (_MaterialsUBOLayout != VK_NULL_HANDLE) {
+			vkDestroyDescriptorSetLayout(device, _MaterialsUBOLayout, nullptr);
+			_MaterialsUBOLayout = VK_NULL_HANDLE;
+		}
+		if (_ObjectsUBOLayout != VK_NULL_HANDLE) {
+			vkDestroyDescriptorSetLayout(device, _ObjectsUBOLayout, nullptr);
+			_ObjectsUBOLayout = VK_NULL_HANDLE;
+		}
+	}
+
+	void VulkanBindlessSetManager::_DelBuffers()
+	{
+		_ObjectSBO->Destroy();
+		_MaterialSBO->Destroy();
+		_SceneUniformBuffer->Destroy();
+		_GlobalUniformBuffer->Destroy();
+	}
+
+	VkPipelineLayout VulkanPipelineLayoutCache::CreatePipelineLayout(const VulkanPipelineLayoutInfo& Info)
+	{
+		// Include it when creating your pipeline layout
+		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		pipelineLayoutInfo.setLayoutCount = (uint32_t)Info.Layouts.size();
+		pipelineLayoutInfo.pSetLayouts = Info.Layouts.data(); // your descriptor layout
+		pipelineLayoutInfo.pushConstantRangeCount = 1;
+		pipelineLayoutInfo.pPushConstantRanges = &Info.PushConstant;
+
+		VkPipelineLayout pipelineLayout;
+		VULKAN_SUCCESS_ASSERT(vkCreatePipelineLayout(VulkanUtils::GetLogicalDevice(), &pipelineLayoutInfo, nullptr, &pipelineLayout), "Pipeline Layout Failed to create!");
+		return pipelineLayout;
+	}
+
+	VkPipelineLayout VulkanPipelineLayoutCache::GetOrCreate(const VulkanPipelineLayoutInfo& Info)
+	{
+		size_t hash = std::hash<VulkanPipelineLayoutInfo>{}(Info);
+
+		auto it = _LayoutsCache.find(hash);
+		if (it != _LayoutsCache.end()) {
+			// Hash match - verify with full comparison (handles collisions)
+			if (it->second.first == Info) {
+				return it->second.second; // Cache hit
 			}
 		}
 
-		for (auto SetLayoutIndex : UniqueSetNums)
-		{
-			std::vector< VkDescriptorSetLayoutBinding> Bindings;
-			for (auto& BindingInfo : _Info.Bindings)
-			{
-				if (BindingInfo.SetLayoutIndex == SetLayoutIndex)
-				{
-					VkDescriptorSetLayoutBinding layoutBinding{};
-					layoutBinding.binding = BindingInfo.Binding;
-					layoutBinding.descriptorCount = BindingInfo.Count;
-					layoutBinding.pImmutableSamplers = nullptr;
+		// Cache miss - create new pipeline layout
+		VkPipelineLayout newLayout = CreatePipelineLayout(Info);
+		_LayoutsCache[hash] = { Info, newLayout };
+		return newLayout;
+	}
 
-					if (BindingInfo.Type == ShaderUniformTypes::SAMPLED_IMAGE)
-						layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-					if (BindingInfo.Type == ShaderUniformTypes::UNIFORM)
-						layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-
-					if (BindingInfo.Stage == ShaderStageType::VERTEX)
-						layoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-					if (BindingInfo.Stage == ShaderStageType::FRAGMENT)
-						layoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-					Bindings.push_back(layoutBinding);
-				}
+	VkPipelineLayout VulkanPipelineLayoutCache::GetOrCreate(const VulkanPipelineLayoutInfo& Info, uint32_t SetIndex)
+	{
+		auto it = _LayoutsCache.find(SetIndex);
+		if (it != _LayoutsCache.end()) {
+			// Hash match - verify with full comparison (handles collisions)
+			if (it->second.first == Info) {
+				return it->second.second; // Cache hit
 			}
-
-			// Create descriptor set layout for this set
-			VkDescriptorSetLayoutCreateInfo layoutInfo{};
-			layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-			layoutInfo.bindingCount = (uint32_t)Bindings.size();
-			layoutInfo.pBindings = Bindings.data();
-
-			VkDescriptorSetLayout setLayout;
-			if (vkCreateDescriptorSetLayout(VulkanUtils::GetLogicalDevice(), &layoutInfo, nullptr, &setLayout) != VK_SUCCESS)
-				throw std::runtime_error("Failed to create descriptor set layout!");
-			_Info.SetLayouts.push_back(setLayout);
 		}
+
+		// Cache miss - create new pipeline layout
+		VkPipelineLayout newLayout = CreatePipelineLayout(Info);
+		_LayoutsCache[SetIndex] = { Info, newLayout };
+		return newLayout;
+	}
+
+	void VulkanPipelineLayoutCache::Flush()
+	{
+		if (Count() == 0)
+			return;
+		for (auto& [HashValue, PairVal] : _LayoutsCache)
+			vkDestroyPipelineLayout(VulkanUtils::GetLogicalDevice(), PairVal.second, nullptr);
+		_LayoutsCache.clear();
+	}
+
+	VulkanPipelineLayoutCache& VulkanPipelineLayoutCache::GetPipelineLayoutCache()
+	{
+		return s_LayoutCache;
 	}
 }

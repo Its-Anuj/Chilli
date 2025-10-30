@@ -1,12 +1,13 @@
 #include "ChV_PCH.h"
 
+#define VK_ENABLE_BETA_EXTENSIONS
 #define VK_USE_PLATFORM_WIN32_KHR
 #include "C:\VulkanSDK\1.3.275.0\Include\vulkan\vulkan.h"
 
 #include "vk_mem_alloc.h"
-
-#include "VulkanBuffer.h"
+#include "VulkanRenderer.h"
 #include "VulkanUtils.h"
+#include "VulkanBuffer.h"
 
 namespace Chilli
 {
@@ -64,13 +65,13 @@ namespace Chilli
 		vmaDestroyBuffer(Allocator, _Buffer, _Allocation);
 	}
 
-	void VulkanBuffer::MapData(void* Data, size_t Size)
+	void VulkanBuffer::MapData(void* Data, size_t Size, uint32_t Offset)
 	{
 		auto Allocator = VulkanUtils::GetVulkanAllocator().GetAllocator();
 		// Copy pixel data to staging buffer
 		void* data;
 		vmaMapMemory(Allocator, _Allocation, &data);
-		memcpy(data, Data, static_cast<size_t>(Size));
+		memcpy((uint8_t*)data + Offset, Data, static_cast<size_t>(Size));
 		vmaUnmapMemory(Allocator, _Allocation);
 	}
 
@@ -91,23 +92,6 @@ namespace Chilli
 		_Buffer.Delete();
 	}
 
-	void CopyBuffer(VkBuffer Src, VkBuffer Dst, VkDeviceSize Size)
-	{
-		BeginCommandBufferInfo Info{};
-		Info.Buffer = VK_NULL_HANDLE;
-		Info.Family = QueueFamilies::TRANSFER;
-
-		VulkanUtils::GetPoolManager().BeginSingleTimeCommand(Info);
-
-		VkBufferCopy copyRegion{};
-		copyRegion.srcOffset = 0;
-		copyRegion.dstOffset = 0;
-		copyRegion.size = Size;
-		vkCmdCopyBuffer(Info.Buffer, Src, Dst, 1, &copyRegion);
-
-		VulkanUtils::GetPoolManager().EndSingleTimeCommand(Info);
-	}
-
 	void VulkanVertexBuffer::Init(const VertexBufferSpec& Spec)
 	{
 		VulkanBufferSpec BufferSpec{};
@@ -124,14 +108,18 @@ namespace Chilli
 			// Use Staging Buffer
 			VulkanStageBuffer StagingBuffer;
 			StagingBuffer.Init(Spec.Data, Spec.Size);
-			CopyBuffer(StagingBuffer.GetHandle(), _Buffer.GetHandle(), Spec.Size);
+			VkBufferCopy Copy{};
+			Copy.dstOffset = 0;
+			Copy.srcOffset = 0;
+			Copy.size = Spec.Size;
+			VulkanUtils::GetPoolManager().CopyBufferToBuffer(Copy, StagingBuffer.GetHandle(), _Buffer.GetHandle());
 			StagingBuffer.Delete();
 		}
 		else
 			_Buffer.MapData(Spec.Data, Spec.Size);
 	}
 
-	void VulkanVertexBuffer::Delete()
+	void VulkanVertexBuffer::Destroy()
 	{
 		_Buffer.Delete();
 	}
@@ -158,15 +146,20 @@ namespace Chilli
 		{
 			// Use Staging Buffer
 			VulkanStageBuffer StagingBuffer;
-			StagingBuffer.Init(Spec.Data, Spec.Size);
-			CopyBuffer(StagingBuffer.GetHandle(), _Buffer.GetHandle(), Spec.Size);
+			StagingBuffer.Init(Spec.Data, Spec.Size);;
+			VkBufferCopy Copy{};
+			Copy.dstOffset = 0;
+			Copy.srcOffset = 0;
+			Copy.size = Spec.Size;
+			VulkanUtils::GetPoolManager().CopyBufferToBuffer(Copy, StagingBuffer.GetHandle(), _Buffer.GetHandle());
+
 			StagingBuffer.Delete();
 		}
 		else
 			_Buffer.MapData(Spec.Data, Spec.Size);
 	}
 
-	void VulkanIndexBuffer::Delete()
+	void VulkanIndexBuffer::Destroy()
 	{
 		_Buffer.Delete();
 	}
@@ -189,15 +182,37 @@ namespace Chilli
 		_Size = Size;
 		_Buffer.Init(BufferSpec);
 	}
-	
+
+	void VulkanUniformBuffer::Destroy()
+	{
+		_Buffer.Delete();
+	}
+
 	void VulkanUniformBuffer::MapData(void* Data, size_t Size)
 	{
 		_Buffer.MapData(Data, Size);
 	}
 
-	void VulkanUniformBuffer::Delete()
+	void VulkanStorageBuffer::Init(size_t Size)
+	{
+		VulkanBufferSpec BufferSpec{};
+		BufferSpec.UsageFlag = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		BufferSpec.Data = nullptr;
+		BufferSpec.Size = Size;
+		BufferSpec.State = BufferState::DYNAMIC_STREAM;
+
+		_Size = Size;
+		_Buffer.Init(BufferSpec);
+	}
+
+	void VulkanStorageBuffer::Destroy()
 	{
 		_Buffer.Delete();
+	}
+
+	void VulkanStorageBuffer::MapData(void* Data, size_t Size, uint32_t Offset)
+	{
+		_Buffer.MapData(Data, Size, Offset);
 	}
 
 }

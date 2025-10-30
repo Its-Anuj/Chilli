@@ -1,40 +1,9 @@
 #pragma once
 
-#include "Shader.h"
 #include "VulkanDevice.h"
 
 namespace Chilli
 {
-	struct DescriptorTypeSpec
-	{
-		ShaderUniformTypes Type;
-		uint32_t Count;
-	};
-
-	struct DescriptorPoolsSpec
-	{
-		std::vector < DescriptorTypeSpec> Types;
-		uint32_t MaxSet;
-	};
-
-	class DescriptorPoolManager
-	{
-	public:
-		DescriptorPoolManager() {}
-		~DescriptorPoolManager() {}
-
-		void Init(VkDevice device, const DescriptorPoolsSpec& Spec);
-		void ShutDown();
-
-		void CreateDescSets(std::vector<VkDescriptorSet>& Sets, uint32_t Count, const std::vector<VkDescriptorSetLayout>& Layouts);
-		void FreeDescSets(std::vector<VkDescriptorSet>& Sets);
-
-		VkDevice Device = VK_NULL_HANDLE;
-	private:
-		VkDescriptorPool _Pool;
-		DescriptorPoolsSpec _Spec;
-	};
-
 	class CommandPoolManager
 	{
 	public:
@@ -77,17 +46,14 @@ namespace Chilli
 
 		void CreateCommandBuffers(std::vector<VkCommandBuffer>& Buffers, uint32_t Coumt, QueueFamilies Family);
 
-		void CopyBuffers(VkBuffer Src, VkBuffer Dst, VkBufferCopy Copy);
-
-		void CreateDescSets(std::vector<VkDescriptorSet>& Sets, uint32_t Count, const  std::vector<VkDescriptorSetLayout>& Layouts) { _DescPoolManager.CreateDescSets(Sets, Count, Layouts); }
-		void FreeDescSets(std::vector<VkDescriptorSet>& Sets) { _DescPoolManager.FreeDescSets(Sets); }
+		void CopyBufferToBuffer(const VkBufferCopy& Copy, VkBuffer Src, VkBuffer Dst);
+		void CopyBufferToImage(const VkBufferImageCopy& Copy, VkBuffer SrcBuffer, VkImage DstImage);
 
 	private:
 		VkDevice _Device;
 		VkQueue _Queues[QueueFamilies::COUNT];
 
 		CommandPoolManager _GraphicsPoolManager, _TransferPoolManager;
-		DescriptorPoolManager _DescPoolManager;
 	};
 
 	class VulkanAllocator
@@ -116,17 +82,24 @@ namespace Chilli
 		static VulkanPoolsManager& GetPoolManager() { return Get()._PoolManager; }
 		static VulkanAllocator& GetVulkanAllocator() { return Get()._Allocator; }
 
-		static void Init(VkInstance Instance, const VulkanDevice& Device);
+		static void Init(VkInstance Instance, const VulkanDevice& Device, const VulkanSwapChainKHR& SwapChain);
 		static void ShutDown();
 
 		static const VulkanDevice& GetDevice() { return Get()._Device; }
 		static VkDevice GetLogicalDevice() { return Get()._Device.GetHandle(); }
+
+		static VulkanSwapChainKHR GetSwapChainKHR() { return Get()._SwapChain; }
+
+		static VkCommandBuffer GetActiveCommandBuffer() { return Get()._ActiveCommandBuffer; }
+		static void SetActiveCommandBuffer(VkCommandBuffer Cmd) { Get()._ActiveCommandBuffer = Cmd; }
 
 	private:
 		VulkanUtils() {}
 		~VulkanUtils() {}
 	private:
 		VulkanDevice _Device;
+		VulkanSwapChainKHR _SwapChain;
+		VkCommandBuffer _ActiveCommandBuffer = VK_NULL_HANDLE;
 
 		VulkanAllocator _Allocator;
 		VulkanPoolsManager _PoolManager;

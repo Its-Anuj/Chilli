@@ -1,8 +1,29 @@
-#include "Ch_PCH.h"
+ï»¿#include "Ch_PCH.h"
 #include "Chilli/Chilli.h"
 #define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>	
+
+#include "Extensions/Camera.h"
+
+#define MAX_MATERIAL 1000
+#define MAX_OBJECT 10000
+
+struct GlobalUBO
+{
+	glm::vec4 ResolutionTime; // x,y for resolution , z for time, w null
+};
+
+struct SceneUBO
+{
+	glm::mat4 ViewProjMatrix;
+	glm::vec4 CameraPos;
+};
+
+struct Vertex {
+	glm::vec3 Position;
+	glm::vec2 TexCoord;
+};
 
 class Editor : public Chilli::Layer
 {
@@ -10,183 +31,143 @@ public:
 	Editor() :Layer("Editor") {}
 	~Editor() {}
 
-	struct UBO
-	{
-		glm::mat4 Transform;
-	};
-
-	struct GlobalUBO
-	{
-		glm::mat4 ViewProjMatrix;
-	};
-
-	struct BirdData
-	{
-		glm::vec3 Position{ 0.0f };
-		glm::vec3 Scale{ 0.2f };
-	};
-
 	virtual void Init() override
 	{
-		struct Vertex
-		{
-			glm::vec3 pos;
-			glm::vec2 uv;
-		};
-
 		{
 			const std::vector<Vertex> Vertices = {
-				// Front face
-				{{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}},
-				{{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.0f}},
-				{{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f}},
-				{{-0.5f,  0.5f,  0.5f}, {0.0f, 1.0f}},
+				// First triangle
+				{ { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f } }, // bottom-left
+				{ {  0.5f, -0.5f, 0.0f }, { 1.0f, 0.0f } }, // bottom-right
+				{ {  0.5f,  0.5f, 0.0f }, { 1.0f, 1.0f } }, // top-right
 
-				// Back face
-				{{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f}},
-				{{ 0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}},
-				{{ 0.5f,  0.5f, -0.5f}, {0.0f, 1.0f}},
-				{{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f}},
-
-				// Left face
-				{{-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}},
-				{{-0.5f, -0.5f,  0.5f}, {1.0f, 0.0f}},
-				{{-0.5f,  0.5f,  0.5f}, {1.0f, 1.0f}},
-				{{-0.5f,  0.5f, -0.5f}, {0.0f, 1.0f}},
-
-				// Right face
-				{{ 0.5f, -0.5f, -0.5f}, {1.0f, 0.0f}},
-				{{ 0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}},
-				{{ 0.5f,  0.5f,  0.5f}, {0.0f, 1.0f}},
-				{{ 0.5f,  0.5f, -0.5f}, {1.0f, 1.0f}},
-
-				// Top face
-				{{-0.5f,  0.5f,  0.5f}, {0.0f, 0.0f}},
-				{{ 0.5f,  0.5f,  0.5f}, {1.0f, 0.0f}},
-				{{ 0.5f,  0.5f, -0.5f}, {1.0f, 1.0f}},
-				{{-0.5f,  0.5f, -0.5f}, {0.0f, 1.0f}},
-
-				// Bottom face
-				{{-0.5f, -0.5f,  0.5f}, {0.0f, 1.0f}},
-				{{ 0.5f, -0.5f,  0.5f}, {1.0f, 1.0f}},
-				{{ 0.5f, -0.5f, -0.5f}, {1.0f, 0.0f}},
-				{{-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}}
+				// Second triangle
+				{ { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f } }, // bottom-left
+				{ {  0.5f,  0.5f, 0.0f }, { 1.0f, 1.0f } }, // top-right
+				{ { -0.5f,  0.5f, 0.0f }, { 0.0f, 1.0f } }  // top-left
 			};
 
-			Chilli::VertexBufferSpec Spec{};
-			Spec.Count = (uint32_t)Vertices.size();
-			Spec.Data = (void*)Vertices.data();
-			Spec.Size = sizeof(Vertex) * Vertices.size();
-			Spec.State = Chilli::BufferState::STATIC_DRAW;
-			VertexBuffer = Chilli::Renderer::GetResourceFactory().CreateVertexBuffer(Spec);
-		}
-		{
+			Chilli::VertexBufferSpec VBSpec{};
+			VBSpec.Count = (uint32_t)Vertices.size();
+			VBSpec.Data = (void*)Vertices.data();
+			VBSpec.Size = sizeof(Vertex) * Vertices.size();
+			VBSpec.State = Chilli::BufferState::STATIC_DRAW;
+
 			const std::vector<uint16_t> Indicies = {
-	0, 1, 2, 2, 3, 0,       // Front
-	4, 5, 6, 6, 7, 4,       // Back
-	8, 9,10,10,11, 8,       // Left
-   12,13,14,14,15,12,       // Right
-   16,17,18,18,19,16,       // Top
-   20,21,22,22,23,20        // Bottom
-			};
+				0, 1, 2, 3, 4, 5 };
 
-			Chilli::IndexBufferSpec Spec{};
-			Spec.Count = (uint32_t)Indicies.size();
-			Spec.Data = (void*)Indicies.data();
-			Spec.Size = sizeof(uint16_t) * Indicies.size();
-			Spec.State = Chilli::BufferState::STATIC_DRAW;
-			IndexBuffer = Chilli::Renderer::GetResourceFactory().CreateIndexBuffer(Spec);
-		}
-		GlobalUB = Chilli::Renderer::GetResourceFactory().CreateUniformBuffer(sizeof(GlobalUBO));
-		BirdUBO = Chilli::Renderer::GetResourceFactory().CreateUniformBuffer(sizeof(UBO));
-		{
-			Chilli::PipelineSpec Spec{};
-			Spec.Paths[0] = "vert.spv";
-			Spec.Paths[1] = "frag.spv";
-			Spec.ShaderCullMode = Chilli::CullMode::Back;
-			Spec.EnableDepthStencil = true;
-			Spec.EnableDepthTest = true;
-			Spec.EnableDepthWrite = true;
-			Spec.EnableStencilTest= true;
-			Spec.DepthFormat = Chilli::ImageFormat::D24_S8;
+			Chilli::IndexBufferSpec IBSpec{};
+			IBSpec.Count = (uint32_t)Indicies.size();
+			IBSpec.Data = (void*)Indicies.data();
+			IBSpec.Size = sizeof(uint16_t) * Indicies.size();
+			IBSpec.State = Chilli::BufferState::STATIC_DRAW;
 
-			Shader = Chilli::Renderer::GetResourceFactory().CreateGraphicsPipeline(Spec);
+			SquareMeshID = MeshManager.AddMesh(VBSpec, IBSpec);
 		}
 		{
-			Chilli::TextureSpec Spec{};
-			Spec.FilePath = "flappy-bird.png";
-			Spec.Tiling = Chilli::ImageTiling::IMAGE_TILING_OPTIOMAL;
-			Spec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
-			Spec.Mode = Chilli::SamplerMode::REPEAT;
+			Chilli::GraphicsPipelineSpec Spec{};
+			Spec.VertPath = "vert.spv";
+			Spec.FragPath = "frag.spv";
+
+			DeafultShader = Chilli::GraphicsPipeline::Create(Spec);
+		}
+		{
+			Chilli::SamplerSpec Spec{};
 			Spec.Filter = Chilli::SamplerFilter::LINEAR;
+			Spec.Mode = Chilli::SamplerMode::REPEAT;;
 
-			Texture = Chilli::Renderer::GetResourceFactory().CreateTexture(Spec);
+			DeafultSamplerID = SamplerManager.Add(Spec);
 		}
 		{
 			Chilli::TextureSpec Spec{};
-			Spec.FilePath = nullptr;
-			Spec.Tiling = Chilli::ImageTiling::IMAGE_TILING_OPTIOMAL;
+			Spec.FilePath = "Deafult.png";
 			Spec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
-			Spec.Format = Chilli::ImageFormat::D24_S8;
-			Spec.Resolution = { 800, 600 };
-			Spec.Usage = Chilli::ImageUsage::DEPTH;
+			Spec.YFlip = true;
 
-			DepthTexture = Chilli::Renderer::GetResourceFactory().CreateTexture(Spec);
+			DeafultTextureID = TextureManager.Add(Spec);
 		}
+
 		{
-			Mat1.SetShader(Shader);
-			Mat1.SetUniformBuffer("GlobalUBO", GlobalUB);
-			Mat1.SetUniformBuffer("ubo", BirdUBO);
-			Mat1.SetTexture("Tex", Texture);
+			Chilli::Renderer::GetBindlessSetManager().SetGlobalUBO(sizeof(GlobalUBO));
+			Chilli::Renderer::GetBindlessSetManager().SetSceneUBO(sizeof(SceneUBO));
 
-			Mat1.Update();
+			Chilli::Renderer::GetBindlessSetManager().CreateMaterialSBO(sizeof(Chilli::MaterialShaderData) * MAX_MATERIAL,
+				MAX_MATERIAL);
+
+			Chilli::Renderer::GetBindlessSetManager().CreateObjectSBO(sizeof(Chilli::ObjectShaderData) * MAX_OBJECT,
+				MAX_OBJECT);
+
+			Chilli::Renderer::GetBindlessSetManager().AddSampler(SamplerManager.Get(DeafultSamplerID));
+			Chilli::Renderer::GetBindlessSetManager().AddTexture(TextureManager.Get(DeafultTextureID));
 		}
-		// Projection matrix (800x600 resolution, 45° FOV)
-		glm::mat4 projection = glm::perspective(
-			glm::radians(45.0f),      // Field of view
-			800.0f / 600.0f,          // Aspect ratio (800x600)
-			0.1f, 100.0f              // Near and far planes
-		);
 
-		// View matrix (camera at Z = -3, looking at origin)
-		glm::mat4 view = glm::lookAt(
-			glm::vec3(0.0f, 0.0f, 2.0f),  // Camera position (back 3 units)
-			glm::vec3(0.0f, 0.0f, 0.0f),   // Look at origin
-			glm::vec3(0.0f, 1.0f, 0.0f)    // Up vector
-		);
+		DeafultMaterial.AlbedoSampler = DeafultSamplerID;
+		DeafultMaterial.AlbedoTexture = DeafultTextureID;
+		DeafultMaterial.AlbedoColor = { 0.4f, 0.6f, 0.2f, 1.0f };
 
-		globalobject.ViewProjMatrix = projection * view;  // View-projection matrix
-		GlobalUB->MapData((void*)&globalobject, sizeof(globalobject));
+		DeafultObject.MaterialIndex = DeafultMaterial.ID;
+		DeafultObject.MeshIndex = SquareMeshID;
+		DeafultObject.Transform.TransformationMat = glm::mat4(1.0f);
+
+		Chilli::Renderer::GetBindlessSetManager().UpdateMaterial(DeafultMaterial, 0);
+		Chilli::Renderer::GetBindlessSetManager().UpdateObject(DeafultObject, 0);
+
+		// Camera setup
+		_Camera.SetProjection(45.0f, 800.0f / 600.0f, 0.1f, 100.0f);
+	}
+
+	void UpdateGlobalData()
+	{
+		GlobalData = GlobalUBO();
+		GlobalData.ResolutionTime = { WindowSize.x, WindowSize.y, Chilli::GetWindowTime(), 0.0f };
+		Chilli::Renderer::GetBindlessSetManager().UpdateGlobalUBO(&GlobalData);
+	}
+
+	void UpdateSceneData()
+	{
+		SceneData = SceneUBO();
+
+		SceneData.ViewProjMatrix = _Camera.GetProjectionMatrix() * _Camera.GetViewMatrix();
+		SceneData.CameraPos.x = _Camera.GetPosition().x;
+		SceneData.CameraPos.y = _Camera.GetPosition().y;
+		SceneData.CameraPos.z = _Camera.GetPosition().z;
+		SceneData.CameraPos.w = 0;
+		Chilli::Renderer::GetBindlessSetManager().UpdateSceneUBO(&SceneData);
+	}
+
+	void Draw(const Chilli::RenderCommand& Command)
+	{
+		auto& CurrentMesh = MeshManager.GetMesh(Command.RenderObject.MeshIndex);
+		Chilli::RenderCommandSpec Spec{};
+		Spec.MaterialIndex = Command.RenderObject.MaterialIndex;
+		Spec.ObjectIndex = Command.RenderObject.ID;
+
+		Chilli::Renderer::Submit(DeafultShader, CurrentMesh.VertexBuffers[0], CurrentMesh.IndexBuffer, Spec);
+		// Take in Shader from Material
+		//Chilli::Renderer::Submit(DeafultShader, CurrentMesh.VertexBuffers[0], CurrentMesh.IndexBuffer);
+
 	}
 
 	virtual void Update() override
 	{
-		bool Continue = Chilli::Renderer::BeginFrame();
-		if (!Continue)
-			return;
+		if (_Minimized)
+		{
+			CH_CORE_INFO("Minized!");
+		}
+		_Camera.Process(0.1f);
 
-		Chilli::ColorAttachment ColorAttachment{};
-		ColorAttachment.UseSwapChainImage = true;
-		ColorAttachment.ClearColor = { 0.2f, 0.2f, 0.2f, 1.0f };
+		UpdateGlobalData();
+		Chilli::Renderer::BeginFrame();
 
-		Chilli::DepthAttachment DepthAttachment{};
-		DepthAttachment.TextureAttachment = DepthTexture;
+		UpdateSceneData();
+		Chilli::Renderer::BeginScene();
 
-		RenderPass.ColorAttachmentCount = 1;
-		RenderPass.ColorAttachments = &ColorAttachment;
-		RenderPass.DepthAttachment = &DepthAttachment;
+		Chilli::Renderer::BeginRenderPass();
 
-		Chilli::Renderer::BeginRenderPass(RenderPass);
-
-		static float decrease = 0.0f;
-		UBO ubo;
-		ubo.Transform = glm::translate(glm::mat4(1.0f), BirdData.Position);
-		ubo.Transform = glm::rotate(ubo.Transform, 45.0f, glm::vec3(0.0f, 1.0f, 0.0f));
-		BirdUBO->MapData((void*)&ubo, sizeof(ubo));
-
-		Chilli::Renderer::Submit(Mat1, VertexBuffer, IndexBuffer);
-
+		Chilli::RenderCommand Command{ .RenderObject = DeafultObject };
+		Draw(Command);
 		Chilli::Renderer::EndRenderPass();
+
+		Chilli::Renderer::EndScene();
 
 		Chilli::Renderer::Render();
 		Chilli::Renderer::Present();
@@ -196,34 +177,78 @@ public:
 
 	virtual void Terminate() override {
 		Chilli::Renderer::FinishRendering();
-		Chilli::Renderer::GetResourceFactory().DestroyGraphicsPipeline(Shader);
-		Chilli::Renderer::GetResourceFactory().DestroyVertexBuffer(VertexBuffer);
-		Chilli::Renderer::GetResourceFactory().DestroyIndexBuffer(IndexBuffer);
-		Chilli::Renderer::GetResourceFactory().DestroyUniformBuffer(GlobalUB);
-		Chilli::Renderer::GetResourceFactory().DestroyUniformBuffer(BirdUBO);
-		Chilli::Renderer::GetResourceFactory().DestroyTexture(Texture);
-		Chilli::Renderer::GetResourceFactory().DestroyTexture(DepthTexture);
+		MeshManager.Flush();
+		TextureManager.Flush();
+		SamplerManager.Flush();
+		DeafultShader->Destroy();
 	}
 
-	virtual void OnEvent(Chilli::Event& e) override {
-		if (e.GetType() == Chilli::FrameBufferResizeEvent::GetStaticType())
-		{
-			auto Fb = static_cast<Chilli::FrameBufferResizeEvent&>(e);
-			Chilli::Renderer::FrameBufferReSized(Fb.GetX(), Fb.GetY());
+	void OnKeyPressed(Chilli::KeyPressedEvent& e)
+	{
+		CH_CORE_INFO("Pressed: {0}", Chilli::InputKeyToString(e.GetKeyCode()));
+	}
+
+	void OnFrameBufferResizeEvent(Chilli::FrameBufferResizeEvent& e) override
+	{
+		Chilli::Renderer::FrameBufferReSized(e.GetX(), e.GetY());
+		_Camera.SetProjection(45.0f, e.GetX() / e.GetY(), 0.1f, 100.0f);
+	}
+
+	void OnWindowResizeEvent(Chilli::WindowResizeEvent& e)
+	{
+		WindowSize = (e.GetX(), e.GetY());
+
+		if (WindowSize.x != 0 && WindowSize.y != 0)
+			_Minimized = false;
+	}
+
+	void OnWindowMinimizedEvent(Chilli::WindowMinimizedEvent& e)
+	{
+		_Minimized = true;
+	};
+
+	virtual void OnCursorPosEvent(Chilli::CursorPosEvent& e)
+	{
+		static float lastX = 400;
+		static float lastY = 300;
+		static bool firstMouse = true;
+
+		if (firstMouse) {
+			lastX = e.GetX();
+			lastY = e.GetY();
+			firstMouse = false;
 		}
+
+		float xOffset = e.GetX() - lastX;
+		float yOffset = lastY - e.GetY(); // Reversed since y-coordinates go from bottom to top
+
+		lastX = e.GetX();
+		lastY = e.GetY();
+
+		if (Chilli::Input::IsMouseButtonPressed(Chilli::Input_mouse_Right) == Chilli::InputResult::INPUT_RELEASE)
+			return;
+
+		_Camera.ProcessMouseMovement(xOffset, yOffset);
 	}
 
 private:
-	std::shared_ptr<Chilli::GraphicsPipeline> Shader;
-	std::shared_ptr<Chilli::VertexBuffer> VertexBuffer;
-	std::shared_ptr<Chilli::IndexBuffer> IndexBuffer;
-	std::shared_ptr<Chilli::UniformBuffer> GlobalUB;
-	std::shared_ptr<Chilli::UniformBuffer> BirdUBO;
-	std::shared_ptr<Chilli::Texture> Texture, DepthTexture;
-	GlobalUBO globalobject;
-	Chilli::Material Mat1;
-	Chilli::RenderPass RenderPass{};
-	BirdData BirdData;
+	std::shared_ptr<Chilli::GraphicsPipeline> DeafultShader;
+	bool _Minimized = false;
+
+	GlobalUBO GlobalData;
+	SceneUBO SceneData;
+	Chilli::Vec2 WindowSize = { 800.0f, 600.0f };
+
+	Chilli::Material DeafultMaterial;
+	Chilli::Object DeafultObject;
+
+	Chilli::MeshManager MeshManager;
+	Chilli::SamplerManager SamplerManager;
+	Chilli::TextureManager TextureManager;
+	//Chilli::ShaderManager ShaderManager;
+	Chilli::UUID SquareMeshID, DeafultTextureID, DeafultSamplerID;
+
+	Camera _Camera;
 };
 
 int main()

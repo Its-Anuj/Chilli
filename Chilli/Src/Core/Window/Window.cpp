@@ -12,6 +12,16 @@
 #include "Input/InputCodes.h"
 #include "Maths.h"
 
+void Chilli_WindowIconifyCallBack(GLFWwindow* window, int iconified)
+{
+	if (iconified)
+	{
+		Chilli::WindowData* Data = (Chilli::WindowData*)glfwGetWindowUserPointer(window);
+		Chilli::WindowMinimizedEvent e;
+		Data->EventCallback(e);
+	}
+}
+
 void Chilli_FrameBufferCallback(GLFWwindow* window, int width, int height)
 {
 	Chilli::WindowData* Data = (Chilli::WindowData*)glfwGetWindowUserPointer(window);
@@ -56,12 +66,12 @@ void Chilli_KeyCallBack(GLFWwindow* window, int key, int scancode, int action, i
 		else if (key == GLFW_KEY_NUM_LOCK)
 			Chilli::Input::SetModState(Chilli::Input_mod_NumLock, true);
 
-		Chilli::KeyPressedEvent e(key);
+		Chilli::KeyPressedEvent e(Chilli::GLFWToInputKeys(key));
 		Data->EventCallback(e);
 	}
 	else if (action == GLFW_REPEAT)
 	{
-		Chilli::KeyRepeatEvent e(key);
+		Chilli::KeyRepeatEvent e(Chilli::GLFWToInputKeys(key));
 		Data->EventCallback(e);
 	}
 	else if (action == GLFW_RELEASE)
@@ -79,7 +89,7 @@ void Chilli_KeyCallBack(GLFWwindow* window, int key, int scancode, int action, i
 		else if (key == GLFW_KEY_NUM_LOCK)
 			Chilli::Input::SetModState(Chilli::Input_mod_NumLock, false);
 
-		Chilli::KeyReleasedEvent e(key);
+		Chilli::KeyReleasedEvent e(Chilli::GLFWToInputKeys(key));
 		Data->EventCallback(e);
 	}
 }
@@ -90,17 +100,17 @@ void Chilli_MouseButtonCallBack(GLFWwindow* window, int button, int action, int 
 
 	if (action == GLFW_PRESS)
 	{
-		Chilli::MouseButtonPressedEvent e(button);
+		Chilli::MouseButtonPressedEvent e(Chilli::GLFWToInputMouse(button));
 		Data->EventCallback(e);
 	}
 	else if (action == GLFW_REPEAT)
 	{
-		Chilli::MouseButtonRepeatEvent e(button);
+		Chilli::MouseButtonRepeatEvent e(Chilli::GLFWToInputMouse(button));
 		Data->EventCallback(e);
 	}
 	else if (action == GLFW_RELEASE)
 	{
-		Chilli::MouseButtonReleasedEvent e(button);
+		Chilli::MouseButtonReleasedEvent e(Chilli::GLFWToInputMouse(button));
 		Data->EventCallback(e);
 	}
 }
@@ -158,7 +168,7 @@ namespace Chilli
 		if (glfwGetWindowMonitor(_Window)) {
 			std::cout << "WINDOW IS FULLSCREEN - THIS LOCKS SURFACE SIZE!" << std::endl;
 		}
-		
+
 		glfwSetWindowUserPointer(_Window, &_Data);
 
 		// Callbacks
@@ -169,6 +179,7 @@ namespace Chilli
 		glfwSetKeyCallback(_Window, Chilli_KeyCallBack);
 		glfwSetScrollCallback(_Window, Chilli_MouseScrollCallBack);
 		glfwSetFramebufferSizeCallback(_Window, Chilli_FrameBufferCallback);
+		glfwSetWindowIconifyCallback(_Window, Chilli_WindowIconifyCallBack);
 	}
 
 	void Window::Terminate()

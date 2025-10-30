@@ -1,27 +1,27 @@
 #pragma once
 
 #include "Texture.h"
+#include "Samplers.h"
 
 namespace Chilli
 {
 	class VulkanImage : public Image
 	{
 	public:
+		VulkanImage(const ImageSpec& Spec) { Init(Spec); }
 		VulkanImage() {}
 		~VulkanImage() {}
 
-		void Init(const ImageSpec& Spec);
-		void Destroy();
+		virtual void Init(const ImageSpec& Spec) override;
+		virtual void Destroy() override;
 
-		virtual const ImageSpec& GetSpec() const override { return _Spec; }
-		virtual void LoadImageData(void* ImageData) override;
-		virtual void LoadImageData(void* ImageData, int Width, int Height) override;
+		void LoadImageData(void* Data);
 
 		VkImage GetHandle() const { return _Image; }
 	private:
 		ImageSpec _Spec;
-		VkImage _Image = VK_NULL_HANDLE;
-		VmaAllocation _Allocation = VK_NULL_HANDLE;
+		VkImage _Image;
+		VmaAllocation _Allocation;
 		VmaAllocationInfo _AllocationInfo;
 	};
 
@@ -32,20 +32,37 @@ namespace Chilli
 		VulkanTexture() {}
 		~VulkanTexture() {}
 
-		void Init(const TextureSpec& Spec);
-		void Destroy();
+		virtual void Init(const TextureSpec& Spec) override;
+		virtual void Destroy() override;
 
-		const TextureSpec& GetSpec() const override { return _Spec; }
-		VkImageView GetHandle() const { return _ImageView; }
-		VkImage GetImageHandle() const { return _Image.GetHandle(); }
-		VkSampler GetSampler() const { return _Sampler; }
+		virtual const TextureSpec& GetSpec() const { return _Spec; }
+		virtual void* GetNativeHandle() const override { return (void*)_ImageView; }
+
+		virtual VkImageView GetHandle() const { return _ImageView; }
+
 	private:
 		void _CreateImageView();
-		void _CreateSampler(const TextureSpec& Spec);
 	private:
-		TextureSpec _Spec;
+		VkImageView _ImageView;
 		VulkanImage _Image;
-		VkImageView _ImageView = VK_NULL_HANDLE;
-		VkSampler _Sampler = VK_NULL_HANDLE;
+		TextureSpec _Spec;
+	};
+
+	class VulkanSampler : public Sampler
+	{
+	public:
+		VulkanSampler(const SamplerSpec& Spec) { Init(Spec); }
+		VulkanSampler() {}
+		~VulkanSampler() {}
+
+		virtual void Init(const SamplerSpec& Spec) override;
+		virtual void Destroy() override;
+
+		virtual const SamplerSpec& GetSpec() const override { return _Spec; }
+		virtual void* GetNativeHandle() const override { return (void*)_Sampler; }
+		virtual VkSampler GetHandle() const { return _Sampler; }
+	private:
+		SamplerSpec _Spec;
+		VkSampler _Sampler;
 	};
 }

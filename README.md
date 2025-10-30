@@ -32,6 +32,7 @@ Future module to transform Chilli from a rendering engine into a full game engin
 - [Vulkan Memory Allocator (VMA)](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) (Efficient Vulkan memory management)
 - [spdlog](https://github.com/gabime/spdlog) (Logging)
 - [stbi](https://github.com/nothings/stb.git) (Image Loading)
+- [SPIRV-Reflect](https://github.com/KhronosGroup/SPIRV-Reflect.git) (SPIRV code Reflection)
 
 ## Features 
 

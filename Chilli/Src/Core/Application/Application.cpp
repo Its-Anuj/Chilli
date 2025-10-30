@@ -31,7 +31,7 @@ namespace Chilli
 			Spec.InitialFrameBufferSize.y = _Window.GetFrameBufferSize().y;
 			Spec.VSync = true;
 			Spec.Name = "Chilli Editor";
-			Spec.EnableValidation = false;
+			Spec.EnableValidation = true;
 
 			Renderer::Init(Spec);
 		}
@@ -65,21 +65,98 @@ namespace Chilli
 
 	void Application::OnEvent(Event& e)
 	{
-		if (e.GetType() == FrameBufferResizeEvent::GetStaticType())
-		{
-			auto Fb = static_cast<FrameBufferResizeEvent&>(e);
-		}
-		if (e.GetType() == WindowCloseEvent::GetStaticType())
-		{
-			CH_CORE_INFO("Window Close!");
-		}
-		if (e.GetType() == KeyPressedEvent::GetStaticType())
-		{
-			auto keye = static_cast<KeyPressedEvent&>(e);
-			CH_CORE_INFO("Key Pressed: {0}", (keye.GetKeyCode()));
-		}
-
+		// Dispatch events to all layers
 		for (auto layer : _Layers)
 			layer->OnEvent(e);
+
+		EventDispatcher dispatcher(e);
+		dispatcher.Dispatch<KeyPressedEvent>(CHILLI_EVENT_CALLBACK_FN(OnKeyPressedEvent));
+		dispatcher.Dispatch<KeyReleasedEvent>(CHILLI_EVENT_CALLBACK_FN(OnKeyReleasedEvent));
+		dispatcher.Dispatch<KeyRepeatEvent>(CHILLI_EVENT_CALLBACK_FN(OnKeyRepeatEvent));
+
+		dispatcher.Dispatch<MouseButtonPressedEvent>(CHILLI_EVENT_CALLBACK_FN(OnMouseButtonPressedEvent));
+		dispatcher.Dispatch<MouseButtonReleasedEvent>(CHILLI_EVENT_CALLBACK_FN(OnMouseButtonReleasedEvent));
+		dispatcher.Dispatch<MouseButtonRepeatEvent>(CHILLI_EVENT_CALLBACK_FN(OnMouseButtonRepeatEvent));
+		dispatcher.Dispatch<MouseScrollEvent>(CHILLI_EVENT_CALLBACK_FN(OnMouseScrollEvent));
+		dispatcher.Dispatch<CursorPosEvent>(CHILLI_EVENT_CALLBACK_FN(OnCursorPosEvent));
+
+		dispatcher.Dispatch<WindowCloseEvent>(CHILLI_EVENT_CALLBACK_FN(OnWindowCloseEvent));
+		dispatcher.Dispatch<WindowResizeEvent>(CHILLI_EVENT_CALLBACK_FN(OnWindowResizeEvent));
+		dispatcher.Dispatch<WindowMinimizedEvent>(CHILLI_EVENT_CALLBACK_FN(OnWindowMinimizedEvent));
+		dispatcher.Dispatch<FrameBufferResizeEvent>(CHILLI_EVENT_CALLBACK_FN(OnFrameBufferResizeEvent));
+
 	}
+
+	void Application::OnKeyPressedEvent(KeyPressedEvent& e)
+	{
+		for (auto layer : _Layers)
+			layer->OnKeyPressedEvent(e);
+	}
+
+	void Application::OnKeyReleasedEvent(KeyReleasedEvent& e)
+	{
+		for (auto layer : _Layers)
+			layer->OnKeyReleasedEvent(e);
+	}
+
+	void Application::OnKeyRepeatEvent(KeyRepeatEvent& e)
+	{
+		for (auto layer : _Layers)
+			layer->OnKeyRepeatEvent(e);
+	}
+
+	void Application::OnMouseButtonPressedEvent(MouseButtonPressedEvent& e)
+	{
+		for (auto layer : _Layers)
+			layer->OnMouseButtonPressedEvent(e);
+	}
+
+	void Application::OnMouseButtonReleasedEvent(MouseButtonReleasedEvent& e)
+	{
+		for (auto layer : _Layers)
+			layer->OnMouseButtonReleasedEvent(e);
+	}
+
+	void Application::OnMouseButtonRepeatEvent(MouseButtonRepeatEvent& e)
+	{
+		for (auto layer : _Layers)
+			layer->OnMouseButtonRepeatEvent(e);
+	}
+
+	void Application::OnMouseScrollEvent(MouseScrollEvent& e)
+	{
+		for (auto layer : _Layers)
+			layer->OnMouseScrollEvent(e);
+	}
+
+	void Application::OnCursorPosEvent(CursorPosEvent& e)
+	{
+		for (auto layer : _Layers)
+			layer->OnCursorPosEvent(e);
+	}
+
+	void Application::OnWindowCloseEvent(WindowCloseEvent& e)
+	{
+		for (auto layer : _Layers)
+			layer->OnWindowCloseEvent(e);
+	}
+
+	void Application::OnWindowResizeEvent(WindowResizeEvent& e)
+	{
+		for (auto layer : _Layers)
+			layer->OnWindowResizeEvent(e);
+	}
+
+	void Application::OnWindowMinimizedEvent(WindowMinimizedEvent& e)
+	{
+		for (auto layer : _Layers)
+			layer->OnWindowMinimizedEvent(e);
+	}
+
+	void Application::OnFrameBufferResizeEvent(FrameBufferResizeEvent& e)
+	{
+		for (auto layer : _Layers)
+			layer->OnFrameBufferResizeEvent(e);
+	}
+
 } // namespace Chilli

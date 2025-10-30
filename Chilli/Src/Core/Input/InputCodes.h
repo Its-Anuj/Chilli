@@ -164,11 +164,15 @@ namespace Chilli
         Input_mod_Count
     };
 
-    static int InputKeysToGLFW(Input_key key);
-    static int InputMouseToGLFW(Input_mouse mouse);
-    static int InputModsToGLFW(Input_mod mod);
+    int InputKeysToGLFW(Input_key key);
+    int InputMouseToGLFW(Input_mouse mouse);
+    int InputModsToGLFW(Input_mod mod);
 
-    static const char* InputMouseToString(Input_mouse mouse);
-    static const char* InputModToString(Input_mod mod);
-    static const char* InputKeyToString(Input_key key);
+    Input_key GLFWToInputKeys(int key);
+    Input_mouse GLFWToInputMouse(int mouse);
+    Input_mod GLFWToInputMods(int mod);
+    
+    const char* InputMouseToString(Input_mouse mouse);
+    const char* InputModToString(Input_mod mod);
+    const char* InputKeyToString(Input_key key);
 } // namespace VEngine

@@ -1,171 +1,205 @@
 #pragma once
 
+#include "Input\Input.h"
+
 namespace Chilli
 {
-    enum EventType
-    {
-        KeyPressed,
-        KeyReleased,
-        KeyRepeat,
-        MouseButtonPressed,
-        MouseButtonReleased,
-        MouseButtonRepeat,
-        CursorPos,
-        MouseScroll,
-        WindowClose,
-        WindowResize,
-        WindowMinimized,
-        WindowOutOfFocus,
-        FrameBufferResize
-    };
+	enum EventType
+	{
+		KeyPressed,
+		KeyReleased,
+		KeyRepeat,
+		MouseButtonPressed,
+		MouseButtonReleased,
+		MouseButtonRepeat,
+		CursorPos,
+		MouseScroll,
+		WindowClose,
+		WindowResize,
+		WindowMinimized,
+		WindowOutOfFocus,
+		FrameBufferResize
+	};
 
-    struct Event
-    {
-    public:
-        Event(EventType type) : Type(type) {}
+	struct Event
+	{
+	public:
+		Event(EventType type) : Type(type) {}
 
-        EventType GetType() { return Type; }
+		EventType GetType() { return Type; }
 
-    private:
-        EventType Type;
-    };
+	private:
+		EventType Type;
+	};
 
 #define EVENT_MACRO_FUNC(x) \
     static EventType GetStaticType() { return x; }
 
-    struct WindowCloseEvent : public Event
-    {
-    public:
-        WindowCloseEvent() : Event(EventType::WindowClose) {}
+	struct WindowCloseEvent : public Event
+	{
+	public:
+		WindowCloseEvent() : Event(EventType::WindowClose) {}
 
-        EVENT_MACRO_FUNC(EventType::WindowClose);
+		EVENT_MACRO_FUNC(EventType::WindowClose);
 
-    };
-    struct KeyPressedEvent : public Event
-    {
-    public:
-        KeyPressedEvent(int code) : KeyCode(code), Event(EventType::KeyPressed) {}
+	};
 
-        EVENT_MACRO_FUNC(EventType::KeyPressed);
-        int GetKeyCode() const { return KeyCode; }
+	struct WindowMinimizedEvent : public Event
+	{
+	public:
+		WindowMinimizedEvent() : Event(EventType::WindowMinimized) {}
 
-    private:
-        int KeyCode;
-    };
+		EVENT_MACRO_FUNC(EventType::WindowMinimized);
+	};
 
-    struct KeyReleasedEvent : public Event
-    {
-    public:
-        KeyReleasedEvent(int code) : KeyCode(code), Event(EventType::KeyReleased) {}
+	struct KeyPressedEvent : public Event
+	{
+	public:
+		KeyPressedEvent(Input_key code) : KeyCode(code), Event(EventType::KeyPressed) {}
 
-        EVENT_MACRO_FUNC(EventType::KeyReleased);
-        int GetKeyCode() const { return KeyCode; }
+		EVENT_MACRO_FUNC(EventType::KeyPressed);
+		Input_key GetKeyCode() const { return KeyCode; }
 
-    private:
-        int KeyCode;
-    };
+	private:
+		Input_key KeyCode;
+	};
 
-    struct KeyRepeatEvent : public Event
-    {
-    public:
-        KeyRepeatEvent(int code) : KeyCode(code), Event(EventType::KeyReleased) {}
+	struct KeyReleasedEvent : public Event
+	{
+	public:
+		KeyReleasedEvent(Input_key code) : KeyCode(code), Event(EventType::KeyReleased) {}
 
-        EVENT_MACRO_FUNC(EventType::KeyReleased);
-        int GetKeyCode() const { return KeyCode; }
+		EVENT_MACRO_FUNC(EventType::KeyReleased);
+		Input_key GetKeyCode() const { return KeyCode; }
 
-    private:
-        int KeyCode;
-    };
+	private:
+		Input_key KeyCode;
+	};
 
-    struct MouseButtonReleasedEvent : public Event
-    {
-    public:
-        MouseButtonReleasedEvent(int code) : ButtonCode(code), Event(EventType::MouseButtonReleased) {}
+	struct KeyRepeatEvent : public Event
+	{
+	public:
+		KeyRepeatEvent(Input_key code) : KeyCode(code), Event(EventType::KeyReleased) {}
 
-        EVENT_MACRO_FUNC(EventType::MouseButtonReleased);
-        int GetButtonCode() const { return ButtonCode; }
+		EVENT_MACRO_FUNC(EventType::KeyReleased);
+		Input_key GetKeyCode() const { return KeyCode; }
 
-    private:
-        int ButtonCode;
-    };
+	private:
+		Input_key KeyCode;
+	};
 
-    struct MouseButtonRepeatEvent : public Event
-    {
-    public:
-        MouseButtonRepeatEvent(int code) : ButtonCode(code), Event(EventType::MouseButtonRepeat) {}
+	struct MouseButtonReleasedEvent : public Event
+	{
+	public:
+		MouseButtonReleasedEvent(Input_mouse code) : ButtonCode(code), Event(EventType::MouseButtonReleased) {}
 
-        EVENT_MACRO_FUNC(EventType::MouseButtonRepeat);
-        int GetButtonCode() const { return ButtonCode; }
+		EVENT_MACRO_FUNC(EventType::MouseButtonReleased);
+		Input_mouse GetButtonCode() const { return ButtonCode; }
 
-    private:
-        int ButtonCode;
-    };
+	private:
+		Input_mouse ButtonCode;
+	};
 
-    struct MouseButtonPressedEvent : public Event
-    {
-    public:
-        MouseButtonPressedEvent(int code) : ButtonCode(code), Event(EventType::MouseButtonPressed) {}
+	struct MouseButtonRepeatEvent : public Event
+	{
+	public:
+		MouseButtonRepeatEvent(Input_mouse code) : ButtonCode(code), Event(EventType::MouseButtonRepeat) {}
 
-        EVENT_MACRO_FUNC(EventType::MouseButtonPressed);
-        int GetButtonCode() const { return ButtonCode; }
+		EVENT_MACRO_FUNC(EventType::MouseButtonRepeat);
+		Input_mouse GetButtonCode() const { return ButtonCode; }
 
-    private:
-        int ButtonCode;
-    };
+	private:
+		Input_mouse ButtonCode;
+	};
 
-    struct WindowResizeEvent : public Event
-    {
-    public:
-        WindowResizeEvent(int newx, int newy) : x(newx), y(newy), Event(EventType::WindowResize) {}
+	struct MouseButtonPressedEvent : public Event
+	{
+	public:
+		MouseButtonPressedEvent(Input_mouse code) : ButtonCode(code), Event(EventType::MouseButtonPressed) {}
 
-        EVENT_MACRO_FUNC(EventType::WindowResize);
+		EVENT_MACRO_FUNC(EventType::MouseButtonPressed);
+		Input_mouse GetButtonCode() const { return ButtonCode; }
 
-        int GetX() const { return x; }
-        int GetY() const { return y; }
+	private:
+		Input_mouse ButtonCode;
+	};
 
-    private:
-        int x, y;
-    };
+	struct WindowResizeEvent : public Event
+	{
+	public:
+		WindowResizeEvent(int newx, int newy) : x(newx), y(newy), Event(EventType::WindowResize) {}
 
-    struct FrameBufferResizeEvent : public Event
-    {
-    public:
-        FrameBufferResizeEvent(int newx, int newy) : x(newx), y(newy), Event(EventType::FrameBufferResize) {}
+		EVENT_MACRO_FUNC(EventType::WindowResize);
 
-        EVENT_MACRO_FUNC(EventType::FrameBufferResize);
+		int GetX() const { return x; }
+		int GetY() const { return y; }
 
-        int GetX() const { return x; }
-        int GetY() const { return y; }
+	private:
+		int x, y;
+	};
 
-    private:
-        int x, y;
-    };
+	struct FrameBufferResizeEvent : public Event
+	{
+	public:
+		FrameBufferResizeEvent(int newx, int newy) : x(newx), y(newy), Event(EventType::FrameBufferResize) {}
 
-    struct CursorPosEvent : public Event
-    {
-    public:
-        CursorPosEvent(double newx, double newy) : x(newx), y(newy), Event(EventType::CursorPos) {}
+		EVENT_MACRO_FUNC(EventType::FrameBufferResize);
 
-        EVENT_MACRO_FUNC(EventType::CursorPos);
+		int GetX() const { return x; }
+		int GetY() const { return y; }
 
-        double GetX() const { return x; }
-        double GetY() const { return y; }
+	private:
+		int x, y;
+	};
 
-    private:
-        double x, y;
-    };
+	struct CursorPosEvent : public Event
+	{
+	public:
+		CursorPosEvent(double newx, double newy) : x(newx), y(newy), Event(EventType::CursorPos) {}
 
-    struct MouseScrollEvent : public Event
-    {
-    public:
-        MouseScrollEvent(double x, double y) : xoffset(x), yoffset(y), Event(EventType::MouseScroll) {}
+		EVENT_MACRO_FUNC(EventType::CursorPos);
 
-        EVENT_MACRO_FUNC(EventType::MouseScroll);
+		double GetX() const { return x; }
+		double GetY() const { return y; }
 
-        double GetXOffset() const { return xoffset; }
-        double GetYOffset() const { return yoffset; }
+	private:
+		double x, y;
+	};
 
-    private:
-        double xoffset, yoffset;
-    };
+	struct MouseScrollEvent : public Event
+	{
+	public:
+		MouseScrollEvent(double x, double y) : xoffset(x), yoffset(y), Event(EventType::MouseScroll) {}
+
+		EVENT_MACRO_FUNC(EventType::MouseScroll);
+
+		double GetXOffset() const { return xoffset; }
+		double GetYOffset() const { return yoffset; }
+
+	private:
+		double xoffset, yoffset;
+	};
+
+	class EventDispatcher
+	{
+		template<typename T>
+		using EventFn = std::function<void(T&)>;
+
+	public:
+		EventDispatcher(Event& event) : m_Event(event) {}
+
+		template<typename T>
+		bool Dispatch(const EventFn<T>& func)
+		{
+			if (m_Event.GetType() == T::GetStaticType())
+			{
+				func(static_cast<T&>(m_Event));
+				return true;
+			}
+			return false;
+		}
+
+	private:
+		Event& m_Event;
+	};
 } // namespace VEngine

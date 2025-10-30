@@ -2,8 +2,10 @@
 
 #include "RenderAPI.h"
 #include "VulkanDevice.h"
-#include "VulkanResources.h"
 #include "VulkanSwapChain.h"
+#include "VulkanShader.h"
+#include "VulkanBuffer.h"
+#include "VulkanTexture.h"
 
 const char* VkResultToChar(VkResult Result);
 
@@ -66,6 +68,14 @@ namespace Chilli
 		std::vector<VkSemaphore> RenderFinishedSemaphores;
 		std::vector<VkFence> InFlightFences;
 		bool FrameBufferReSized;
+
+		VulkanBindlessSetManager	BindlessManager;
+	};
+
+	struct VulkanPushConstantObject
+	{
+		int TextureIndex;
+		int SamplerIndex;
 	};
 
 	class VulkanRenderer : public RenderAPI
@@ -76,19 +86,24 @@ namespace Chilli
 
 		virtual RenderAPIType GetType() const override { return RenderAPIType::VULKAN1_3; }
 		virtual const char* GetName() const override { return "VULKAN1_3"; }
-		
-		virtual ResourceFactory& GetResourceFactory() override;
 
 		virtual bool BeginFrame() override;
-		virtual void BeginRenderPass(const RenderPass& Pass) override;
-		virtual void Submit(const std::shared_ptr<GraphicsPipeline>& Pipeline, const std::shared_ptr<VertexBuffer>& VertexBuffer
-			, const std::shared_ptr<IndexBuffer>& IndexBuffer) override;
-		virtual void Submit(const Material& Mat, const std::shared_ptr<VertexBuffer>& VertexBuffer, const std::shared_ptr<IndexBuffer>& IndexBuffer)  override;
-		virtual void EndRenderPass() override;		
+		virtual void BeginScene() override;
+		virtual void BeginRenderPass() override;
+		virtual void Submit(const std::shared_ptr<GraphicsPipeline>& Shader, const std::shared_ptr<VertexBuffer>& VB) override;
+		virtual void Submit(const std::shared_ptr<GraphicsPipeline>& Shader, const std::shared_ptr<VertexBuffer>& VB
+			, const std::shared_ptr<IndexBuffer>& IB) override;
+
+		virtual void Submit(const std::shared_ptr<GraphicsPipeline>& Shader, const std::shared_ptr<VertexBuffer>& VB
+			, const std::shared_ptr<IndexBuffer>& IB, const RenderCommandSpec& CommandSpec) override;
+		virtual void EndRenderPass() override;
+		virtual void EndScene() override;
 		virtual void Render() override;
 		virtual void Present() override;
 		virtual void EndFrame() override;
 		virtual void FinishRendering() override;
+
+		virtual BindlessSetManager& GetBindlessSetManager() override;
 
 		virtual void FrameBufferReSized(int Width, int Height) override;
 	private:
@@ -112,6 +127,5 @@ namespace Chilli
 	private:
 		VulkanBackendData _Data;
 		VulkanRenderInitSpec _Spec;
-		VulkanResourceFactory _ResourceFactory;
 	};
 }
