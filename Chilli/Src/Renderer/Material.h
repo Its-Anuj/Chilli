@@ -11,6 +11,7 @@ namespace Chilli
 	struct Material
 	{
 		UUID ID;
+		UUID UsingPipelineID;
 
 		UUID AlbedoTexture;
 		UUID AlbedoSampler;
@@ -24,6 +25,25 @@ namespace Chilli
 		IVec4 Indicies;
 	};
 
+	class MaterialManager
+	{
+	public:
+		MaterialManager() {}
+		~MaterialManager() {}
+
+		const UUID& Add(const Material& Mat);
+		Material& Get(UUID ID);
+		bool Exist(UUID ID) const;
+
+		void Flush();
+		void Destroy(const UUID& ID);
+
+		size_t Count() const { return _Materials.size(); }
+
+	private:
+		std::unordered_map<UUID, Material> _Materials;
+	};
+
 	class BindlessSetTextureManager
 	{
 	public:
@@ -31,6 +51,7 @@ namespace Chilli
 		~BindlessSetTextureManager() {}
 
 		uint32_t Add(const UUID& ID);
+		void Update(const UUID& ID, uint32_t Index);
 		uint32_t GetIndex(const UUID& ID);
 		void Remove(const UUID& ID);
 		uint32_t GetCount() const { return _Textures.size(); }
@@ -112,7 +133,7 @@ namespace Chilli
 		virtual void AddSampler(const std::shared_ptr<Sampler>& Sam) = 0;
 
 		virtual void UpdateMaterial(const Material& Mat, uint32_t Index) = 0;
-		virtual void UpdateObject(const Object& Obj, uint32_t Index) = 0;
+		virtual void UpdateObject(Object& Obj, uint32_t Index) = 0;
 
 	private:
 	};

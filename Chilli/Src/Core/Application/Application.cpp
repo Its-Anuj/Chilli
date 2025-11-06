@@ -53,13 +53,12 @@ namespace Chilli
 		{
 			//_Window.SwapBuffers();
 			auto StartTime = GetWindowTime();
-			float timestep = StartTime - LastTime;
+			TimeStep timestep = StartTime - LastTime;
 			LastTime = StartTime;
-
 			_Window.PollEvents();
 
 			for (auto layer : _Layers)
-				layer->Update();
+				layer->Update(timestep);
 		}
 	}
 

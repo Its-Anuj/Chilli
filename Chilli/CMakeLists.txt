@@ -1,4 +1,4 @@
-file(GLOB_RECURSE CHILLI_CORE_SOURCES Src/Core/*.cpp Src/Core/*/*.cpp Src/Renderer/Renderer.cpp)
+file(GLOB_RECURSE CHILLI_CORE_SOURCES Src/Core/*.cpp Src/Core/*/*.cpp Src/Renderer/Renderer.cpp Src/Renderer/Mesh.cpp)
 
 include_directories("Src/")
 include_directories("Src/Core/")

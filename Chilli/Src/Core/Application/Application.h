@@ -4,6 +4,7 @@
 #include "Input/Input.h"
 #include "Layers/LayerStack.h"
 #include "Renderer.h"
+#include "TimeStep.h"
 
 namespace Chilli
 {

@@ -10,7 +10,7 @@ layout(location = 0) out vec2 OutTexCoord;
 void main()
 {
     Object Obj = ObjectData[DrawPushData.ObjectIndex];
-    gl_Position = SceneData.ViewProjMatrix * Obj.TransformationMat * vec4(InPosition, 1.0);
+    gl_Position = Obj.TransformationMat * vec4(InPosition, 1.0);
     
     OutTexCoord = InTexCoords;
 }

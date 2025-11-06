@@ -70,6 +70,11 @@ namespace Chilli
 		bool FrameBufferReSized;
 
 		VulkanBindlessSetManager	BindlessManager;
+		RenderPassInfo* ActiveRenderPass;
+		struct {
+			int Width, Height;
+		} RenderAreaExtent;
+		bool RenderAreaExtentFilled;
 	};
 
 	struct VulkanPushConstantObject
@@ -89,7 +94,7 @@ namespace Chilli
 
 		virtual bool BeginFrame() override;
 		virtual void BeginScene() override;
-		virtual void BeginRenderPass() override;
+		virtual void BeginRenderPass(RenderPassInfo& RenderPass) override;
 		virtual void Submit(const std::shared_ptr<GraphicsPipeline>& Shader, const std::shared_ptr<VertexBuffer>& VB) override;
 		virtual void Submit(const std::shared_ptr<GraphicsPipeline>& Shader, const std::shared_ptr<VertexBuffer>& VB
 			, const std::shared_ptr<IndexBuffer>& IB) override;

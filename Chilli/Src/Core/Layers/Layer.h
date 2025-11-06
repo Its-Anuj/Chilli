@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Events/Events.h"
+#include "TimeStep.h"
 
 namespace Chilli
 {
@@ -12,7 +13,7 @@ namespace Chilli
 
 		virtual void Init() = 0;
 		virtual void Terminate() = 0;
-		virtual void Update() = 0;
+		virtual void Update(TimeStep Ts) = 0;
 		virtual void OnEvent(Event& e) {};
 
 		virtual void OnKeyPressedEvent(KeyPressedEvent& e) {};

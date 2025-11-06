@@ -55,25 +55,45 @@ if(CMAKE_BUILD_TYPE MATCHES "Release")
 	target_compile_definitions(${CMAKE_PROJECT_NAME} PUBLIC CHILLI_ENGINE_DEBUG=false)
 endif()
 
-add_custom_command(
-    OUTPUT ${CMAKE_BINARY_DIR}/bin/vert.spv
-    COMMAND "C:/VulkanSDK/1.3.275.0/Bin/glslc.exe"
-            ${CMAKE_SOURCE_DIR}/Assets/Shaders/shader.vert
-            -o ${CMAKE_BINARY_DIR}/bin/vert.spv
-    DEPENDS ${CMAKE_SOURCE_DIR}/Assets/Shaders/shader.vert
-    COMMENT "Compiling vertex shader"
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+# -----------------------
+# 1️⃣ Prepare Directories
+# -----------------------
+add_custom_target(PrepareAssetDirs
+    COMMAND ${CMAKE_COMMAND} -E echo "Preparing asset directories..."
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/Scripts/Prepare_Dirs.py
+            ${CMAKE_BINARY_DIR}/bin/Assets/Shaders
+            ${CMAKE_BINARY_DIR}/bin/Assets/Textures
+            ${CMAKE_BINARY_DIR}/bin/Assets/Models
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Creating required asset directories"
+)
+# -----------------------
+# 2️⃣ Compile Shaders
+# -----------------------
+add_custom_target(
+    CompileShaders ALL
+    COMMAND ${CMAKE_COMMAND} -E echo "Compiling shaders..."
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/Scripts/Shader_Compile.py
+            ${CMAKE_SOURCE_DIR}/Assets/Shaders/
+            ${CMAKE_BINARY_DIR}/bin/Assets/Shaders/
+            --glslc "C:/VulkanSDK/1.3.275.0/Bin/glslc.exe"
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Compiling all shaders using Python"
 )
 
-add_custom_command(
-    OUTPUT ${CMAKE_BINARY_DIR}/bin/frag.spv
-    COMMAND "C:/VulkanSDK/1.3.275.0/Bin/glslc.exe"
-            ${CMAKE_SOURCE_DIR}/Assets/Shaders/shader.frag
-            -o ${CMAKE_BINARY_DIR}/bin/frag.spv
-    DEPENDS ${CMAKE_SOURCE_DIR}/Assets/Shaders/shader.frag
-    COMMENT "Compiling fragment shader"
+add_dependencies(CompileShaders PrepareAssetDirs)
+
+# -----------------------
+# 3️⃣ Copy Textures
+# -----------------------
+add_custom_target(
+    CopyTextures ALL
+    COMMAND ${CMAKE_COMMAND} -E echo "Copying texture assets..."
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/Assets/Textures
+            ${CMAKE_BINARY_DIR}/bin/Assets/Textures
+    COMMENT "Copying all textures to binary output directory"
 )
 
-add_custom_target(Shaders ALL
-    DEPENDS ${CMAKE_BINARY_DIR}/bin/vert.spv
-    DEPENDS ${CMAKE_BINARY_DIR}/bin/frag.spv
-)
+add_dependencies(CopyTextures PrepareAssetDirs)

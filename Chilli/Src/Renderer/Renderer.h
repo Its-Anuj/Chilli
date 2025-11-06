@@ -21,11 +21,6 @@ namespace Chilli
 		bool EnableValidation = false;
 	};
 
-	struct RenderCommand
-	{
-		Object& RenderObject;
-	};
-
 	class Renderer
 	{
 	public:
@@ -40,7 +35,7 @@ namespace Chilli
 
 		static bool BeginFrame();
 		static void BeginScene();
-		static void BeginRenderPass();
+		static void BeginRenderPass(RenderPassInfo& RenderPass);
 
 		static void Submit(const std::shared_ptr<GraphicsPipeline>& Shader, const std::shared_ptr<VertexBuffer>& VB);
 		static void Submit(const std::shared_ptr<GraphicsPipeline>& Shader, const std::shared_ptr<VertexBuffer>& VB

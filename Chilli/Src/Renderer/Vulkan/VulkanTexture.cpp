@@ -117,6 +117,14 @@ namespace Chilli
 				sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 				destinationStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
 			}
+			if (NewLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+			{
+				barrier.srcAccessMask = 0;
+				barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT| VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+				sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+				destinationStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+			}
 		}
 		else if (OldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && NewLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 		{
@@ -150,7 +158,8 @@ namespace Chilli
 		Info.Format = FormatToVk(_Spec.Format);
 		Info.Samples = VK_SAMPLE_COUNT_1_BIT;
 		Info.SharingMode = VK_SHARING_MODE_EXCLUSIVE;
-		Info.Usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;;
+
+		Info.Usage = ImageUsageToVk(Spec.Usage);
 
 		auto [Image, Allocation, AllocInfo] = CreateVulkanImage(VulkanUtils::GetVulkanAllocator().GetAllocator(), Info);
 		_Image = Image;
@@ -215,7 +224,7 @@ namespace Chilli
 
 		ImageSpec ImgSpec{};
 
-		if (Spec.FilePath.c_str() != nullptr)
+		if (Spec.UseFilePath)
 		{
 			stbi_set_flip_vertically_on_load(Spec.YFlip);
 
@@ -227,26 +236,39 @@ namespace Chilli
 			ImgSpec.Resolution = { texWidth, texHeight };
 		}
 		else
-		{
 			ImgSpec.Resolution = { Spec.Resolution.Width, Spec.Resolution.Height };
-		}
 
 		ImgSpec.Format = Spec.Format;
 		ImgSpec.Type = Spec.Type;
 		ImgSpec.ImageData = pixels;
+		ImgSpec.Usage = Spec.Usage;
 
 		_Image.Init(ImgSpec);
 
-		if (Spec.FilePath.empty() != false)	
+		if (Spec.FilePath.empty() != false)
 			stbi_image_free((stbi_uc*)pixels);
 
 		_CreateImageView();
+
+		if (Spec.Usage & DEPTH_STENCIL_ATTACHMENT)
+		{
+			BeginCommandBufferInfo Info{};
+			// Make Image able to be read by shader
+			Info.Family = QueueFamilies::GRAPHICS;
+			VulkanUtils::GetPoolManager().BeginSingleTimeCommand(Info);
+			_TransitionImageLayout(Info.Buffer, _Image.GetHandle(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+				VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT);
+			VulkanUtils::GetPoolManager().EndSingleTimeCommand(Info);
+		}
 	}
 
 	void VulkanTexture::_CreateImageView()
 	{
 		VkImageAspectFlags AspectFlag;
-		AspectFlag = VK_IMAGE_ASPECT_COLOR_BIT;
+		if (_Spec.Usage & ImageUsage::SAMPLED_IMAGE || _Spec.Usage & ImageUsage::COLOR_ATTACHMENT)
+			AspectFlag = VK_IMAGE_ASPECT_COLOR_BIT;
+		if (_Spec.Usage & ImageUsage::DEPTH_STENCIL_ATTACHMENT)
+			AspectFlag = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
 
 		_ImageView = CreateImageView(VulkanUtils::GetLogicalDevice(), _Image.GetHandle(),
 			FormatToVk(_Spec.Format), AspectFlag

@@ -14,17 +14,6 @@ struct GlobalUBO
 	glm::vec4 ResolutionTime; // x,y for resolution , z for time, w null
 };
 
-struct SceneUBO
-{
-	glm::mat4 ViewProjMatrix;
-	glm::vec4 CameraPos;
-};
-
-struct Vertex {
-	glm::vec3 Position;
-	glm::vec2 TexCoord;
-};
-
 class Editor : public Chilli::Layer
 {
 public:
@@ -34,26 +23,42 @@ public:
 	virtual void Init() override
 	{
 		{
-			const std::vector<Vertex> Vertices = {
-				// First triangle
-				{ { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f } }, // bottom-left
-				{ {  0.5f, -0.5f, 0.0f }, { 1.0f, 0.0f } }, // bottom-right
-				{ {  0.5f,  0.5f, 0.0f }, { 1.0f, 1.0f } }, // top-right
-
-				// Second triangle
-				{ { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f } }, // bottom-left
-				{ {  0.5f,  0.5f, 0.0f }, { 1.0f, 1.0f } }, // top-right
-				{ { -0.5f,  0.5f, 0.0f }, { 0.0f, 1.0f } }  // top-left
-			};
+			auto MeshDataSpec = Chilli::GetCubeMeshSpec();
+			std::vector<Chilli::Vertex> Vertices;
+			Vertices.resize(MeshDataSpec.first);
+			std::vector<uint16_t> Indicies;
+			Indicies.resize(MeshDataSpec.second);
+			Chilli::FillCubeMeshData(Vertices.data(), Indicies.data());
 
 			Chilli::VertexBufferSpec VBSpec{};
 			VBSpec.Count = (uint32_t)Vertices.size();
 			VBSpec.Data = (void*)Vertices.data();
-			VBSpec.Size = sizeof(Vertex) * Vertices.size();
+			VBSpec.Size = sizeof(Chilli::Vertex) * Vertices.size();
 			VBSpec.State = Chilli::BufferState::STATIC_DRAW;
 
-			const std::vector<uint16_t> Indicies = {
-				0, 1, 2, 3, 4, 5 };
+
+			Chilli::IndexBufferSpec IBSpec{};
+			IBSpec.Count = (uint32_t)Indicies.size();
+			IBSpec.Data = (void*)Indicies.data();
+			IBSpec.Size = sizeof(uint16_t) * Indicies.size();
+			IBSpec.State = Chilli::BufferState::STATIC_DRAW;
+
+			CubeMeshID = MeshManager.AddMesh(VBSpec, IBSpec);
+		}
+		{
+			auto MeshDataSpec = Chilli::GetSquareMeshSpec();
+			std::vector<Chilli::Vertex> Vertices;
+			Vertices.resize(MeshDataSpec.first);
+			std::vector<uint16_t> Indicies;
+			Indicies.resize(MeshDataSpec.second);
+			Chilli::FillSquareMeshData(Vertices.data(), Indicies.data());
+
+			Chilli::VertexBufferSpec VBSpec{};
+			VBSpec.Count = (uint32_t)Vertices.size();
+			VBSpec.Data = (void*)Vertices.data();
+			VBSpec.Size = sizeof(Chilli::Vertex) * Vertices.size();
+			VBSpec.State = Chilli::BufferState::STATIC_DRAW;
+
 
 			Chilli::IndexBufferSpec IBSpec{};
 			IBSpec.Count = (uint32_t)Indicies.size();
@@ -65,30 +70,72 @@ public:
 		}
 		{
 			Chilli::GraphicsPipelineSpec Spec{};
-			Spec.VertPath = "vert.spv";
-			Spec.FragPath = "frag.spv";
+			Spec.VertPath = "Assets/Shaders/shader_vert.spv";
+			Spec.FragPath = "Assets/Shaders/shader_frag.spv";
+			Spec.EnableDepthStencil = true;
+			Spec.DepthFormat = Chilli::ImageFormat::D24_S8;
+			Spec.UseSwapChainColorFormat = false;
+			Spec.ColorFormat = Chilli::ImageFormat::RGBA8;
 
-			DeafultShader = Chilli::GraphicsPipeline::Create(Spec);
+			GeometryShaderID = ShaderManager.Add(Spec);
+		}
+		{
+			Chilli::GraphicsPipelineSpec Spec{};
+			Spec.VertPath = "Assets/Shaders/screen_vert.spv";
+			Spec.FragPath = "Assets/Shaders/screen_frag.spv";
+			Spec.UseSwapChainColorFormat = true;
+
+			ScreenShaderID = ShaderManager.Add(Spec);
 		}
 		{
 			Chilli::SamplerSpec Spec{};
 			Spec.Filter = Chilli::SamplerFilter::LINEAR;
-			Spec.Mode = Chilli::SamplerMode::REPEAT;;
+			Spec.Mode = Chilli::SamplerMode::MIRRORED_REPEAT;
 
 			DeafultSamplerID = SamplerManager.Add(Spec);
 		}
 		{
 			Chilli::TextureSpec Spec{};
-			Spec.FilePath = "Deafult.png";
+			Spec.FilePath = "Assets/Textures/Deafult.png";
 			Spec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
+			Spec.Usage = Chilli::ImageUsage::SAMPLED_IMAGE | Chilli::ImageUsage::TRANSFER_DST;
 			Spec.YFlip = true;
 
 			DeafultTextureID = TextureManager.Add(Spec);
 		}
-
 		{
+			Chilli::TextureSpec Spec{};
+			Spec.FilePath = "Assets/Textures/download.jpg";
+			Spec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
+			Spec.Usage = Chilli::ImageUsage::SAMPLED_IMAGE | Chilli::ImageUsage::TRANSFER_DST;
+			Spec.YFlip = true;
+
+			BrickTextureID = TextureManager.Add(Spec);
+		}
+		{
+			Chilli::TextureSpec Spec{};
+			Spec.FilePath = "";
+			Spec.Resolution = { GeometryPassResolution.x, GeometryPassResolution.y };
+			Spec.Format = Chilli::ImageFormat::RGBA8;
+			Spec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
+			Spec.Usage = Chilli::ImageUsage::COLOR_ATTACHMENT | Chilli::ImageUsage::SAMPLED_IMAGE;
+			Spec.UseFilePath = false;
+
+			GeometryPassColorTexture = TextureManager.Add(Spec);
+		}
+		{
+			Chilli::TextureSpec Spec{};
+			Spec.FilePath = "";
+			Spec.Resolution = { GeometryPassResolution.x,GeometryPassResolution.y };
+			Spec.Format = Chilli::ImageFormat::D24_S8;
+			Spec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
+			Spec.Usage = Chilli::ImageUsage::DEPTH_STENCIL_ATTACHMENT;
+			Spec.UseFilePath = false;
+
+			GeometryPassDepthTexture = TextureManager.Add(Spec);
+		} {
 			Chilli::Renderer::GetBindlessSetManager().SetGlobalUBO(sizeof(GlobalUBO));
-			Chilli::Renderer::GetBindlessSetManager().SetSceneUBO(sizeof(SceneUBO));
+			Chilli::Renderer::GetBindlessSetManager().SetSceneUBO(sizeof(Chilli::SceneShaderData));
 
 			Chilli::Renderer::GetBindlessSetManager().CreateMaterialSBO(sizeof(Chilli::MaterialShaderData) * MAX_MATERIAL,
 				MAX_MATERIAL);
@@ -97,22 +144,52 @@ public:
 				MAX_OBJECT);
 
 			Chilli::Renderer::GetBindlessSetManager().AddSampler(SamplerManager.Get(DeafultSamplerID));
+
+			Chilli::Renderer::GetBindlessSetManager().AddTexture(TextureManager.Get(BrickTextureID));
 			Chilli::Renderer::GetBindlessSetManager().AddTexture(TextureManager.Get(DeafultTextureID));
+			Chilli::Renderer::GetBindlessSetManager().AddTexture(TextureManager.Get(GeometryPassColorTexture));
+		}
+		{
+			auto A = Chilli::Material();
+			A.AlbedoColor = { 1.0, 1.0f, 1.0f, 1.0f };
+			A.AlbedoTexture = DeafultTextureID;
+			A.AlbedoSampler = DeafultSamplerID;
+			A.UsingPipelineID = GeometryShaderID;
+			DeafultMaterialID = MaterialManager.Add(A);
+			Chilli::Renderer::GetBindlessSetManager().UpdateMaterial(MaterialManager.Get(DeafultMaterialID), 0);
+		}
+		{
+			auto A = Chilli::Material();
+			A.AlbedoColor = { 1.0, 1.0f, 1.0f, 1.0f };
+			A.AlbedoTexture = BrickTextureID;
+			A.AlbedoSampler = DeafultSamplerID;
+			A.UsingPipelineID = GeometryShaderID;
+			CubeMaterialID = MaterialManager.Add(A);
+			Chilli::Renderer::GetBindlessSetManager().UpdateMaterial(MaterialManager.Get(CubeMaterialID), 1);
+		}
+		{
+			auto A = Chilli::Material();
+			A.AlbedoColor = { 1.0, 1.0f, 1.0f, 1.0f };
+			A.AlbedoTexture = GeometryPassColorTexture;
+			A.AlbedoSampler = DeafultSamplerID;
+			A.UsingPipelineID = ScreenShaderID;
+			ScreenMaterialID = MaterialManager.Add(A);
+			Chilli::Renderer::GetBindlessSetManager().UpdateMaterial(MaterialManager.Get(ScreenMaterialID), 2);
 		}
 
-		DeafultMaterial.AlbedoSampler = DeafultSamplerID;
-		DeafultMaterial.AlbedoTexture = DeafultTextureID;
-		DeafultMaterial.AlbedoColor = { 0.4f, 0.6f, 0.2f, 1.0f };
 
-		DeafultObject.MaterialIndex = DeafultMaterial.ID;
-		DeafultObject.MeshIndex = SquareMeshID;
-		DeafultObject.Transform.TransformationMat = glm::mat4(1.0f);
+		ScreenQuadObject.MaterialIndex = ScreenMaterialID;
+		ScreenQuadObject.MeshIndex = SquareMeshID;
+		ScreenQuadObject.Transform.Scale(2.0f);
+		Chilli::Renderer::GetBindlessSetManager().UpdateObject(ScreenQuadObject, 0);
 
-		Chilli::Renderer::GetBindlessSetManager().UpdateMaterial(DeafultMaterial, 0);
-		Chilli::Renderer::GetBindlessSetManager().UpdateObject(DeafultObject, 0);
+		CubeObject.MaterialIndex = CubeMaterialID;
+		CubeObject.MeshIndex = CubeMeshID;
+		Chilli::Renderer::GetBindlessSetManager().UpdateObject(CubeObject, 1);
 
 		// Camera setup
 		_Camera.SetProjection(45.0f, 800.0f / 600.0f, 0.1f, 100.0f);
+
 	}
 
 	void UpdateGlobalData()
@@ -122,51 +199,84 @@ public:
 		Chilli::Renderer::GetBindlessSetManager().UpdateGlobalUBO(&GlobalData);
 	}
 
-	void UpdateSceneData()
+	void UpdateSceneData(const Chilli::Scene& Scene)
 	{
-		SceneData = SceneUBO();
+		auto SceneData = Chilli::SceneShaderData();
 
-		SceneData.ViewProjMatrix = _Camera.GetProjectionMatrix() * _Camera.GetViewMatrix();
-		SceneData.CameraPos.x = _Camera.GetPosition().x;
-		SceneData.CameraPos.y = _Camera.GetPosition().y;
-		SceneData.CameraPos.z = _Camera.GetPosition().z;
-		SceneData.CameraPos.w = 0;
+		SceneData.CameraPos.x = Scene.CameraPos.x;
+		SceneData.CameraPos.y = Scene.CameraPos.y;
+		SceneData.CameraPos.z = Scene.CameraPos.z;
+		SceneData.CameraPos.w = 0.0f;
+		SceneData.ViewProjMatrix = Scene.ViewProjMatrix;
 		Chilli::Renderer::GetBindlessSetManager().UpdateSceneUBO(&SceneData);
 	}
 
-	void Draw(const Chilli::RenderCommand& Command)
+	void Draw(const Chilli::Object& Command)
 	{
-		auto& CurrentMesh = MeshManager.GetMesh(Command.RenderObject.MeshIndex);
+		auto& CurrentMesh = MeshManager.GetMesh(Command.MeshIndex);
+
 		Chilli::RenderCommandSpec Spec{};
-		Spec.MaterialIndex = Command.RenderObject.MaterialIndex;
-		Spec.ObjectIndex = Command.RenderObject.ID;
-
-		Chilli::Renderer::Submit(DeafultShader, CurrentMesh.VertexBuffers[0], CurrentMesh.IndexBuffer, Spec);
-		// Take in Shader from Material
-		//Chilli::Renderer::Submit(DeafultShader, CurrentMesh.VertexBuffers[0], CurrentMesh.IndexBuffer);
-
+		Spec.MaterialIndex = Command.MaterialIndex;
+		Spec.ObjectIndex = Command.ID;
+		auto Shader = ShaderManager.Get(MaterialManager.Get(Command.MaterialIndex).UsingPipelineID);
+		Chilli::Renderer::Submit(Shader, CurrentMesh.VertexBuffers[0], CurrentMesh.IndexBuffer, Spec);
 	}
 
-	virtual void Update() override
+	virtual void Update(Chilli::TimeStep Ts) override
 	{
 		if (_Minimized)
 		{
 			CH_CORE_INFO("Minized!");
 		}
-		_Camera.Process(0.1f);
 
 		UpdateGlobalData();
 		Chilli::Renderer::BeginFrame();
 
-		UpdateSceneData();
+		_Camera.Process(Ts.GetSecond());
+
+		DeafultScene.ViewProjMatrix = _Camera.GetProjectionMatrix() * _Camera.GetViewMatrix();
+		DeafultScene.CameraPos.x = _Camera.GetPosition().x;
+		DeafultScene.CameraPos.y = _Camera.GetPosition().y;
+		DeafultScene.CameraPos.z = _Camera.GetPosition().z;
+		UpdateSceneData(DeafultScene);
+
 		Chilli::Renderer::BeginScene();
+		_Camera.SetProjection(45.0f, (float)GeometryPassResolution.x / (float)GeometryPassResolution.y, 0.1f, 100.0f);
 
-		Chilli::Renderer::BeginRenderPass();
+		{
+			// Geometry + ZBuffer Pass
+			Chilli::ColorAttachment ColorAttachment;
+			ColorAttachment.ClearColor = { 0.2f, 0.2f, 0.2f, 1.0f };
+			ColorAttachment.UseSwapChainImage = false;
+			ColorAttachment.ColorTexture = TextureManager.Get(GeometryPassColorTexture);
 
-		Chilli::RenderCommand Command{ .RenderObject = DeafultObject };
-		Draw(Command);
-		Chilli::Renderer::EndRenderPass();
+			Chilli::DepthAttachment DepthAttachment;
+			DepthAttachment.DepthTexture = TextureManager.Get(GeometryPassDepthTexture);
 
+			GeoZBufferPass.ColorAttachments = &ColorAttachment;
+			GeoZBufferPass.ColorAttachmentCount = 1;
+			GeoZBufferPass.DepthAttachment = &DepthAttachment;
+
+			Chilli::Renderer::BeginRenderPass(GeoZBufferPass);
+			Draw(CubeObject);
+			Chilli::Renderer::EndRenderPass();
+		}
+		Chilli::Renderer::EndScene();
+
+		Chilli::Renderer::BeginScene();
+		{
+			// Screen Quad Pass
+			Chilli::ColorAttachment ColorAttachment;
+			ColorAttachment.ClearColor = { 0.2f, 0.2f, 0.2f, 1.0f };
+			ColorAttachment.UseSwapChainImage = true;
+
+			ScreenPass.ColorAttachments = &ColorAttachment;
+			ScreenPass.ColorAttachmentCount = 1;
+
+			Chilli::Renderer::BeginRenderPass(ScreenPass);
+			Draw(ScreenQuadObject);
+			Chilli::Renderer::EndRenderPass();
+		}
 		Chilli::Renderer::EndScene();
 
 		Chilli::Renderer::Render();
@@ -180,7 +290,8 @@ public:
 		MeshManager.Flush();
 		TextureManager.Flush();
 		SamplerManager.Flush();
-		DeafultShader->Destroy();
+		ShaderManager.Flush();
+		MaterialManager.Flush();
 	}
 
 	void OnKeyPressed(Chilli::KeyPressedEvent& e)
@@ -232,21 +343,29 @@ public:
 	}
 
 private:
-	std::shared_ptr<Chilli::GraphicsPipeline> DeafultShader;
 	bool _Minimized = false;
 
 	GlobalUBO GlobalData;
-	SceneUBO SceneData;
+	Chilli::IVec2 GeometryPassResolution = { 1920, 1080};
+	Chilli::Scene DeafultScene, ScreenQuadScene;
 	Chilli::Vec2 WindowSize = { 800.0f, 600.0f };
 
-	Chilli::Material DeafultMaterial;
-	Chilli::Object DeafultObject;
+	Chilli::UUID CubeMeshID, SquareMeshID;
+	Chilli::UUID GeometryPassDepthTexture, GeometryPassColorTexture;
+	Chilli::UUID BrickTextureID, DeafultTextureID;
+	Chilli::UUID DeafultSamplerID;
+	Chilli::UUID GeometryShaderID, ScreenShaderID;
+	Chilli::UUID DeafultMaterialID, CubeMaterialID, ScreenMaterialID;
+
+	Chilli::Object CubeObject, ScreenQuadObject;
 
 	Chilli::MeshManager MeshManager;
 	Chilli::SamplerManager SamplerManager;
 	Chilli::TextureManager TextureManager;
-	//Chilli::ShaderManager ShaderManager;
-	Chilli::UUID SquareMeshID, DeafultTextureID, DeafultSamplerID;
+	Chilli::GraphicsPipelineManager ShaderManager;
+	Chilli::MaterialManager MaterialManager;
+
+	Chilli::RenderPassInfo GeoZBufferPass, ScreenPass;
 
 	Camera _Camera;
 };

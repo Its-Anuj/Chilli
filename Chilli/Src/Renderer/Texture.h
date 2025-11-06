@@ -9,6 +9,7 @@ namespace Chilli
 	struct TextureSpec : public ImageSpec
 	{
 		std::string FilePath;
+		bool UseFilePath = true;
 	};
 
 	class Texture

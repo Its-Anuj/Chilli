@@ -1,5 +1,6 @@
 #pragma once
 
+#include "UUID/UUID.h"
 #include "Image.h"
 
 namespace Chilli
@@ -58,11 +59,12 @@ namespace Chilli
 		PolygonMode  ShaderFillMode = PolygonMode::Fill;
 		FrontFaceMode FrontFace = FrontFaceMode::Clock_Wise;
 
+		bool UseSwapChainColorFormat = true;
 		bool EnableDepthStencil = false;
 		bool EnableDepthTest = false;
 		bool EnableDepthWrite = false;
 		bool EnableStencilTest = false;
-		ImageFormat DepthFormat;
+		ImageFormat DepthFormat, ColorFormat;
 	};
 
 	class GraphicsPipeline
@@ -77,5 +79,29 @@ namespace Chilli
 		virtual const GraphicsPipelineSpec& GetSpec() const = 0;
 
 		static std::shared_ptr<GraphicsPipeline> Create(const GraphicsPipelineSpec& Spec);
+		const UUID& ID() const { return _ID; }
+	private:
+		UUID _ID;
+	};
+
+	using GraphicsPipelineHandle = std::shared_ptr<GraphicsPipeline>;
+
+	class GraphicsPipelineManager
+	{
+	public:
+		GraphicsPipelineManager() {}
+		~GraphicsPipelineManager() {}
+
+		const UUID& Add(const GraphicsPipelineSpec& Spec);
+		const GraphicsPipelineHandle& Get(UUID ID);
+		bool Exist(UUID ID);
+
+		void Flush();
+		void Destroy(const UUID& ID);
+
+		size_t Count() const { return _GraphicsPipelines.size(); }
+
+	private:
+		std::unordered_map<UUID, GraphicsPipelineHandle> _GraphicsPipelines;
 	};
 }

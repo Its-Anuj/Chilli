@@ -4,8 +4,9 @@
 #include "Buffer.h"
 #include "Material.h"
 #include "Mesh.h"
+#include "Scene.h"
+#include "RenderPass.h"
 #include "Texture.h"
-#include "Object.h"
 
 namespace Chilli
 {
@@ -20,6 +21,12 @@ namespace Chilli
 		UUID MaterialIndex;
 	};
 
+	struct RenderCommandPushData
+	{
+		uint32_t ObjectIndex;
+		uint32_t MaterialIndex;
+	};
+
 	class RenderAPI
 	{
 	public:
@@ -31,7 +38,7 @@ namespace Chilli
 	
 		virtual bool BeginFrame() = 0;
 		virtual void BeginScene() = 0;
-		virtual void BeginRenderPass() = 0;
+		virtual void BeginRenderPass(RenderPassInfo& RenderPass) = 0;
 		virtual void Submit(const std::shared_ptr<GraphicsPipeline>& Shader, const std::shared_ptr<VertexBuffer>& VB) = 0;
 		virtual void Submit(const std::shared_ptr<GraphicsPipeline>& Shader, const std::shared_ptr<VertexBuffer>& VB
 			, const std::shared_ptr<IndexBuffer>& IB) = 0;

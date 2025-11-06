@@ -1,4 +1,6 @@
 #include "Material.h"
+#include "Shader.h"
+#include "Material.h"
 #include "Ch_PCH.h"
 
 #include "Renderer.h"
@@ -48,9 +50,9 @@ namespace Chilli
 		Get()._Api->BeginScene();;
 	}
 
-	void Renderer::BeginRenderPass()
+	void Renderer::BeginRenderPass(RenderPassInfo& RenderPass)
 	{
-		Get()._Api->BeginRenderPass();;
+		Get()._Api->BeginRenderPass(RenderPass);;
 	}
 
 	void Renderer::Submit(const std::shared_ptr<GraphicsPipeline>& Shader, const std::shared_ptr<VertexBuffer>& VB)
@@ -180,61 +182,7 @@ namespace Chilli
 			return VSampler;
 		}
 	}
-	// Mesh Manager
-
-	const UUID& MeshManager::AddMesh(const VertexBufferSpec& VBSpec, const IndexBufferSpec& IBSpec)
-	{
-		UUID NewID;
-
-		Mesh NewMesh;
-		NewMesh.ID = NewID;
-		NewMesh.IndexBuffer = IndexBuffer::Create(IBSpec);
-		NewMesh.VertexBuffers.push_back(VertexBuffer::Create(VBSpec));
-
-		_Meshes[NewID] = NewMesh;
-		return NewID;
-	}
-
-	bool MeshManager::DoesMeshExist(UUID ID)
-	{
-		return _Meshes.find(ID) != _Meshes.end();
-	}
-
-	const Mesh& MeshManager::GetMesh(UUID ID)
-	{
-		if (DoesMeshExist(ID))
-			return _Meshes[ID];
-	}
-
-
-	void MeshManager::Flush()
-	{
-		// Store all ids in a array
-		std::vector<UUID> AllIDs;
-		AllIDs.reserve(_Meshes.size());
-
-		for (auto& [ID, Sampler] : _Meshes)
-			AllIDs.push_back(ID);
-
-		for (auto& ID : AllIDs)
-			DestroyMesh(ID);
-	}
-
-	void MeshManager::DestroyMesh(const UUID& ID)
-	{
-		auto it = _Meshes.find(ID);
-		if (it != _Meshes.end())
-		{
-			if (it->second.IndexBuffer)
-			{
-				it->second.IndexBuffer->Destroy();
-				for (auto& VB : it->second.VertexBuffers)
-					VB->Destroy();
-			}
-			_Meshes.erase(it);
-		}
-	}
-
+	
 	// Texture Manager
 	const UUID& TextureManager::Add(const TextureSpec& Spec)
 	{
@@ -279,6 +227,88 @@ namespace Chilli
 		}
 	}
 
+	// GraphicsPipelineManager
+	const UUID& GraphicsPipelineManager::Add(const GraphicsPipelineSpec& Spec)
+	{
+		GraphicsPipelineHandle NewShader = GraphicsPipeline::Create(Spec);
+
+		_GraphicsPipelines[NewShader->ID()] = NewShader;;
+		return NewShader->ID();
+	}
+
+	const GraphicsPipelineHandle& Chilli::GraphicsPipelineManager::Get(UUID ID)
+	{
+		if (Exist(ID))
+			return _GraphicsPipelines[ID];
+	}
+
+	bool Chilli::GraphicsPipelineManager::Exist(UUID ID)
+	{
+		return _GraphicsPipelines.find(ID) != _GraphicsPipelines.end();
+	}
+
+	void GraphicsPipelineManager::Flush()
+	{
+		// Store all ids in a array
+		std::vector<UUID> AllIDs;
+		AllIDs.reserve(_GraphicsPipelines.size());
+
+		for (auto& [ID, Sampler] : _GraphicsPipelines)
+			AllIDs.push_back(ID);
+
+		for (auto& ID : AllIDs)
+			Destroy(ID);
+	}
+
+	void GraphicsPipelineManager::Destroy(const UUID& ID)
+	{
+		auto it = _GraphicsPipelines.find(ID);
+		if (it != _GraphicsPipelines.end())
+		{
+			if (it->second)
+				it->second->Destroy();
+			_GraphicsPipelines.erase(it);
+		}
+	}
+
+	// Material Manager
+	const UUID& MaterialManager::Add(const Material& Spec)
+	{
+		_Materials[Spec.ID] = Spec;
+		return Spec.ID;
+	}
+
+	Material& Chilli::MaterialManager::Get(UUID ID)
+	{
+		if (Exist(ID))
+			return _Materials[ID];
+	}
+
+	bool Chilli::MaterialManager::Exist(UUID ID) const
+	{
+		return _Materials.find(ID) != _Materials.end();
+	}
+
+	void MaterialManager::Flush()
+	{
+		// Store all ids in a array
+		std::vector<UUID> AllIDs;
+		AllIDs.reserve(_Materials.size());
+
+		for (auto& [ID, Sampler] : _Materials)
+			AllIDs.push_back(ID);
+
+		for (auto& ID : AllIDs)
+			Destroy(ID);
+	}
+
+	void MaterialManager::Destroy(const UUID& ID)
+	{
+		auto it = _Materials.find(ID);
+		if (it != _Materials.end())
+			_Materials.erase(it);
+	}
+
 	// Sampler Manager
 	const UUID& SamplerManager::Add(const SamplerSpec& Spec)
 	{
@@ -304,11 +334,11 @@ namespace Chilli
 		// Store all ids in a array
 		std::vector<UUID> AllIDs;
 		AllIDs.reserve(_Samplers.size());
-		
+
 		for (auto& [ID, Sampler] : _Samplers)
 			AllIDs.push_back(ID);
 
-		for (auto& ID: AllIDs)
+		for (auto& ID : AllIDs)
 			Destroy(ID);
 	}
 
@@ -329,6 +359,12 @@ namespace Chilli
 		uint32_t ShaderIndex = GetCount();
 		_Textures[ID] = ShaderIndex;
 		return ShaderIndex;
+	}
+
+	void BindlessSetTextureManager::Update(const UUID& ID, uint32_t Index)
+	{
+		if (IsTexPresent(ID))
+			_Textures[ID] = Index;
 	}
 
 	uint32_t BindlessSetTextureManager::GetIndex(const UUID& ID)

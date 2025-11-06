@@ -426,8 +426,15 @@ namespace Chilli
 		VkPipelineRenderingCreateInfo renderingInfo{};
 		renderingInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
 		renderingInfo.colorAttachmentCount = 1;
+
 		auto SwapChainFormat = VulkanUtils::GetSwapChainKHR().GetFormat();
+		if (!Spec.UseSwapChainColorFormat)
+			SwapChainFormat = FormatToVk(Spec.ColorFormat);
+
 		renderingInfo.pColorAttachmentFormats = &SwapChainFormat;
+		
+		if (Spec.EnableDepthStencil)
+			renderingInfo.depthAttachmentFormat = FormatToVk(Spec.DepthFormat);
 
 		_PipelineLayoutHash = 0;
 		auto PipelineLayout = VulkanPipelineLayoutCache::GetPipelineLayoutCache().GetOrCreate(0);
@@ -449,7 +456,7 @@ namespace Chilli
 		pipelineInfo.layout = PipelineLayout;
 		pipelineInfo.renderPass = VK_NULL_HANDLE; // No render pass with dynamic rendering
 		pipelineInfo.subpass = 0;
-		
+
 		VkPipelineDepthStencilStateCreateInfo depthStencil{};
 
 		if (Spec.EnableDepthStencil)
@@ -732,18 +739,18 @@ namespace Chilli
 		_MaterialManager.Add(Mat.ID, Index);
 	}
 
-	void VulkanBindlessSetManager::UpdateObject(const Object& Obj, uint32_t Index)
+	void VulkanBindlessSetManager::UpdateObject(Object& Obj, uint32_t Index)
 	{
 		ObjectShaderData CopyData{};
-		CopyData.TransformationMat = Obj.Transform.TransformationMat;
+		CopyData.TransformationMat = Obj.Transform.GetTransformationMatrix();
 
 		_ObjectSBO->MapData((void*)&CopyData, sizeof(ObjectShaderData), sizeof(ObjectShaderData) * Index);
 		_ObjectManager.Add(Obj.ID, Index);
 	}
 
-	RenderCommandSpec VulkanBindlessSetManager::FromRenderCommand(const RenderCommandSpec& Spec)
+	RenderCommandPushData VulkanBindlessSetManager::FromRenderCommand(const RenderCommandSpec& Spec)
 	{
-		RenderCommandSpec ReturnSpec{};
+		RenderCommandPushData ReturnSpec{};
 		ReturnSpec.MaterialIndex = _MaterialManager.GetIndex(Spec.MaterialIndex);
 		ReturnSpec.ObjectIndex = _ObjectManager.GetIndex(Spec.ObjectIndex);
 		return ReturnSpec;
@@ -858,7 +865,7 @@ namespace Chilli
 
 		VkPushConstantRange PushConstantRange{};
 		PushConstantRange.stageFlags = VK_SHADER_STAGE_ALL;
-		PushConstantRange.size = sizeof(RenderCommandSpec);
+		PushConstantRange.size = sizeof(RenderCommandPushData);
 		PushConstantRange.offset = 0;
 		PipelienInfo.PushConstant = PushConstantRange;
 

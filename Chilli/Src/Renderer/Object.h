@@ -2,21 +2,11 @@
 
 #include "Mesh.h"
 #include "Material.h"
-#include "glm/glm.hpp"
+#include "Transform.h"
+#include "ObjectShapes.h"
 
 namespace Chilli
 {
-	struct Transform
-	{
-	public:
-		glm::vec3 Position;
-		glm::vec3 Rotation;
-		glm::vec3 Scale;
-
-		glm::mat4 TransformationMat;
-	private:
-	};
-
 	struct Object
 	{
 		UUID MeshIndex;

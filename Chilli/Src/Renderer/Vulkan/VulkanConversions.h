@@ -1,6 +1,9 @@
 #pragma once
 
 #include "Material.h"
+#include <array>
+#include <algorithm>
+#include <cassert>
 
 namespace Chilli
 {
@@ -117,5 +120,37 @@ namespace Chilli
 		case FrontFaceMode::Clock_Wise: return VK_FRONT_FACE_CLOCKWISE;
 		case FrontFaceMode::Counter_Clock_Wise: return VK_FRONT_FACE_COUNTER_CLOCKWISE;
 		}
+	}
+
+	inline VkIndexType IndexTypeToVk(IndexBufferType Type)
+	{
+		switch (Type)
+		{
+		case IndexBufferType::UINT16_T: return VK_INDEX_TYPE_UINT16;
+		case IndexBufferType::UINT32_T: return VK_INDEX_TYPE_UINT32;
+		}
+	}
+
+	inline VkImageUsageFlags ImageUsageToVk(uint32_t Type)
+	{
+		VkImageUsageFlags Flags = 0;
+
+		if (Type & ImageUsage::TRANSFER_SRC)
+			Flags |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+		if (Type & ImageUsage::TRANSFER_DST)
+			Flags |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+		if (Type & ImageUsage::SAMPLED_IMAGE)
+			Flags |= VK_IMAGE_USAGE_SAMPLED_BIT;
+		if (Type & ImageUsage::STORAGE_IMAGE)
+			Flags |= VK_IMAGE_USAGE_STORAGE_BIT;
+		if (Type & ImageUsage::COLOR_ATTACHMENT)
+			Flags |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+		if (Type & ImageUsage::DEPTH_STENCIL_ATTACHMENT)
+			Flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+		if (Type & ImageUsage::INPUT_ATTACHMENT)
+			Flags |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+
+		assert(Flags != 0 && "Unhandled ImageUsage value");
+		return Flags;
 	}
 }

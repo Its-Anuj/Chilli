@@ -116,9 +116,9 @@ namespace Chilli
 		virtual void AddSampler(const std::shared_ptr<Sampler>& Sam) override;
 
 		virtual void UpdateMaterial(const Material& Mat, uint32_t Index) override;
-		virtual void UpdateObject(const Object& Obj, uint32_t Index) override;
+		virtual void UpdateObject(Object& Obj, uint32_t Index) override;
 
-		RenderCommandSpec FromRenderCommand(const RenderCommandSpec& Spec);
+		RenderCommandPushData FromRenderCommand(const RenderCommandSpec& Spec);
 
 		BindlessSetMaterialManager GetMaterialManager() { return _MaterialManager; }
 	private:
