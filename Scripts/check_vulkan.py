@@ -45,28 +45,60 @@ def check_vulkan_support():
     else:
         print("❌ Vulkan version too low.")
         return False
-
+    
 def check_vulkan_sdk():
     print("🔍 Checking Vulkan SDK installation...")
-    sdk_path = os.environ.get("VULKAN_SDK")
-    if not sdk_path:
-        print("⚠️ VULKAN_SDK environment variable not set.")
-        return None
 
+    sdk_path = os.environ.get("VULKAN_SDK")
+
+    # --- fallback for default install directories ---
+    if not sdk_path:
+        if platform.system() == "Windows":
+            base_path = r"C:\VulkanSDK"
+        elif platform.system() == "Linux":
+            base_path = os.path.expanduser("~/VulkanSDK")
+        else:
+            base_path = None
+
+        if base_path and os.path.exists(base_path):
+            versions = [v for v in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, v))]
+            if versions:
+                latest = sorted(versions)[-1]
+                sdk_path = os.path.join(base_path, latest)
+                print(f"📂 Found Vulkan SDK at {sdk_path}")
+                os.environ["VULKAN_SDK"] = sdk_path
+
+    if not sdk_path or not os.path.exists(sdk_path):
+        print("⚠️ Vulkan SDK not found in PATH or default locations.")
+        return False
+
+    version = None
     version_file = os.path.join(sdk_path, "VERSION.txt")
     if os.path.exists(version_file):
-        with open(version_file, "r") as f:
-            version = tuple(map(int, f.read().strip().split(".")))
-            print(f"✅ Vulkan SDK version {version} found.")
-            if is_version_supported(version, MIN_VERSION):
-                print("🎉 Vulkan SDK is up-to-date.")
-                return True
-            else:
-                print("❌ Vulkan SDK is outdated.")
-                return False
+        try:
+            with open(version_file, "r") as f:
+                version_str = f.read().strip()
+                version = tuple(map(int, version_str.split(".")))
+                print(f"✅ Vulkan SDK version {version_str} found.")
+        except Exception as e:
+            print(f"⚠️ Could not read version file: {e}")
     else:
-        print("⚠️ Vulkan SDK not properly installed.")
+        # try to infer from folder name
+        folder_name = os.path.basename(sdk_path)
+        try:
+            version = tuple(map(int, folder_name.split(".")))
+            print(f"📂 No VERSION.txt, using folder version: {folder_name}")
+        except Exception:
+            print("⚠️ Could not infer Vulkan SDK version from folder name.")
+            return False
+
+    if is_version_supported(version, MIN_VERSION):
+        print("🎉 Vulkan SDK is up-to-date.")
+        return True
+    else:
+        print(f"❌ Vulkan SDK ({version}) is below 1.3.0.")
         return False
+
 
 def download_and_install_sdk():
     system = platform.system()
