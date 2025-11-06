@@ -15,6 +15,7 @@ A modern, cross-platform game engine built with Vulkan, featuring a modular arch
 - **Comprehensive Resource Management**: Managed resources for meshes, textures, materials, and pipelines
 
 ## 📁 Project Structure
+```
 Chilli/
 ├── Libs/ # Third-party dependencies
 │ ├── GLFW/ # Window management
@@ -34,6 +35,7 @@ Chilli/
 │ └── Window/
 └── Renderer/
 └── Vulkan/ # Vulkan rendering backend
+```
 
 ## 🏗️ Architecture
 
