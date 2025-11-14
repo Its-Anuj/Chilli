@@ -13,12 +13,14 @@ namespace Chilli
 			int x, y;
 		} Dimensions;
 		std::string Name;
+		bool Close = false;
+		bool IsActive = true;
 
 		std::function<void(Event&)> EventCallback;
 	};
 
 	struct WindowSpec
-	{ 
+	{
 		const char* Title = "Untitiled";
 		struct {
 			int x, y;
@@ -47,6 +49,9 @@ namespace Chilli
 
 		void* GetWin32Surface() const;
 		Vec2 GetFrameBufferSize() const;
+
+		bool IsClose() const { return _Data.Close; }
+		bool IsActive() const { return _Data.IsActive; }
 	private:
 		GLFWwindow* _Window;
 		WindowSpec _Spec;

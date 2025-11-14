@@ -6,8 +6,7 @@
 #include "VulkanDevice.h"
 
 #include "vk_mem_alloc.h"
-#include "VulkanRenderer.h"
-#include "VulkanSwapChain.h"
+#include "VulkanBackend.h"
 #include <cstdint>
 #include <limits>
 #include <algorithm>

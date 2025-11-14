@@ -1,88 +1,89 @@
-#include "InputCodes.h"
-#include "InputCodes.h"
-#include "InputCodes.h"
 #include "Ch_PCH.h"
 
-#include "Input.h"
 #include "GLFW/glfw3.h"
+#include "Window\Window.h"
+#include "Input.h"
 #include "InputCodes.h"
 
 namespace Chilli
 {
-	void Input::Impl_Init(GLFWwindow* Window)
+#pragma region Input Implementation
+
+	Input::Input()
 	{
-		if (Get().IsActive() == true)
-			CH_CORE_ERROR("Input already initialized!");
-
 		for (int i = 0; i < Input_key_Count; i++)
-			KeyStates[i] = InputResult::INPUT_RELEASE;
+			_KeyStates[i] = InputResult::INPUT_RELEASE;
 		for (int i = 0; i < Input_mouse_Count; i++)
-			MouseButtonStates[i] = InputResult::INPUT_RELEASE;
-
-		_Window = Window;
-		CH_CORE_INFO("Input Initialied!");
+			_MouseButtonStates[i] = InputResult::INPUT_RELEASE;
+	}
+	
+	void Input::Terminate()
+	{
+		_WindowHandle = nullptr;
+		CH_CORE_INFO("Input Service Terminate!");
 	}
 
-	InputResult Input::Impl_IsKeyPressed(Input_key KeyCode)
+	void Input::SetActiveWindow(BackBone::AssetHandle<Window> WindowHandle)
+	{
+		CH_CORE_ASSERT(WindowHandle.ValPtr != nullptr, "Provide a Valid AssetHandle<Window>");
+
+		_WindowHandle = WindowHandle.ValPtr->GetRawHandle();
+	}
+
+	InputResult Input::GetKeyState(Input_key KeyCode)
 	{
 		auto glfwinputid = InputKeysToGLFW(KeyCode);
 
 		if (glfwinputid == -1)
-			CH_CORE_ERROR("Cant Conver to GLFW Mouse Button Code!");
+			CH_CORE_ERROR("Cant Convert to GLFW Mouse Button Code!");
 
-		int Result = glfwGetKey(GetWindowHandle(), glfwinputid);
+		int Result = glfwGetKey((GLFWwindow*)_WindowHandle, glfwinputid);
 
-		InputResult LastState = KeyStates[KeyCode];
+		InputResult LastState = _KeyStates[KeyCode];
 
 		if ((LastState == InputResult::INPUT_PRESS && Result == GLFW_PRESS) ||
 			(LastState == InputResult::INPUT_PRESS && Result == GLFW_REPEAT))
-			KeyStates[KeyCode] = InputResult::INPUT_REPEAT;
+			_KeyStates[KeyCode] = InputResult::INPUT_REPEAT;
 		else if (Result == GLFW_RELEASE)
-			KeyStates[KeyCode] = InputResult::INPUT_RELEASE;
+			_KeyStates[KeyCode] = InputResult::INPUT_RELEASE;
 		else if (LastState == InputResult::INPUT_RELEASE && Result == GLFW_PRESS)
-			KeyStates[KeyCode] = InputResult::INPUT_PRESS;
+			_KeyStates[KeyCode] = InputResult::INPUT_PRESS;
 
-		return KeyStates[KeyCode];
+		return _KeyStates[KeyCode];
 	}
 
-	InputResult Input::Impl_IsMouseButtonPressed(Input_mouse ButtonCode)
+	InputResult Input::GetMouseButtonState(Input_mouse ButtonCode)
 	{
 		auto glfwinputid = InputMouseToGLFW(ButtonCode);
 
 		if (glfwinputid == -1)
 			CH_CORE_ERROR("Cant Conver to GLFW Mouse Button Code!");
 
-		int Result = glfwGetMouseButton(GetWindowHandle(), glfwinputid);
+		int Result = glfwGetMouseButton((GLFWwindow*)_WindowHandle, glfwinputid);
 
-		InputResult LastState = MouseButtonStates[ButtonCode];
+		InputResult LastState = _MouseButtonStates[ButtonCode];
 
 		if (LastState == InputResult::INPUT_RELEASE && Result == GLFW_PRESS)
-			MouseButtonStates[ButtonCode] = InputResult::INPUT_PRESS;
+			_MouseButtonStates[ButtonCode] = InputResult::INPUT_PRESS;
 		else if ((LastState == InputResult::INPUT_PRESS && Result == GLFW_RELEASE))
-			MouseButtonStates[ButtonCode] = InputResult::INPUT_RELEASE;
+			_MouseButtonStates[ButtonCode] = InputResult::INPUT_RELEASE;
 
-		return MouseButtonStates[ButtonCode];
+		return _MouseButtonStates[ButtonCode];
 	}
 
-	void Input::Impl_ShutDown()
+	bool Input::GetModState(Input_mod mod)
 	{
-		_Window = nullptr;
-		CH_CORE_INFO("Input ShutDown!");
+		return _ModStates[mod];
 	}
 
-	bool Input::Impl_GetModState(Input_mod mod)
+	void Input::SetCursorPos(const IVec2& Pos)
 	{
-		return ModStates[mod];
+		_CursorPos = Pos;
 	}
 
-	void Input::Impl_SetCursorPos(const DVec2& Pos)
+	void Input::SetModState(Input_mod mod, bool state)
 	{
-		CursorPos = Pos;
-	}
-
-	void Input::Impl_SetModState(Input_mod mod, bool state)
-	{
-		ModStates[mod] = state;
+		_ModStates[mod] = state;
 	}
 
 	const char* Input::KeyToString(Input_key Key)
@@ -94,6 +95,7 @@ namespace Chilli
 	{
 		return InputMouseToString(Mouse);
 	}
+#pragma endregion 
 
 	int InputKeysToGLFW(Input_key key)
 	{

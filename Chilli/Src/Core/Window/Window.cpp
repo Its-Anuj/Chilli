@@ -34,6 +34,7 @@ void Chilli_WindowCloseCallBack(GLFWwindow* window)
 {
 	Chilli::WindowData* Data = (Chilli::WindowData*)glfwGetWindowUserPointer(window);
 
+	Data->Close = true;
 	Chilli::WindowCloseEvent e;
 	//Data->EventCallback(e);
 }
@@ -53,18 +54,18 @@ void Chilli_KeyCallBack(GLFWwindow* window, int key, int scancode, int action, i
 
 	if (action == GLFW_PRESS)
 	{
-		if (key == GLFW_KEY_LEFT_SHIFT || key == GLFW_KEY_RIGHT_SHIFT)
-			Chilli::Input::SetModState(Chilli::Input_mod_Shift, true);
-		else if (key == GLFW_KEY_LEFT_CONTROL || key == GLFW_KEY_RIGHT_CONTROL)
-			Chilli::Input::SetModState(Chilli::Input_mod_Control, true);
-		else if (key == GLFW_KEY_LEFT_ALT || key == GLFW_KEY_RIGHT_ALT)
-			Chilli::Input::SetModState(Chilli::Input_mod_Alt, true);
-		else if (key == GLFW_KEY_LEFT_SUPER || key == GLFW_KEY_RIGHT_SUPER)
-			Chilli::Input::SetModState(Chilli::Input_mod_Super, true);
-		else if (key == GLFW_KEY_CAPS_LOCK)
-			Chilli::Input::SetModState(Chilli::Input_mod_CapsLock, true);
-		else if (key == GLFW_KEY_NUM_LOCK)
-			Chilli::Input::SetModState(Chilli::Input_mod_NumLock, true);
+		//if (key == GLFW_KEY_LEFT_SHIFT || key == GLFW_KEY_RIGHT_SHIFT)
+		//	Chilli::Input::SetModState(Chilli::Input_mod_Shift, true);
+		//else if (key == GLFW_KEY_LEFT_CONTROL || key == GLFW_KEY_RIGHT_CONTROL)
+		//	Chilli::Input::SetModState(Chilli::Input_mod_Control, true);
+		//else if (key == GLFW_KEY_LEFT_ALT || key == GLFW_KEY_RIGHT_ALT)
+		//	Chilli::Input::SetModState(Chilli::Input_mod_Alt, true);
+		//else if (key == GLFW_KEY_LEFT_SUPER || key == GLFW_KEY_RIGHT_SUPER)
+		//	Chilli::Input::SetModState(Chilli::Input_mod_Super, true);
+		//else if (key == GLFW_KEY_CAPS_LOCK)
+		//	Chilli::Input::SetModState(Chilli::Input_mod_CapsLock, true);
+		//else if (key == GLFW_KEY_NUM_LOCK)
+		//	Chilli::Input::SetModState(Chilli::Input_mod_NumLock, true);
 
 		Chilli::KeyPressedEvent e(Chilli::GLFWToInputKeys(key));
 		Data->EventCallback(e);
@@ -76,19 +77,6 @@ void Chilli_KeyCallBack(GLFWwindow* window, int key, int scancode, int action, i
 	}
 	else if (action == GLFW_RELEASE)
 	{
-		if (key == GLFW_KEY_LEFT_SHIFT || key == GLFW_KEY_RIGHT_SHIFT)
-			Chilli::Input::SetModState(Chilli::Input_mod_Shift, false);
-		else if (key == GLFW_KEY_LEFT_CONTROL || key == GLFW_KEY_RIGHT_CONTROL)
-			Chilli::Input::SetModState(Chilli::Input_mod_Control, false);
-		else if (key == GLFW_KEY_LEFT_ALT || key == GLFW_KEY_RIGHT_ALT)
-			Chilli::Input::SetModState(Chilli::Input_mod_Alt, false);
-		else if (key == GLFW_KEY_LEFT_SUPER || key == GLFW_KEY_RIGHT_SUPER)
-			Chilli::Input::SetModState(Chilli::Input_mod_Super, false);
-		else if (key == GLFW_KEY_CAPS_LOCK)
-			Chilli::Input::SetModState(Chilli::Input_mod_CapsLock, false);
-		else if (key == GLFW_KEY_NUM_LOCK)
-			Chilli::Input::SetModState(Chilli::Input_mod_NumLock, false);
-
 		Chilli::KeyReleasedEvent e(Chilli::GLFWToInputKeys(key));
 		Data->EventCallback(e);
 	}
@@ -118,7 +106,7 @@ void Chilli_MouseButtonCallBack(GLFWwindow* window, int button, int action, int 
 void Chilli_CursorPosCallBack(GLFWwindow* window, double xpos, double ypos)
 {
 	Chilli::WindowData* Data = (Chilli::WindowData*)glfwGetWindowUserPointer(window);
-	Chilli::Input::SetCursorPos({ xpos, ypos });
+	//Chilli::Input::SetCursorPos({ xpos, ypos });
 
 	Chilli::CursorPosEvent e(xpos, ypos);
 	Data->EventCallback(e);

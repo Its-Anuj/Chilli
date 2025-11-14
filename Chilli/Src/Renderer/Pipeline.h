@@ -1,11 +1,10 @@
 #pragma once
 
-#include "UUID/UUID.h"
 #include "Image.h"
 
 namespace Chilli
 {
-	enum class ShaderVertexTypes
+	enum class ShaderObjectTypes
 	{
 		FLOAT1,
 		FLOAT2,
@@ -48,7 +47,7 @@ namespace Chilli
 	enum class InputTopologyMode { Triangle_List, Triangle_Strip };
 	enum class FrontFaceMode { Clock_Wise, Counter_Clock_Wise };
 
-	struct GraphicsPipelineSpec
+	struct GraphicsPipelineCreateInfo
 	{
 		std::string VertPath;
 		std::string FragPath;
@@ -59,49 +58,18 @@ namespace Chilli
 		PolygonMode  ShaderFillMode = PolygonMode::Fill;
 		FrontFaceMode FrontFace = FrontFaceMode::Clock_Wise;
 
-		bool UseSwapChainColorFormat = true;
 		bool EnableDepthStencil = false;
 		bool EnableDepthTest = false;
 		bool EnableDepthWrite = false;
 		bool EnableStencilTest = false;
-		ImageFormat DepthFormat, ColorFormat;
+		ImageFormat DepthFormat;
+
+		bool UseSwapChainColorFormat = true;
+		ImageFormat ColorFormat;
 	};
 
-	class GraphicsPipeline
+	struct GraphicsPipeline
 	{
-	public:
-		virtual void Init(const GraphicsPipelineSpec& Spec) = 0;
-		virtual void ReCreate(const GraphicsPipelineSpec& Spec) = 0;
-		virtual void Destroy() = 0;
-
-		virtual void Bind() const = 0;
-
-		virtual const GraphicsPipelineSpec& GetSpec() const = 0;
-
-		static std::shared_ptr<GraphicsPipeline> Create(const GraphicsPipelineSpec& Spec);
-		const UUID& ID() const { return _ID; }
-	private:
-		UUID _ID;
-	};
-
-	using GraphicsPipelineHandle = std::shared_ptr<GraphicsPipeline>;
-
-	class GraphicsPipelineManager
-	{
-	public:
-		GraphicsPipelineManager() {}
-		~GraphicsPipelineManager() {}
-
-		const UUID& Add(const GraphicsPipelineSpec& Spec);
-		const GraphicsPipelineHandle& Get(UUID ID);
-		bool Exist(UUID ID);
-
-		void Flush();
-		void Destroy(const UUID& ID);
-
-		size_t Count() const { return _GraphicsPipelines.size(); }
-
-	private:
-		std::unordered_map<UUID, GraphicsPipelineHandle> _GraphicsPipelines;
+		size_t PipelineHandle;
 	};
 }

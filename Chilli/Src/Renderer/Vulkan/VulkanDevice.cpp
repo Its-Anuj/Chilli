@@ -1,12 +1,10 @@
 #include "ChV_PCH.h"
 
 #define VK_USE_PLATFORM_WIN32_KHR
-#define VK_ENABLE_BETA_EXTENSIONS
-#include "C:\VulkanSDK\1.3.275.0\Include\vulkan\vulkan.h"
+#include "vulkan\vulkan.h"
 
-#include "VulkanDevice.h"
 #include "vk_mem_alloc.h"
-#include "VulkanRenderer.h"
+#include "VulkanBackend.h"
 
 namespace Chilli
 {

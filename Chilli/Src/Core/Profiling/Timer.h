@@ -20,7 +20,7 @@ namespace Chilli
             auto end = std::chrono::high_resolution_clock::now();
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - _Start);
 
-            CH_CORE_INFO("{0} took: {1} ms", _Name.c_str(), duration.count);
+            CH_CORE_INFO("{0} took: {1} ms", _Name.c_str(), duration.count());
         }
 
     private:

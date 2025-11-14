@@ -30,14 +30,6 @@ namespace Chilli
 #define CH_WARN(...)          ::Chilli::Log::GetClientLogger()->warn(__VA_ARGS__)
 #define CH_ERROR(...)         ::Chilli::Log::GetClientLogger()->error(__VA_ARGS__)
 #define CH_CRITICAL(...)      ::Chilli::Log::GetClientLogger()->critical(__VA_ARGS__)
-
-#define CH_CORE_ASSERT(Condition, Msg) { \
-    if (!(Condition)) { \
-        CH_CORE_ERROR(Msg); \
-        assert((Condition) && "Assert Failed"); \
-    } \
-}
-
 #else
 #define CH_CORE_TRACE(...)    
 #define CH_CORE_INFO(...)     

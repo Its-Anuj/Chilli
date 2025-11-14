@@ -1,36 +1,20 @@
 #pragma once
 
-#include "Material.h"
-#include <array>
-#include <algorithm>
-#include <cassert>
+#include "Buffers.h"
+#include "Pipeline.h"
 
 namespace Chilli
 {
-	inline VkImageType ImageTypeToVk(ImageType Type)
+	inline VkBufferUsageFlags BufferTypesToVk(int Type)
 	{
-		switch (Type)
-		{
-		case ImageType::IMAGE_TYPE_1D:
-			return VK_IMAGE_TYPE_1D;
-		case ImageType::IMAGE_TYPE_2D:
-			return VK_IMAGE_TYPE_2D;
-		case ImageType::IMAGE_TYPE_3D:
-			return VK_IMAGE_TYPE_3D;
-		};
-	}
-
-	inline VkImageViewType ImageViewTypeToVk(ImageType Type)
-	{
-		switch (Type)
-		{
-		case ImageType::IMAGE_TYPE_1D:
-			return VK_IMAGE_VIEW_TYPE_1D;
-		case ImageType::IMAGE_TYPE_2D:
-			return VK_IMAGE_VIEW_TYPE_2D;
-		case ImageType::IMAGE_TYPE_3D:
-			return VK_IMAGE_VIEW_TYPE_3D;
-		};
+		VkBufferUsageFlags usage = 0;
+		if (Type & BufferType::BUFFER_TYPE_VERTEX)       usage |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+		if (Type & BufferType::BUFFER_TYPE_INDEX)        usage |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+		if (Type & BufferType::BUFFER_TYPE_STORAGE)      usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+		if (Type & BufferType::BUFFER_TYPE_UNIFORM)      usage |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+		if (Type & BufferType::BUFFER_TYPE_TRANSFER_DST) usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		if (Type & BufferType::BUFFER_TYPE_TRANSFER_SRC) usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+		return usage;
 	}
 
 	inline VkFormat FormatToVk(ImageFormat Format)
@@ -45,43 +29,6 @@ namespace Chilli
 			return VK_FORMAT_D24_UNORM_S8_UINT;
 		case ImageFormat::D32_S8:
 			return VK_FORMAT_D32_SFLOAT_S8_UINT;
-		}
-	}
-
-	inline VkSamplerAddressMode SamplerModeToVk(SamplerMode Mode)
-	{
-		switch (Mode)
-		{
-		case SamplerMode::REPEAT:
-			return VK_SAMPLER_ADDRESS_MODE_REPEAT;
-		case SamplerMode::CLAMP_TO_BORDER:
-			return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-		case SamplerMode::CLAMP_TO_EDGE:
-			return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-		case SamplerMode::MIRRORED_REPEAT:
-			return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
-		}
-	}
-
-	inline VkFilter SamplerFilterToVk(SamplerFilter Filter)
-	{
-		switch (Filter)
-		{
-		case SamplerFilter::LINEAR:
-			return VK_FILTER_LINEAR;
-		case SamplerFilter::NEAREST:
-			return VK_FILTER_NEAREST;
-		}
-	}
-
-	inline VkDescriptorType UniformTypeToVk(ShaderUniformTypes Type)
-	{
-		switch (Type)
-		{
-		case ShaderUniformTypes::SAMPLED_IMAGE:return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-		case ShaderUniformTypes::SAMPLER:return VK_DESCRIPTOR_TYPE_SAMPLER;
-		case ShaderUniformTypes::UNIFORM_BUFFER:return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		case ShaderUniformTypes::STORAGE_BUFFER:return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 		}
 	}
 
@@ -122,35 +69,4 @@ namespace Chilli
 		}
 	}
 
-	inline VkIndexType IndexTypeToVk(IndexBufferType Type)
-	{
-		switch (Type)
-		{
-		case IndexBufferType::UINT16_T: return VK_INDEX_TYPE_UINT16;
-		case IndexBufferType::UINT32_T: return VK_INDEX_TYPE_UINT32;
-		}
-	}
-
-	inline VkImageUsageFlags ImageUsageToVk(uint32_t Type)
-	{
-		VkImageUsageFlags Flags = 0;
-
-		if (Type & ImageUsage::TRANSFER_SRC)
-			Flags |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-		if (Type & ImageUsage::TRANSFER_DST)
-			Flags |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-		if (Type & ImageUsage::SAMPLED_IMAGE)
-			Flags |= VK_IMAGE_USAGE_SAMPLED_BIT;
-		if (Type & ImageUsage::STORAGE_IMAGE)
-			Flags |= VK_IMAGE_USAGE_STORAGE_BIT;
-		if (Type & ImageUsage::COLOR_ATTACHMENT)
-			Flags |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-		if (Type & ImageUsage::DEPTH_STENCIL_ATTACHMENT)
-			Flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-		if (Type & ImageUsage::INPUT_ATTACHMENT)
-			Flags |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
-
-		assert(Flags != 0 && "Unhandled ImageUsage value");
-		return Flags;
-	}
 }

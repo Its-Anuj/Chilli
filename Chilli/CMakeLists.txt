@@ -1,4 +1,4 @@
-file(GLOB_RECURSE CHILLI_CORE_SOURCES Src/Core/*.cpp Src/Core/*/*.cpp Src/Renderer/Renderer.cpp Src/Renderer/Mesh.cpp)
+file(GLOB_RECURSE CHILLI_CORE_SOURCES Src/Core/*.cpp Src/Core/*/*.cpp Src/Renderer/RenderClasses.cpp)
 
 include_directories("Src/")
 include_directories("Src/Core/")
@@ -7,6 +7,7 @@ include_directories("Src/Core/Window/")
 include_directories("Src/Core/Input/")
 include_directories("Src/Core/Events/")
 include_directories("Src/Core/Layers/")
+include_directories("Src/Core/BackBone/")
 include_directories("Src/Renderer/")
 
 # Library includes
