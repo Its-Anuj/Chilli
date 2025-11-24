@@ -75,6 +75,8 @@ namespace Chilli
 
 	void VulkanSwapChainKHR::_CreateSwapChainKHR(VulkanDevice& device, VkSurfaceKHR SurfaceKHR, int Width, int Height, bool VSync)
 	{
+		vkDeviceWaitIdle(device.GetHandle());
+
 		auto& deviceInfo = device.GetPhysicalDevice()->Info;
 		SwapChainSupportDetails support = QuerySwapChainSupport(device.GetPhysicalDevice()->PhysicalDevice, SurfaceKHR);
 
@@ -122,10 +124,10 @@ namespace Chilli
 		createInfo.clipped = VK_TRUE;
 		createInfo.oldSwapchain = VK_NULL_HANDLE;
 
-		//if (VSync)
+		if (VSync)
 		createInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
-		//else
-			//createInfo.presentMode = presentMode;
+		else
+			createInfo.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
 
 		VULKAN_SUCCESS_ASSERT(vkCreateSwapchainKHR(device.GetHandle(), &createInfo, nullptr, &_SwapChain), "SwapChain createion Failed!");
 		VULKAN_PRINTLN("SwapChain created!");

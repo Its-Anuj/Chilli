@@ -22,7 +22,7 @@ namespace Chilli
 
 	enum class ShaderStageType
 	{
-		VERTEX, FRAGMENT, ALL
+		VERTEX, FRAGMENT, ALL_GRAPHICS, ALL
 	};
 
 	enum class ShaderUniformTypes
@@ -30,16 +30,35 @@ namespace Chilli
 		UNIFORM_BUFFER,
 		STORAGE_BUFFER,
 		SAMPLED_IMAGE,
-		SAMPLER
+		SAMPLER,
+		COMBINED_IMAGE_SAMPLER,
+		UNKNOWN
 	};
 
-	enum class ShaderUniformSetsBindings
+	enum class BindlessSetTypes
 	{
-		GLOBAL = 0,
-		SCENE = 1,
-		PER_OBJECT = 2,
-		USER = 3,
+		GLOBAL_SCENE = 0,
+		TEX_MAP_USAGE= GLOBAL_SCENE,
+		TEX_SAMPLERS = 1,
+		SAMPLER_MAP_USAGE = TEX_SAMPLERS,
+		// This is due to Scene UBO also needing a Uniform Buffer but we cant access 2 BUffers from GLOBAL_SCENE thus, utilzing TEX_SAMPLERS Index to serve as a Scene Buffer In Graphics Backend Bindless Rendering System
+		SCENE_BUFFER_USAGE= TEX_SAMPLERS,
+		MATERIAl = 2,
+		PER_OBJECT = 3,
+		COUNT_NON_USER,
+		USER_0 = COUNT_NON_USER,
+		USER_1 = 5,
+		USER_2 = 6,
+		USER_3 = 7,
 		COUNT,
+	};
+
+	enum BindlessRenderingLimits
+	{
+		MAX_TEXTURES = 100000,
+		MAX_SAMPLERS = 16,
+		MAX_UNIFORM_BUFFERS = 500,
+		MAX_STORAGE_BUFFERS = 500,
 	};
 
 	enum class CullMode { None, Front, Back };
@@ -70,6 +89,6 @@ namespace Chilli
 
 	struct GraphicsPipeline
 	{
-		size_t PipelineHandle;
+		uint32_t PipelineHandle;
 	};
 }

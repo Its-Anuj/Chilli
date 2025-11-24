@@ -44,5 +44,6 @@ namespace Chilli
 		uint32_t SizeInBytes = 0;
 		void* Data = nullptr;
 		BufferState State;
+		uint32_t Count;
 	};
 }

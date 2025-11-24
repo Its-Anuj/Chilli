@@ -1,3 +1,4 @@
+#file(GLOB_RECURSE CHILLI_VULKAN_SOURCES Vulkan/VulkanDevice.cpp)
 file(GLOB_RECURSE CHILLI_VULKAN_SOURCES Vulkan/*.cpp)
 
 include_directories("Src/")

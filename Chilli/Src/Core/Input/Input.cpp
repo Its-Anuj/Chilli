@@ -1,9 +1,11 @@
+#include "Input.h"
 #include "Ch_PCH.h"
 
 #include "GLFW/glfw3.h"
 #include "Window\Window.h"
 #include "Input.h"
 #include "InputCodes.h"
+#include "BackBone\DeafultExtensions.h"
 
 namespace Chilli
 {
@@ -16,7 +18,7 @@ namespace Chilli
 		for (int i = 0; i < Input_mouse_Count; i++)
 			_MouseButtonStates[i] = InputResult::INPUT_RELEASE;
 	}
-	
+
 	void Input::Terminate()
 	{
 		_WindowHandle = nullptr;
@@ -30,25 +32,80 @@ namespace Chilli
 		_WindowHandle = WindowHandle.ValPtr->GetRawHandle();
 	}
 
+	void Input::UpdateEvents(EventHandler* EventManager)
+	{
+		// Key Events
+		auto KeyPressedRead = EventManager->GetEventStorage< KeyPressedEvent>();
+		if (KeyPressedRead->ActiveSize > 0)
+		{
+			for (auto KeyEvent : *KeyPressedRead)
+			{
+				auto KeyCode = KeyEvent.GetKeyCode();
+				_KeyStates[KeyCode] = InputResult::INPUT_PRESS;
+				_SetModStates(KeyEvent.GetMods());
+			}
+		}
+
+		auto KeyRepeatRead = EventManager->GetEventStorage< KeyRepeatEvent>();
+		if (KeyRepeatRead->ActiveSize > 0)
+		{
+			for (auto KeyEvent : *KeyRepeatRead)
+			{
+				auto KeyCode = KeyEvent.GetKeyCode();
+				_KeyStates[KeyCode] = InputResult::INPUT_REPEAT;
+				_SetModStates(KeyEvent.GetMods());
+			}
+		}
+
+		auto KeyReleaseRead = EventManager->GetEventStorage< KeyReleasedEvent>();
+		if (KeyReleaseRead->ActiveSize > 0)
+		{
+			for (auto KeyEvent : *KeyReleaseRead)
+			{
+				auto KeyCode = KeyEvent.GetKeyCode();
+				_KeyStates[KeyCode] = InputResult::INPUT_RELEASE;
+				_SetModStates(KeyEvent.GetMods());
+			}
+		}
+
+		// Mouse Event
+		auto MousePressedRead = EventManager->GetEventStorage< MouseButtonPressedEvent>();
+		if (MousePressedRead->ActiveSize > 0)
+		{
+			for (auto MouseEvent : *MousePressedRead)
+			{
+				auto ButtonCode = MouseEvent.GetButtonCode();
+				_MouseButtonStates[ButtonCode] = InputResult::INPUT_PRESS;
+			}
+		}
+		auto MouseRepeatRead = EventManager->GetEventStorage< MouseButtonRepeatEvent>();
+		if (MouseRepeatRead->ActiveSize > 0)
+		{
+			for (auto MouseEvent : *MouseRepeatRead)
+			{
+				auto ButtonCode = MouseEvent.GetButtonCode();
+				_MouseButtonStates[ButtonCode] = InputResult::INPUT_REPEAT;
+			}
+		}
+		auto MouseReleasedRead = EventManager->GetEventStorage< MouseButtonReleasedEvent>();
+		if (MouseReleasedRead->ActiveSize > 0)
+		{
+			for (auto MouseEvent : *MouseReleasedRead)
+			{
+				auto ButtonCode = MouseEvent.GetButtonCode();
+				_MouseButtonStates[ButtonCode] = InputResult::INPUT_RELEASE;
+			}
+		}
+		
+		// Cursor Pos
+		auto CursorPosRead = EventManager->GetEventStorage<CursorPosEvent>();
+		if (CursorPosRead->ActiveSize > 0)
+			for (auto CursorEvent : *CursorPosRead)
+				_CursorPos = {(int) CursorEvent.GetX(),(int)CursorEvent.GetY() };
+	}
+
 	InputResult Input::GetKeyState(Input_key KeyCode)
 	{
-		auto glfwinputid = InputKeysToGLFW(KeyCode);
-
-		if (glfwinputid == -1)
-			CH_CORE_ERROR("Cant Convert to GLFW Mouse Button Code!");
-
-		int Result = glfwGetKey((GLFWwindow*)_WindowHandle, glfwinputid);
-
-		InputResult LastState = _KeyStates[KeyCode];
-
-		if ((LastState == InputResult::INPUT_PRESS && Result == GLFW_PRESS) ||
-			(LastState == InputResult::INPUT_PRESS && Result == GLFW_REPEAT))
-			_KeyStates[KeyCode] = InputResult::INPUT_REPEAT;
-		else if (Result == GLFW_RELEASE)
-			_KeyStates[KeyCode] = InputResult::INPUT_RELEASE;
-		else if (LastState == InputResult::INPUT_RELEASE && Result == GLFW_PRESS)
-			_KeyStates[KeyCode] = InputResult::INPUT_PRESS;
-
 		return _KeyStates[KeyCode];
 	}
 
@@ -73,17 +130,7 @@ namespace Chilli
 
 	bool Input::GetModState(Input_mod mod)
 	{
-		return _ModStates[mod];
-	}
-
-	void Input::SetCursorPos(const IVec2& Pos)
-	{
-		_CursorPos = Pos;
-	}
-
-	void Input::SetModState(Input_mod mod, bool state)
-	{
-		_ModStates[mod] = state;
+		return _ModStates & mod;
 	}
 
 	const char* Input::KeyToString(Input_key Key)
@@ -94,6 +141,39 @@ namespace Chilli
 	const char* Input::MouseToString(Input_mouse Mouse)
 	{
 		return InputMouseToString(Mouse);
+	}
+
+	void Input::Clear()
+	{
+		uint32_t KeyIndex = 0;
+		for (auto& state : _KeyStates)
+		{
+			if (IsKeyDown((Input_key)KeyIndex))
+				state = InputResult::INPUT_RELEASE; // Or keep separate tracking
+		}
+		uint32_t MouseIndex = 0;
+		for (auto& state : _MouseButtonStates)
+		{
+			if (IsMouseButtonDown((Input_mouse)MouseIndex))
+				state = InputResult::INPUT_RELEASE; // Or keep separate tracking
+		}
+	}
+
+	void Input::_SetModStates(int ModState)
+	{
+		_ModStates = 0;
+		if (ModState & Input_mod_Shift)
+			_ModStates += Input_mod_Shift;
+		if (ModState & Input_mod_Control)
+			_ModStates += Chilli::Input_mod_Control;
+		if (ModState & Input_mod_Alt)
+			_ModStates += Chilli::Input_mod_Alt;
+		if (ModState & Input_mod_Super)
+			_ModStates += Chilli::Input_mod_Super;
+		if (ModState & Input_mod_CapsLock)
+			_ModStates += Chilli::Input_mod_CapsLock;
+		if (ModState & Input_mod_NumLock)
+			_ModStates += Chilli::Input_mod_NumLock;
 	}
 #pragma endregion 
 

@@ -7,6 +7,8 @@ struct GLFWwindow;
 
 namespace Chilli
 {
+	struct EventHandler;
+
 	struct WindowData
 	{
 		struct {
@@ -16,7 +18,7 @@ namespace Chilli
 		bool Close = false;
 		bool IsActive = true;
 
-		std::function<void(Event&)> EventCallback;
+		EventHandler* EventListener;
 	};
 
 	struct WindowSpec
@@ -40,7 +42,7 @@ namespace Chilli
 		void PollEvents();
 		bool WindowShouldClose();
 
-		void SetEventCallback(const std::function<void(Event&)>& Callback) { _Data.EventCallback = Callback; }
+		void SetEventCallback(EventHandler* Callback) { _Data.EventListener = Callback; }
 		GLFWwindow* GetRawHandle() const { return _Window; }
 
 		int GetWidth() const { return _Data.Dimensions.x; }

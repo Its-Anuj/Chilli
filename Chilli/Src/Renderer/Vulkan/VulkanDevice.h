@@ -23,8 +23,8 @@ namespace Chilli
         std::optional<uint32_t> Queues[int(QueueFamilies::COUNT)];
 
         inline bool Complete() const {
-            return Queues[int(QueueFamilies::GRAPHICS)].has_value() &
-                Queues[int(QueueFamilies::PRESENT)].has_value() & Queues[int(QueueFamilies::TRANSFER)].has_value();
+            return Queues[int(QueueFamilies::GRAPHICS)].has_value() &&
+                Queues[int(QueueFamilies::PRESENT)].has_value() && Queues[int(QueueFamilies::TRANSFER)].has_value();
         }
     };
 

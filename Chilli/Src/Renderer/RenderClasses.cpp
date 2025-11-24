@@ -12,6 +12,7 @@ namespace Chilli
 		if (Spec.Type == GraphicsBackendType::VULKAN_1_3)
 		{
 			return new VulkanGraphicsBackendApi(Spec);
+			//return nullptr;
 		}
 	}
 	

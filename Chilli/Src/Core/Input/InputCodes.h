@@ -4,7 +4,7 @@
 
 namespace Chilli
 {
-    enum Input_key
+    enum Input_key : uint32_t
     {
         Input_key_Unknown,
         Input_key_Space,
@@ -155,13 +155,12 @@ namespace Chilli
 
     enum Input_mod
     {
-        Input_mod_Shift,
-        Input_mod_Control,
-        Input_mod_Alt,
-        Input_mod_Super,
-        Input_mod_CapsLock,
-        Input_mod_NumLock,
-        Input_mod_Count
+        Input_mod_Shift = 1,
+        Input_mod_Control = 2,
+        Input_mod_Alt = 4,
+        Input_mod_Super = 8,
+        Input_mod_CapsLock = 16,
+        Input_mod_NumLock = 32,
     };
 
     int InputKeysToGLFW(Input_key key);

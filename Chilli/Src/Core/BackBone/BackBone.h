@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "UUID/UUID.h"
+#include "TimeStep.h"
 #include <any>
 #include <typeinfo>
 #include <typeindex>
@@ -14,17 +15,17 @@ namespace Chilli
 {
 	namespace BackBone
 	{
-		using ComponentID = std::size_t;
-		using ServiceID = std::size_t;
-		using AssetID = std::size_t;
-		using Entity = std::size_t;
-		using SystemID = std::size_t;
-		using ExtensionID = std::size_t;
+		using ComponentID = std::uint32_t;
+		using ServiceID = std::uint32_t;
+		using AssetID = std::uint32_t;
+		using Entity = std::uint32_t;
+		using SystemID = std::uint32_t;
+		using ExtensionID = std::uint32_t;
 
 		template<typename _T>
 		struct AssetHandle
 		{
-			UUID_32 Handle;
+			uint32_t Handle;
 			_T* ValPtr;
 
 			bool operator==(const AssetHandle& other) const noexcept
@@ -45,40 +46,57 @@ namespace Chilli
 		template<typename T>
 		class SingleAsset;
 
+		uint32_t GetNewResourceID();
+		uint32_t GetNewComponentID();
+
+		template<typename _ResType>
+		uint32_t GetResourceID()
+		{
+			static uint32_t ResourceID = GetNewResourceID();
+			return ResourceID;
+		}
+
+		template<typename _CompType>
+		uint32_t GetComponentID()
+		{
+			static uint32_t ComponentID = GetNewComponentID();
+			return ComponentID;
+		}
+
 		struct __IPerComponentStorage__
 		{
 		public:
 			virtual void RemoveEntity(Entity entity) = 0;
 			virtual bool HasEntity(Entity entity) const = 0;
-			virtual size_t Size() const = 0;
+			virtual uint32_t Size() const = 0;
+			virtual void ResizeSparse(size_t newSize) = 0;
 		};
 
 		template<typename _T>
 		struct PerComponentStorage : public __IPerComponentStorage__
 		{
 			std::vector<Entity> Dense;
-			std::vector<size_t> Sparse;
+			std::vector<uint32_t> Sparse;
 			std::vector<_T> Components;
-
-			void Add(Entity Id, _T Component)
+			
+			void Add(Entity id, _T component)
 			{
-				if (Id >= Sparse.size())
-					Sparse.resize(Id + 1, npos);
-
-				Sparse[Id] = Dense.size();
-				Dense.push_back(Id);
-				Components.push_back(Component);
+				if (id >= Sparse.size()) Sparse.resize(id + 1, npos);
+				if (HasEntity(id)) return;                  // already present
+				Sparse[id] = Dense.size();
+				Dense.push_back(id);
+				Components.push_back(component);
 			}
 
 			void RemoveEntity(Entity entity) override
 			{
 				if (Dense.size() == 0)
 					return;
-				if (!Contains(Sparse[entity], entity))
-					return;
+				if (entity >= Sparse.size()) return;            // <- bounds check
+				uint32_t index = Sparse[entity];
+				if (!Contains(index, entity)) return;
 
-				size_t index = Sparse[entity];
-				size_t lastIndex = Dense.size() - 1;
+				uint32_t lastIndex = Dense.size() - 1;
 				Entity lastEntity = Dense[lastIndex];
 
 				if (index != lastIndex)
@@ -95,13 +113,17 @@ namespace Chilli
 				Sparse[entity] = npos;
 			}
 
+			void ResizeSparse(size_t newSize) override {
+				if (Sparse.size() < newSize) Sparse.resize(newSize, npos);
+			}
+
 			// ✅ Fix: Add missing methods
 			bool HasEntity(Entity entity) const override
 			{
 				return entity < Sparse.size() && Sparse[entity] != npos;
 			}
 
-			size_t Size() const override { return Dense.size(); }
+			uint32_t Size() const override { return Dense.size(); }
 
 			_T* Get(Entity entity)
 			{
@@ -115,36 +137,45 @@ namespace Chilli
 				return &Components[Sparse[entity]];
 			}
 
-			bool Contains(int Index, Entity Id) {
-				return Index < Dense.size() && Dense[Index] == Id;
-			};
+			bool Contains(uint32_t index, Entity id) const {
+				if (index == npos) return false;
+				return index < Dense.size() && Dense[index] == id;
+			}
 		};
 
 		struct ComponentStorage
 		{
-			std::unordered_map<ComponentID, __IPerComponentStorage__*> Storage;
-
-			template<typename _T>
-			PerComponentStorage<_T>* GetComponentStorage()
+			std::vector< __IPerComponentStorage__*> Storage;
+			// change signature to accept current entity capacity
+			template<typename _Type>
+			void Register(size_t entityCapacity)
 			{
-				ComponentID id = typeid(_T).hash_code();
-				auto it = Storage.find(id);
-				if (it == Storage.end()) return nullptr;  // ✅ Fix: Check if exists
-				return static_cast<PerComponentStorage<_T>*>(it->second);
+				uint32_t ID = GetComponentID<_Type>();
+				if (Storage.size() <= ID) Storage.resize(ID + 1, nullptr);
+
+				if (Storage[ID] != nullptr) return;                    // keep existing
+				auto* ps = new PerComponentStorage<_Type>();
+				ps->ResizeSparse(entityCapacity);                      // initialize sparse size
+				Storage[ID] = ps;
+			}
+			
+			template<typename _Type>
+			PerComponentStorage<_Type>* GetComponentStorage() {
+				uint32_t ID = GetComponentID<_Type>();
+				if (ID >= Storage.size()) return nullptr;
+				return static_cast<PerComponentStorage<_Type>*>(Storage[ID]);
 			}
 
-			template<typename _T>
-			const PerComponentStorage<_T>* GetComponentStorage() const
-			{
-				ComponentID id = typeid(_T).hash_code();
-				auto it = Storage.find(id);
-				if (it == Storage.end()) return nullptr;
-				return static_cast<const PerComponentStorage<_T>*>(it->second);
+			template<typename _Type>
+			const PerComponentStorage<_Type>* GetComponentStorage() const {
+				uint32_t ID = GetComponentID<_Type>();
+				if (ID >= Storage.size()) return nullptr;
+				return static_cast<const PerComponentStorage<_Type>*>(Storage[ID]);
 			}
 
 			void Free()
 			{
-				for (auto [_, CompStorage] : Storage)
+				for (auto CompStorage : Storage)
 				{
 					delete CompStorage;
 				}
@@ -157,8 +188,25 @@ namespace Chilli
 		public:
 			ComponentStorage Storage;
 			std::vector<bool> ActiveEntities;
-			std::vector<size_t> FreeList;
+			std::vector<uint32_t> FreeList;
 			Entity NextEntityId = 0;
+
+			std::vector<std::shared_ptr<void>> Resources;
+			
+			template<typename _ResType>
+			void AddResource()
+			{
+				uint32_t ID = GetResourceID<_ResType>();
+				if (Resources.size() <= ID) Resources.resize(ID + 1);
+				Resources[ID] = std::make_shared<_ResType>();
+			}
+
+			template<typename _ResType>
+			_ResType* GetResource() {
+				uint32_t ID = GetResourceID<_ResType>();
+				if (ID >= Resources.size() || !Resources[ID]) return nullptr;
+				return std::static_pointer_cast<_ResType>(Resources[ID]).get();
+			}
 
 			World()
 			{
@@ -181,7 +229,12 @@ namespace Chilli
 				if (id >= ActiveEntities.size())
 				{
 					ActiveEntities.resize(id + 1, false);
+
+					// ensure all component sparse arrays match new size
+					for (auto* s : Storage.Storage)
+						if (s) s->ResizeSparse(ActiveEntities.size());
 				}
+
 				ActiveEntities[id] = true;
 				NextEntityId++;
 				return id;
@@ -191,9 +244,8 @@ namespace Chilli
 			{
 				if (Id >= ActiveEntities.size() || !ActiveEntities[Id]) return;
 
-				// Remove all components from this entity
-				for (auto& [componentId, storage] : Storage.Storage)
-					storage->RemoveEntity(Id);
+				for (auto* storage : Storage.Storage)
+					if (storage) storage->RemoveEntity(Id);
 
 				ActiveEntities[Id] = false;
 				FreeList.push_back(Id);
@@ -207,13 +259,11 @@ namespace Chilli
 			template<typename _T>
 			void Register()
 			{
-				ComponentID id = typeid(_T).hash_code();
-				if (Storage.Storage.find(id) != Storage.Storage.end()) return;
-				Storage.Storage[id] = new PerComponentStorage<_T>();
+				Storage.Register<_T>(ActiveEntities.size());
 			}
 
 			template<typename _T>
-			void AddComponent(Entity entity, const _T& component)
+			void AddComponent(Entity entity, _T component)
 			{
 				if (!IsEntityValid(entity)) return;
 
@@ -244,7 +294,7 @@ namespace Chilli
 			template<typename _T>
 			_T* GetComponent(Entity entity)
 			{
-				auto* compStorage = Storage.GetComponentStorage<_T>();
+				auto compStorage = Storage.GetComponentStorage<_T>();
 				if (!compStorage) return nullptr;
 				return compStorage->Get(entity);
 			}
@@ -348,11 +398,75 @@ namespace Chilli
 			Iterator end() { return Iterator(registry, registry.ActiveEntities.size(), registry.ActiveEntities.size()); }
 		};
 
+		template<typename... Components>
+		class QueryWithEntities
+		{
+		private:
+			World& registry;
+
+		public:
+			QueryWithEntities(World& reg) : registry(reg) {}
+
+			class Iterator
+			{
+			private:
+				World& registry;
+				Entity currentEntity;
+				Entity endEntity;
+
+				void advance_to_valid()
+				{
+					while (currentEntity < endEntity &&
+						(!registry.IsEntityValid(currentEntity) ||
+							!registry.HasAllComponents<Components...>(currentEntity)))
+					{
+						++currentEntity;
+					}
+				}
+
+			public:
+				Iterator(World& reg, Entity start, Entity end)
+					: registry(reg), currentEntity(start), endEntity(end)
+				{
+					advance_to_valid();
+				}
+
+				// Return entity + tuple of raw pointers to components
+				auto operator*() const
+				{
+					return std::tuple_cat(std::make_tuple(currentEntity),
+						registry.GetComponents<Components...>(currentEntity));
+				}
+
+				Iterator& operator++()
+				{
+					++currentEntity;
+					advance_to_valid();
+					return *this;
+				}
+
+				bool operator!=(const Iterator& other) const
+				{
+					return currentEntity != other.currentEntity;
+				}
+			};
+
+			Iterator begin() { return Iterator(registry, 0, registry.ActiveEntities.size()); }
+			Iterator end() { return Iterator(registry, registry.ActiveEntities.size(), registry.ActiveEntities.size()); }
+		};
+
+		struct GenericFrameData
+		{
+			TimeStep Ts{ 0.0f };
+			bool IsRunning = true;
+		};
+
 		struct SystemContext
 		{
-			World& Registry;
-			AssetManager& AssetRegistry;
-			ServiceTable& ServiceRegistry;
+			World* Registry;
+			AssetManager* AssetRegistry;
+			ServiceTable* ServiceRegistry;
+			GenericFrameData FrameData;
 		};
 
 		class System
@@ -378,29 +492,19 @@ namespace Chilli
 			RENDER_BEGIN,
 			RENDER,
 			RENDER_END,
-			SHUTDOWN
+			SHUTDOWN,
+			COUNT
 		};
 
 		class Schedule
 		{
 		public:
-			void AddSystem(ScheduleTimer Stage, std::unique_ptr < System> S, App& App);
-			void AddSystemFunction(ScheduleTimer Stage, const std::function<void(SystemContext&)>& Function);
-
-			template<typename T, typename... Args>
-			void AddSystem(ScheduleTimer Stage, App& App, Args... args)
-			{
-				AddSystem(Stage, std::unique_ptr<T>(args...), App);
-			}
+			void AddSystem(ScheduleTimer Stage, const std::function<void(SystemContext&)>& Function);
 
 			// Runs Everything
-			void Run(App& App);
-			void Run(ScheduleTimer Stage, App& App);
-
-			void Terminate(App& App);
+			void Run(ScheduleTimer Stage, SystemContext& Ctxt);
 		private:
-			std::unordered_map < ScheduleTimer, std::vector<std::unique_ptr<System>>> _Systems;
-			std::unordered_map < ScheduleTimer, std::vector< std::function<void(SystemContext&)>>> _SystemFunctions;
+			std::array<std::vector< std::function<void(SystemContext&)>>, int(ScheduleTimer::COUNT)> _SystemFunctions;
 		};
 
 		class Extension
@@ -430,51 +534,113 @@ namespace Chilli
 		};
 
 		template<typename T>
-		class AssetStore : public IAssetStorage  // ✅ Inherit for type safety
+		class AssetStore : public IAssetStorage
 		{
 		public:
-			SparseSet<T> Store;
+			static constexpr uint32_t npos = static_cast<uint32_t>(-1);
 
-			AssetHandle<T> Add(const T& Asset)
+			AssetStore() = default;
+			~AssetStore()
 			{
-				AssetHandle<T> NewHandle;
-				NewHandle.Handle = Store.Create(Asset);
-				NewHandle.ValPtr = Store.Get(NewHandle.Handle);
-				return NewHandle;
 			}
 
-			AssetHandle<T> Add(T&& Asset)  // ✅ Add move version for efficiency
+			AssetHandle<T> Add(const T& val)
 			{
-				AssetHandle<T> NewHandle;
-				NewHandle.Handle = Store.Create(std::move(Asset));
-				NewHandle.ValPtr = Store.Get(NewHandle.Handle);
-				return NewHandle;
+				AssetHandle<T> Handle;
+				uint32_t id;
+				if (!_FreeList.empty()) {
+					id = _FreeList.back();
+					_FreeList.pop_back();
+				}
+				else {
+					id = NextId++;
+					if (id >= _Sparse.size())
+						_Sparse.resize(id + 1, npos);
+				}
+
+				_Sparse[id] = _Dense.size();
+				_Dense.push_back(id);
+				_Data.push_back(std::make_unique<T>(val));
+				Handle.Handle = id;
+				Handle.ValPtr = Get(Handle);
+
+				return Handle;
+			}
+
+			void Remove(const AssetHandle<T>& Handle)
+			{
+				auto id = Handle.Handle;
+				if (!HasVal(Handle.Handle)) return;
+
+				uint32_t index = _Sparse[id];
+				uint32_t lastIndex = _Dense.size() - 1;
+				uint32_t lastVal = _Dense[lastIndex];
+
+				if (index != lastIndex)
+				{
+					_Dense[index] = lastVal;
+					_Data[index] = std::move(_Data[lastIndex]);
+					_Sparse[lastVal] = index;
+				}
+
+				_Dense.pop_back();
+				_Data.pop_back();
+				_Sparse[id] = npos;
+				_FreeList.push_back(id);
 			}
 
 			T* Get(const AssetHandle<T>& Handle)
 			{
-				return Store.Get(Handle.Handle);
+				return HasVal(Handle) ? _Data[_Sparse[Handle.Handle]].get() : nullptr;
 			}
 
-			bool IsValid(const AssetHandle<T>& Handle) const  // ✅ Added const
+			const T* Get(const AssetHandle<T>& Handle) const
 			{
-				return Store.HasVal(Handle.Handle);
+				return HasVal(Handle) ? _Data[_Sparse[Handle.Handle]].get() : nullptr;
 			}
 
-			// ✅ Remove function
-			bool Remove(AssetHandle<T>& Handle)
-			{
-				if (!Store.HasVal(Handle.Handle))
+			bool HasVal(uint32_t id) const {
+				if (id >= _Sparse.size())
 					return false;
-				Store.Destroy(Handle.Handle);
-				Handle.ValPtr = nullptr; // safety 
-				return true;
+
+				return _Sparse[id] != npos;
 			}
 
-			auto begin() { return Store.begin(); }
-			auto end() { return Store.end(); }
-			auto begin() const { return Store.begin(); }  // ✅ Add const versions
-			auto end() const { return Store.end(); }
+			bool HasVal(const AssetHandle<T>& Handle) const {
+				return HasVal(Handle.Handle);
+			}
+
+			uint32_t size() const { return _Dense.size(); }
+			bool empty() const { return _Dense.empty(); }
+
+			bool Contains(uint32_t Id) const {
+				if (Id >= _Sparse.size())         // >= because valid indices are 0..size-1
+					return false;
+				if (_Sparse[Id] >= _Dense.size()) // >= same reason
+					return false;
+
+				return _Dense[_Sparse[Id]] == Id;
+			}
+
+			bool Contains(const AssetHandle<T>& Handle) const {
+				return Contains(Handle.Handle);
+			}
+
+			std::vector<std::unique_ptr<T>>::iterator begin() { return _Data.begin(); }
+			std::vector<std::unique_ptr<T>>::iterator end() { return _Data.end(); }
+
+			std::vector<std::unique_ptr<T>>::const_iterator begin() const { return _Data.begin(); }
+			std::vector<std::unique_ptr<T>>::const_iterator end() const { return _Data.end(); }
+
+			const uint32_t GetActiveCount() const { return _Dense.size(); }
+			const uint32_t GetSparseCount() const { return _Sparse.size(); }
+		private:
+			uint32_t NextId = 0;
+
+			std::vector<uint32_t> _Sparse;
+			std::vector<uint32_t> _Dense;
+			std::vector<std::unique_ptr<T>> _Data;
+			std::vector<uint32_t> _FreeList;
 		};
 
 		template<typename T>
@@ -588,7 +754,16 @@ namespace Chilli
 			Schedule SystemScheduler;
 			ExtensionRegistry Extensions;
 			AssetManager AssetRegistry;
-			ServiceTable ServiceRegsitry;
+			ServiceTable ServiceRegistry;
+			SystemContext Ctxt;
+
+			App()
+			{
+
+				this->Ctxt.Registry = &Registry;
+				this->Ctxt.AssetRegistry = &AssetRegistry;
+				this->Ctxt.ServiceRegistry = &ServiceRegistry;
+			}
 
 			void Run();
 		};
@@ -601,7 +776,7 @@ namespace std
 	template<typename T>
 	struct hash<Chilli::BackBone::AssetHandle<T>>
 	{
-		std::size_t operator()(const Chilli::BackBone::AssetHandle<T>& asset) const noexcept
+		std::uint32_t operator()(const Chilli::BackBone::AssetHandle<T>& asset) const noexcept
 		{
 			return std::hash<uint32_t>{}(static_cast<uint32_t>(asset.Handle));
 		}

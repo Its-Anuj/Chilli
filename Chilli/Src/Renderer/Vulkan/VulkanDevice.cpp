@@ -4,7 +4,8 @@
 #include "vulkan\vulkan.h"
 
 #include "vk_mem_alloc.h"
-#include "VulkanBackend.h"
+#include "VulkanDevice.h"
+#include "VulkanDescriptorManager.h"
 
 namespace Chilli
 {
@@ -149,7 +150,8 @@ namespace Chilli
 		createInfo.enabledLayerCount = 0;
 		createInfo.pNext = &features2;
 
-		VULKAN_SUCCESS_ASSERT(vkCreateDevice(PDevice->PhysicalDevice, &createInfo, nullptr, &_Device), "Logical Device Failed to create!");
+		if(vkCreateDevice(PDevice->PhysicalDevice, &createInfo, nullptr, &_Device)!= VK_SUCCESS)
+			assert(false && "Logical Device Failed to create!");
 
 		vkGetDeviceQueue(_Device, indices.Queues[QueueFamilies::GRAPHICS].value(), 0, &_Queues[QueueFamilies::GRAPHICS]);
 		vkGetDeviceQueue(_Device, indices.Queues[QueueFamilies::PRESENT].value(), 0, &_Queues[QueueFamilies::PRESENT]);

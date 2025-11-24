@@ -11,6 +11,7 @@
 #include "Input/Input.h"
 #include "Input/InputCodes.h"
 #include "Maths.h"
+#include "BackBone\DeafultExtensions.h"
 
 void Chilli_WindowIconifyCallBack(GLFWwindow* window, int iconified)
 {
@@ -18,7 +19,7 @@ void Chilli_WindowIconifyCallBack(GLFWwindow* window, int iconified)
 	{
 		Chilli::WindowData* Data = (Chilli::WindowData*)glfwGetWindowUserPointer(window);
 		Chilli::WindowMinimizedEvent e;
-		Data->EventCallback(e);
+		Data->EventListener->Add<Chilli::WindowMinimizedEvent>(e);
 	}
 }
 
@@ -27,7 +28,7 @@ void Chilli_FrameBufferCallback(GLFWwindow* window, int width, int height)
 	Chilli::WindowData* Data = (Chilli::WindowData*)glfwGetWindowUserPointer(window);
 
 	Chilli::FrameBufferResizeEvent e(width, height);
-	Data->EventCallback(e);
+	Data->EventListener->Add<Chilli::FrameBufferResizeEvent>(e);
 }
 
 void Chilli_WindowCloseCallBack(GLFWwindow* window)
@@ -36,7 +37,7 @@ void Chilli_WindowCloseCallBack(GLFWwindow* window)
 
 	Data->Close = true;
 	Chilli::WindowCloseEvent e;
-	//Data->EventCallback(e);
+	Data->EventListener->Add<Chilli::WindowCloseEvent>(e);
 }
 
 void Chilli_WindowSizeCallBack(GLFWwindow* window, int width, int height)
@@ -45,40 +46,35 @@ void Chilli_WindowSizeCallBack(GLFWwindow* window, int width, int height)
 	Data->Dimensions = { width, height };
 
 	Chilli::WindowResizeEvent e(width, height);
-	Data->EventCallback(e);
+	Data->EventListener->Add(e);
 }
 
 void Chilli_KeyCallBack(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
 	Chilli::WindowData* Data = (Chilli::WindowData*)glfwGetWindowUserPointer(window);
 
+	int MyMods = 0;	
+	if (mods & GLFW_MOD_SHIFT) MyMods += Chilli::Input_mod_Shift;
+	if (mods & GLFW_MOD_CONTROL) MyMods += Chilli::Input_mod_Control;
+	if (mods & GLFW_MOD_ALT) MyMods += Chilli::Input_mod_Alt;
+	if (mods & GLFW_MOD_SUPER) MyMods += Chilli::Input_mod_Super;
+	if (mods & GLFW_MOD_CAPS_LOCK) MyMods += Chilli::Input_mod_CapsLock;
+	if (mods & GLFW_MOD_NUM_LOCK) MyMods += Chilli::Input_mod_NumLock;
+
 	if (action == GLFW_PRESS)
 	{
-		//if (key == GLFW_KEY_LEFT_SHIFT || key == GLFW_KEY_RIGHT_SHIFT)
-		//	Chilli::Input::SetModState(Chilli::Input_mod_Shift, true);
-		//else if (key == GLFW_KEY_LEFT_CONTROL || key == GLFW_KEY_RIGHT_CONTROL)
-		//	Chilli::Input::SetModState(Chilli::Input_mod_Control, true);
-		//else if (key == GLFW_KEY_LEFT_ALT || key == GLFW_KEY_RIGHT_ALT)
-		//	Chilli::Input::SetModState(Chilli::Input_mod_Alt, true);
-		//else if (key == GLFW_KEY_LEFT_SUPER || key == GLFW_KEY_RIGHT_SUPER)
-		//	Chilli::Input::SetModState(Chilli::Input_mod_Super, true);
-		//else if (key == GLFW_KEY_CAPS_LOCK)
-		//	Chilli::Input::SetModState(Chilli::Input_mod_CapsLock, true);
-		//else if (key == GLFW_KEY_NUM_LOCK)
-		//	Chilli::Input::SetModState(Chilli::Input_mod_NumLock, true);
-
-		Chilli::KeyPressedEvent e(Chilli::GLFWToInputKeys(key));
-		Data->EventCallback(e);
+		Chilli::KeyPressedEvent e(Chilli::GLFWToInputKeys(key), MyMods);
+		Data->EventListener->Add(e);
 	}
 	else if (action == GLFW_REPEAT)
 	{
-		Chilli::KeyRepeatEvent e(Chilli::GLFWToInputKeys(key));
-		Data->EventCallback(e);
+		Chilli::KeyRepeatEvent e(Chilli::GLFWToInputKeys(key), MyMods);
+		Data->EventListener->Add(e);
 	}
 	else if (action == GLFW_RELEASE)
 	{
-		Chilli::KeyReleasedEvent e(Chilli::GLFWToInputKeys(key));
-		Data->EventCallback(e);
+		Chilli::KeyReleasedEvent e(Chilli::GLFWToInputKeys(key), MyMods);
+		Data->EventListener->Add(e);
 	}
 }
 
@@ -89,17 +85,17 @@ void Chilli_MouseButtonCallBack(GLFWwindow* window, int button, int action, int 
 	if (action == GLFW_PRESS)
 	{
 		Chilli::MouseButtonPressedEvent e(Chilli::GLFWToInputMouse(button));
-		Data->EventCallback(e);
+		Data->EventListener->Add(e);
 	}
 	else if (action == GLFW_REPEAT)
 	{
 		Chilli::MouseButtonRepeatEvent e(Chilli::GLFWToInputMouse(button));
-		Data->EventCallback(e);
+		Data->EventListener->Add(e);
 	}
 	else if (action == GLFW_RELEASE)
 	{
 		Chilli::MouseButtonReleasedEvent e(Chilli::GLFWToInputMouse(button));
-		Data->EventCallback(e);
+		Data->EventListener->Add(e);
 	}
 }
 
@@ -109,7 +105,7 @@ void Chilli_CursorPosCallBack(GLFWwindow* window, double xpos, double ypos)
 	//Chilli::Input::SetCursorPos({ xpos, ypos });
 
 	Chilli::CursorPosEvent e(xpos, ypos);
-	Data->EventCallback(e);
+	Data->EventListener->Add(e);
 }
 
 void Chilli_MouseScrollCallBack(GLFWwindow* window, double xoffset, double yoffset)
@@ -117,7 +113,7 @@ void Chilli_MouseScrollCallBack(GLFWwindow* window, double xoffset, double yoffs
 	Chilli::WindowData* Data = (Chilli::WindowData*)glfwGetWindowUserPointer(window);
 
 	Chilli::MouseScrollEvent e(xoffset, yoffset);
-	Data->EventCallback(e);
+	Data->EventListener->Add(e);
 }
 
 namespace Chilli

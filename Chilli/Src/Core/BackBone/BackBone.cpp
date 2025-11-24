@@ -1,3 +1,4 @@
+#include "BackBone.h"
 #include "Ch_PCH.h"
 #include "BackBone.h"
 #include "DeafultExtensions.h"
@@ -6,64 +7,28 @@ namespace Chilli
 {
 	namespace BackBone
 	{
-		void Schedule::AddSystem(ScheduleTimer Stage, std::unique_ptr<System> S, App& App)
-		{
-			SystemContext Ctxt{ .Registry = App.Registry, .AssetRegistry = App.AssetRegistry,
-			.ServiceRegistry = App.ServiceRegsitry };
-			S->OnCreate(Ctxt);
-			_Systems[Stage].push_back(std::move(S));
+		uint32_t GetNewResourceID() {
+			static uint32_t NewID = 0;
+			return NewID++;
 		}
 
-		void Schedule::AddSystemFunction(ScheduleTimer Stage, const std::function<void(SystemContext&)>& Function)
+		uint32_t GetNewComponentID()
 		{
-			_SystemFunctions[Stage].push_back(Function);
+			static uint32_t NewComponentID = 0;
+			return NewComponentID++;
 		}
 
-		void Schedule::Run(App& App)
+		void Schedule::AddSystem(ScheduleTimer Stage, const std::function<void(SystemContext&)>& Function)
 		{
-			SystemContext Ctxt{ .Registry = App.Registry, .AssetRegistry = App.AssetRegistry,
-			.ServiceRegistry = App.ServiceRegsitry };
-			for (auto& [_, Systems] : _Systems)
-			{
-				for (auto& ScheduledSytem : Systems)
-				{
-					ScheduledSytem->OnBeforeRun(Ctxt);
-					ScheduledSytem->Run(Ctxt);
-					ScheduledSytem->OnAfterRun(Ctxt);
-				}
-			}
+			_SystemFunctions[int(Stage)].push_back(Function);
 		}
 
-		void Schedule::Run(ScheduleTimer Stage, App& App)
+		void Schedule::Run(ScheduleTimer Stage, SystemContext& Ctxt)
 		{
-			auto& Systems = _Systems[Stage];
-
-			SystemContext Ctxt{ .Registry = App.Registry, .AssetRegistry = App.AssetRegistry,
-			.ServiceRegistry = App.ServiceRegsitry };
-			for (auto& ScheduledSytem : Systems)
-			{
-				ScheduledSytem->OnBeforeRun(Ctxt);
-				ScheduledSytem->Run(Ctxt);
-				ScheduledSytem->OnAfterRun(Ctxt);
-			}
-
-			auto& SystemFuncss = _SystemFunctions[Stage];
+			auto& SystemFuncss = _SystemFunctions[int(Stage)];
 			for (auto& ScheduledSytem : SystemFuncss)
 				ScheduledSytem(Ctxt);
 		}
-
-		void Schedule::Terminate(App& App)
-		{
-			SystemContext Ctxt{ .Registry = App.Registry, .AssetRegistry = App.AssetRegistry,
-			.ServiceRegistry = App.ServiceRegsitry };
-
-			for (auto& [_, Systems] : _Systems)
-				for (auto& ScheduledSytem : Systems)
-					ScheduledSytem->OnTerminate(Ctxt);
-			_Systems.clear();
-			_SystemFunctions.clear();
-		}
-
 		// Extensions
 		void ExtensionRegistry::AddExtension(std::unique_ptr<Extension> Ext, bool BuildNow, App* app)
 		{
@@ -79,34 +44,56 @@ namespace Chilli
 		void App::Run()
 		{
 			// Initialition
-			SystemScheduler.Run(ScheduleTimer::START_UP, *this);
-			auto WindowStore = AssetRegistry.GetStore<Window>();
+			SystemScheduler.Run(ScheduleTimer::START_UP, Ctxt);
+			Registry.AddResource<GenericFrameData>();
+			auto WindowServie = ServiceRegistry.GetService<WindowManager>();
 
 			bool Is_Running = true;
-			while (Is_Running)
+			float LastTime = 0.0f;
+
+			const int Count = 200;
+			std::array<float, Count> FrameTimes;
+			int idx = 0;
+
+			auto FrameData = Registry.GetResource<GenericFrameData>();
+			while (FrameData->IsRunning)
 			{
-				SystemScheduler.Run(ScheduleTimer::UPDATE_BEGIN, *this);
-				SystemScheduler.Run(ScheduleTimer::UPDATE, *this);
-				SystemScheduler.Run(ScheduleTimer::UPDATE_END, *this);
+				FrameData->Ts = GetWindowTime() - LastTime;
+				LastTime = GetWindowTime();
 
-				SystemScheduler.Run(ScheduleTimer::RENDER_BEGIN, *this);
-				SystemScheduler.Run(ScheduleTimer::RENDER, *this);
-				SystemScheduler.Run(ScheduleTimer::RENDER_END, *this);
+				if (idx < Count)
+				{
+					CH_CORE_TRACE("FPS: {}, Time: {} ms", 1 / FrameData->Ts.GetSecond()
+						, FrameData->Ts.GetMilliSecond());
+					FrameTimes[idx++] = FrameData->Ts.GetMilliSecond();
+				}
 
-				if (WindowStore != nullptr)
-					for (auto& Win : WindowStore->Store)
-					{
-						Is_Running = false;
-						if (Win.IsClose() == false)
-							Is_Running = true;
-						if (!Is_Running)
-							CH_CORE_INFO("Window Close");
-					}
+				static bool Printed = false;
+				if (!Printed && idx > Count)
+				{
+					CH_CORE_TRACE("Frame Time Record Done!");
+					Printed = true;
+				}
+
+				SystemScheduler.Run(ScheduleTimer::UPDATE_BEGIN, Ctxt);
+				SystemScheduler.Run(ScheduleTimer::UPDATE, Ctxt);
+				SystemScheduler.Run(ScheduleTimer::UPDATE_END, Ctxt);
+
+				SystemScheduler.Run(ScheduleTimer::RENDER_BEGIN, Ctxt);
+				SystemScheduler.Run(ScheduleTimer::RENDER, Ctxt);
+				SystemScheduler.Run(ScheduleTimer::RENDER_END, Ctxt);
+
+				if (FrameData->IsRunning == false)
+					CH_CORE_INFO("Window Close");
 			}
 
+			float AverageMs = 0.0f;
+			for (auto Data : FrameTimes)
+				AverageMs += Data / Count;
+			CH_CORE_TRACE("Average Ms Over {} Frames: {}", Count, AverageMs);
+			CH_CORE_TRACE("Average Frame Rate: {}", 1000 / AverageMs);
 			// ShutDown
-			SystemScheduler.Run(ScheduleTimer::SHUTDOWN, *this);
-			SystemScheduler.Terminate(*this);
+			SystemScheduler.Run(ScheduleTimer::SHUTDOWN, Ctxt);
 		}
 	}
 }

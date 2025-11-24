@@ -55,37 +55,43 @@ namespace Chilli
 	struct KeyPressedEvent : public Event
 	{
 	public:
-		KeyPressedEvent(Input_key code) : KeyCode(code), Event(EventType::KeyPressed) {}
+		KeyPressedEvent(Input_key code, int Mods) : ModsState(Mods), KeyCode(code), Event(EventType::KeyPressed) {}
 
 		EVENT_MACRO_FUNC(EventType::KeyPressed);
 		Input_key GetKeyCode() const { return KeyCode; }
+		int GetMods() const { return ModsState; }
 
 	private:
 		Input_key KeyCode;
+		int ModsState;
 	};
 
 	struct KeyReleasedEvent : public Event
 	{
 	public:
-		KeyReleasedEvent(Input_key code) : KeyCode(code), Event(EventType::KeyReleased) {}
+		KeyReleasedEvent(Input_key code, int Mods) :ModsState(Mods), KeyCode(code), Event(EventType::KeyReleased) {}
 
 		EVENT_MACRO_FUNC(EventType::KeyReleased);
 		Input_key GetKeyCode() const { return KeyCode; }
+		int GetMods() const { return ModsState; }
 
 	private:
 		Input_key KeyCode;
+		int ModsState;
 	};
 
 	struct KeyRepeatEvent : public Event
 	{
 	public:
-		KeyRepeatEvent(Input_key code) : KeyCode(code), Event(EventType::KeyReleased) {}
+		KeyRepeatEvent(Input_key code, int Mods) :ModsState(Mods), KeyCode(code), Event(EventType::KeyReleased) {}
 
 		EVENT_MACRO_FUNC(EventType::KeyReleased);
 		Input_key GetKeyCode() const { return KeyCode; }
+		int GetMods() const { return ModsState; }
 
 	private:
 		Input_key KeyCode;
+		int ModsState;
 	};
 
 	struct MouseButtonReleasedEvent : public Event
@@ -128,6 +134,7 @@ namespace Chilli
 	{
 	public:
 		WindowResizeEvent(int newx, int newy) : x(newx), y(newy), Event(EventType::WindowResize) {}
+		WindowResizeEvent() :Event(EventType::WindowResize) {}
 
 		EVENT_MACRO_FUNC(EventType::WindowResize);
 

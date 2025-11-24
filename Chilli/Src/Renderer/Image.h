@@ -26,4 +26,15 @@ namespace Chilli
 		IMAGE_USAGE_PRESENT_IMAGE = 1 << 7
 	};
 
+	struct ImageSpec
+	{
+		struct {
+			int Width, Height;
+		} Resolution;
+		ImageFormat Format = ImageFormat::RGBA8;
+		ImageType Type = ImageType::IMAGE_TYPE_2D;
+		void* ImageData = nullptr;
+		bool YFlip = false;
+		uint32_t Usage = ImageUsage::IMAGE_USAGE_SAMPLED_IMAGE;
+	};
 }

@@ -11,9 +11,17 @@ namespace Chilli
 		const char* Name;
 	};
 
+	struct MeshCreateInfo
+	{
+		std::vector<BufferCreateInfo> VBs;
+		BufferCreateInfo IndexBufferSpec;
+		std::vector< MeshShaderLayout> Layout;
+	};
+
 	struct Mesh
 	{
-		size_t VBHandle;
+		uint32_t VBHandle;
+		uint32_t VertexCount = 0;
 		std::vector< MeshShaderLayout> Layout;
 	};
 }
