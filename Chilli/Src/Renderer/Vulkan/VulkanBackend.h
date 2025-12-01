@@ -104,28 +104,28 @@ namespace Chilli
 		virtual void SubmitCommandBuffer(const CommandBufferAllocInfo& Info, const Fence& SubmitFence) override;
 
 		virtual bool RenderBegin(const CommandBufferAllocInfo& Info, uint32_t FrameIndex) override;
-		virtual void BeginRenderPass(const RenderPass& Pass) override;
+		virtual void BeginRenderPass(const RenderPassInfo& Pass) override;
 		virtual void EndRenderPass() override;
 		virtual void RenderEnd() override;
 
 		virtual void BindGraphicsPipeline(uint32_t PipelineHandle) override;
 		virtual void BindVertexBuffers(uint32_t* BufferHandles, uint32_t Count) override;
-		virtual void BindIndexBuffer(uint32_t IBHandle) override;
+		virtual void BindIndexBuffer(uint32_t IBHandle, IndexBufferType Type) override;
 		virtual void SetViewPortSize(int Width, int Height) override;
 
-		inline virtual void SetViewPortSize(bool UseSwapChainDimensions) override {
-			SetViewPortSize(_Data.SwapChainKHR.GetExtent().width, _Data.SwapChainKHR.GetExtent().height);
+		inline virtual void SetViewPortSize(bool UseActiveRenderPassArea) override {
+			SetViewPortSize(_ActiveRenderPass->RenderArea.x, _ActiveRenderPass->RenderArea.y);
 		}
-		inline virtual void SetScissorSize(bool UseSwapChainDimensions) override {
-			SetScissorSize(_Data.SwapChainKHR.GetExtent().width, _Data.SwapChainKHR.GetExtent().height);
+		inline virtual void SetScissorSize(bool UseActiveRenderPassArea) override {
+			SetScissorSize(_ActiveRenderPass->RenderArea.x, _ActiveRenderPass->RenderArea.y);
 		}
 		 
 		virtual void SetScissorSize(int Width, int Height) override;
 
 		virtual void FrameBufferResize(int Width, int Height) override;
 		virtual void DrawArrays(uint32_t Count) override;
-		virtual void DrawIndexed() override {}
-		virtual void SendPushConstant(ShaderStageType Stage, void* Data, uint32_t Size
+		virtual void DrawIndexed(uint32_t Count) override;
+		virtual void SendPushConstant(int Type, void* Data, uint32_t Size
 			, uint32_t Offset = 0) override;
 
 		virtual void Present() override {}
@@ -136,6 +136,7 @@ namespace Chilli
 
 		virtual uint32_t AllocateImage(const ImageSpec& ImgSpec, const char* FilePath = nullptr) override;
 		virtual void LoadImageData(uint32_t TexHandle, const char* FilePath) override;
+		virtual void LoadImageData(uint32_t TexHandle, void* Data, IVec2 Resolution) override;
 		virtual void FreeTexture(uint32_t TexHandle) override;
 
 		virtual uint32_t CreateSampler(const Sampler& sampler) override;
@@ -148,6 +149,7 @@ namespace Chilli
 		virtual void CopyBufferToBuffer(uint32_t SrcHandle, uint32_t DstHandle, const BufferCopyInfo& Info) override;
 
 		void BindDescriptorSets(uint32_t* Sets, uint32_t SetCount);
+		virtual void PrepareForShutDown() override;
 
 		virtual void UpdateGlobalShaderData(const GlobalShaderData& Data) override;
 		virtual void UpdateSceneShaderData(const SceneShaderData& Data) override;
@@ -163,6 +165,10 @@ namespace Chilli
 		virtual void ResetFence(const Fence& fence) override;
 		virtual bool IsFenceSignaled(const Fence& fence) override;
 		virtual void WaitForFence(const Fence& fence, uint64_t TimeOut = UINT64_MAX) override;
+
+		virtual ShaderModule CreateShaderModule(const char* FilePath, ShaderStageType Type) override;	
+		virtual void DestroyShaderModule(const ShaderModule& Module) override;
+
 	private:
 		VulkanBackendData _Data;
 		GraphcisBackendCreateSpec _Spec;
@@ -181,6 +187,15 @@ namespace Chilli
 		SparseSet<VulkanTexture> _TextureSet;
 		SparseSet<VulkanGraphicsPipeline> _GraphicsPipelineSet;
 		VulkanPipelineLayoutManager _LayoutManager;
+
+		struct VulkanShaderModule
+		{
+			VkShaderModule Module;
+			ReflectedShaderInfo ReflectedInfo;
+		};
+
+		SparseSet<VulkanShaderModule> _ShaderModules;
+		RenderPassInfo* _ActiveRenderPass = nullptr;
 
 		struct
 		{

@@ -10,8 +10,10 @@ namespace Chilli
     class DebugTimer
     {
     public:
-        explicit DebugTimer(const char* Name)
-            : _Name(Name), _Start(std::chrono::high_resolution_clock::now())
+        template<typename... Args>
+        explicit DebugTimer(fmt::format_string<Args...> fmt, Args&&... args)
+            : _Name(fmt::format(fmt, std::forward<Args>(args)...)),
+            _Start(std::chrono::high_resolution_clock::now())
         {
         }
 
@@ -20,17 +22,17 @@ namespace Chilli
             auto end = std::chrono::high_resolution_clock::now();
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - _Start);
 
-            CH_CORE_INFO("{0} took: {1} ms", _Name.c_str(), duration.count());
+            CH_CORE_INFO("{0} took: {1} ms", _Name, duration.count());
         }
 
     private:
-        std::chrono::high_resolution_clock::time_point _Start;
         std::string _Name;
+        std::chrono::high_resolution_clock::time_point _Start;
     };
 }
 
 #if CHILLI_ENGINE_DEBUG == true
-#define CHILLI_DEBUG_TIMER(Name) Chilli::DebugTimer _DebugTimer(Name);
+#define CHILLI_DEBUG_TIMER(...) Chilli::DebugTimer _DebugTimer(__VA_ARGS__)
 #else
-#define CHILLI_DEBUG_TIMER(Name)
+#define CHILLI_DEBUG_TIMER(...)
 #endif

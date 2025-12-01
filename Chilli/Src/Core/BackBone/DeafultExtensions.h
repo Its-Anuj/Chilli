@@ -4,57 +4,18 @@
 #include "Maths.h"
 #include "Events/Events.h"
 #include "Window\Window.h"
-#include "Input\Input.h"
 #include "Renderer/RenderClasses.h"
 #include "Renderer/Mesh.h"
-#include "Events/Events.h"
-#include "glm/glm.hpp"
 #include "Material.h"
 
 inline glm::vec3 ToGlmVec3(Chilli::Vec3 Data) { return glm::vec3(Data.x, Data.y, Data.z); }
+inline Chilli::Vec3 FromGlmVec3(glm::vec3 Data) { return Chilli::Vec3(Data.x, Data.y, Data.z); }
 
 namespace Chilli
 {
 	using EventID = std::uint32_t;
 
-	// ---- Basic Components ----
-	struct TransformComponent
-	{
-		Vec3 Position, Scale, Rotation;
-	};
-
-	// Specifies that the entity with this component is visible
-	struct VisibilityComponent;
-
-	struct RenderSurfaceComponent
-	{
-		// --- Surface / Swapchain handles ---
-		void* NativeSurface = nullptr;             // Platform-specific surface (VkSurfaceKHR, etc.)
-		void* SwapchainHandle = nullptr;           // Backend-managed swapchain (can be stored as a backend handle)
-
-		// --- Dimensions / Viewport ---
-		IVec2 Size = { 0, 0 };
-		bool  Resized = false;
-
-		// --- Synchronization / Frame info ---
-		uint32_t CurrentFrame = 0;
-		uint32_t MaxFramesInFlight = 2;
-
-		// --- Optional: Callbacks or flags ---
-		bool EnableVSync = true;
-	};
-
-	struct MeshComponent
-	{
-		BackBone::AssetHandle<Mesh> MeshHandle;
-		BackBone::AssetHandle<Material> MaterialHandle;
-	};
-
-	struct MaterialComponent
-	{
-		Vec4 AlbedoColor;
-	};
-
+#pragma region Event Manager
 	struct __IPerEventStorage__
 	{
 	public:
@@ -193,17 +154,127 @@ namespace Chilli
 			storage->Push(e);
 		}
 	};
-	// ---- Basic Extensions ----
-	class DeafultExtension : public BackBone::Extension
+#pragma endregion 
+
+	// ---- Basic Components ----
+	struct TransformComponent
+	{
+		Vec3 Position, Scale, Rotation;
+
+		TransformComponent(const Vec3& Pos, const Vec3& Scle, const Vec3& Rot)
+			:Position(Pos), Scale(Scle), Rotation(Rot)
+		{
+
+		}
+
+		bool operator==(const TransformComponent& other)
+		{
+			if (this->Scale == other.Scale && this->Position == other.Position && this->Rotation == other.Rotation)
+				return true;
+			return false;
+		}
+
+		TransformComponent& operator=(const TransformComponent& other)
+		{
+			Position = other.Position;
+			Scale = other.Scale;
+			Rotation = other.Rotation;
+			return *this;
+		}
+	};
+
+	// Specifies that the entity with this component is visible
+	struct VisibilityComponent;
+
+	struct RenderSurfaceComponent
+	{
+		// --- Surface / Swapchain handles ---
+		void* NativeSurface = nullptr;             // Platform-specific surface (VkSurfaceKHR, etc.)
+		void* SwapchainHandle = nullptr;           // Backend-managed swapchain (can be stored as a backend handle)
+
+		// --- Dimensions / Viewport ---
+		IVec2 Size = { 0, 0 };
+		bool  Resized = false;
+
+		// --- Synchronization / Frame info ---
+		uint32_t CurrentFrame = 0;
+		uint32_t MaxFramesInFlight = 2;
+
+		// --- Optional: Callbacks or flags ---
+		bool EnableVSync = true;
+	};
+
+	struct MeshComponent
+	{
+		BackBone::AssetHandle<Mesh> MeshHandle;
+		BackBone::AssetHandle<Material> MaterialHandle;
+	};
+
+	struct SceneRenderSurfaceComponent
+	{
+		BackBone::AssetHandle<Mesh> ScreenMeshHandle;
+		BackBone::AssetHandle<Material> ScreenMaterialHandle;
+	};
+
+	struct PresentRenderSurfaceComponent
+	{
+		BackBone::AssetHandle<Mesh> Mesh;
+		BackBone::AssetHandle<Material> Mat;
+	};
+
+	struct MaterialComponent
+	{
+		Vec4 AlbedoColor;
+	};
+
+#pragma region Render Extension
+	struct DefferedRenderingConfig
+	{
+		bool GeometryPass = true;
+		bool ScenePass = true;
+		bool UIPass = true;
+	};
+
+	struct DefferedRenderingResource
+	{
+		BackBone::AssetHandle<Texture> GeometryColorOutput;
+		BackBone::AssetHandle<GraphicsPipeline> ScenePipeline;
+		BackBone::AssetHandle<Mesh> SceneRenderMesh;
+		BackBone::Entity SceneEntity;
+	};
+
+	enum class RendererType
+	{
+		DEFFERED,
+		FOWARD_PLUS
+	};
+
+	struct RenderExtensionConfig
+	{
+		GraphcisBackendCreateSpec Spec;
+		DefferedRenderingConfig DefferedConfig{};
+		RendererType UsingType = RendererType::DEFFERED;
+
+		RenderExtensionConfig(const GraphcisBackendCreateSpec& spec = GraphcisBackendCreateSpec())
+		{
+			Spec = spec;
+		}
+	};
+
+	class RenderExtension : public BackBone::Extension
 	{
 	public:
-		DeafultExtension() {}
-		~DeafultExtension() {}
+		RenderExtension(const RenderExtensionConfig& Config)
+			:_Config(Config)
+		{
+		}
+		~RenderExtension() {}
 
 		virtual void Build(BackBone::App& App) override;
 
-		virtual const char* Name() const override { return "DeafultExtension"; }
+		virtual const char* Name() const override { return "RenderExtension"; }
 	private:
+		RenderExtensionConfig _Config;
 	};
 
 	struct RenderResource
@@ -224,8 +295,29 @@ namespace Chilli
 			uint32_t IndexCount = 0;
 			uint32_t PipelineCount = 0;
 		} RenderDebugInfo;
+		std::vector<TransformComponent> OldTransformComponents;
 	};
 
+	struct RenderGraphPass
+	{
+		const char* DebugName = nullptr;
+		RenderPassInfo Pass;
+		std::function<void(BackBone::SystemContext&, RenderPassInfo&)> RenderFn;
+		uint32_t SortOrder = 0;
+	};
+
+	struct RenderGraph
+	{
+		std::vector<RenderGraphPass> Passes;
+	};
+	class Renderer;
+	class RenderCommand;
+	
+	void OnPresentRender(BackBone::SystemContext& Ctxt, RenderPassInfo& Pass);
+
+#pragma endregion
+
+#pragma region Window Extensions
 	class WindowManager
 	{
 	public:
@@ -294,10 +386,191 @@ namespace Chilli
 		std::vector<Window> _Windows;
 		uint32_t _ActiveWindowID = BackBone::npos;
 	};
-	
-	class Renderer;
-	class RenderCommand;
 
+	struct WindowExtensionConfig
+	{
+
+	};
+
+	class WindowExtension : public BackBone::Extension
+	{
+	public:
+		WindowExtension(const WindowExtensionConfig& Config = WindowExtensionConfig())
+			:_Config(Config)
+		{
+		}
+		~WindowExtension() {}
+
+		virtual void Build(BackBone::App& App) override;
+
+		virtual const char* Name() const override { return "WindowExtension"; }
+	private:
+		WindowExtensionConfig _Config;
+	};
+#pragma endregion 
+
+	// The Base UI Library
+#pragma region Pepper
+
+	enum class AnchorX
+	{
+		LEFT,
+		RIGHT,
+		CENTER,
+		STRETCH
+	};
+
+	enum class AnchorY
+	{
+		TOP,
+		BOTTOM,
+		CENTER,
+		STRETCH
+	};
+
+	// Components
+	struct PepperTransform
+	{
+		Vec2 PercentageDimensions{ 0,0 };
+		Vec2 PercentagePosition{ 0,0 };
+		Vec2 ActualDimensions{ 0,0 };
+		Vec2 ActualPosition{ 0,0 };
+
+		Chilli::AnchorX AnchorX;
+		Chilli::AnchorY AnchorY;
+		IVec2 Anchor{ 0,0 };
+
+		IVec2 Pivot{ 0,0 };
+		int ZOrder = 0;
+	};
+
+	enum class PepperElementTypes
+	{
+		PANEL,
+	};
+
+	struct PepperElement
+	{
+		PepperElementTypes Type = PepperElementTypes::PANEL;
+		BackBone::AssetHandle<Material> Material;
+		bool Visible = true;
+		bool Interactive = true;
+	};
+
+	// Systems
+	void OnPepperStartUp(BackBone::SystemContext& Ctxt);
+	void OnPepperRender(BackBone::SystemContext& Ctxt, RenderPassInfo& Pass);
+
+	struct PepperExtensionConfig
+	{
+
+	};
+	
+
+	struct PepperResource
+	{
+		static const uint32_t MeshQuadCount = 10000;
+	
+		BackBone::AssetHandle<Mesh> SquareMesh;
+		BackBone::AssetHandle<Texture> PepperDeafultTexture;
+		BackBone::AssetHandle<GraphicsPipeline> PepperPipeline;
+		BackBone::AssetHandle<Material> BasicMaterial;
+		IVec2 InitialWindowSize{ 0,0 };
+		IVec2 CurrentWindowSize{ 0,0 };
+		IVec2 CursorPos{ 0,0 };
+
+		std::vector<BackBone::AssetHandle<Mesh>> BatchMesh;
+		uint32_t QuadCount = 0;
+		std::vector<std::vector<float>> QuadVertices;
+		std::vector<std::vector<uint32_t>> QuadIndicies;
+
+		struct {
+			BackBone::Entity Camera;
+			bool ReCreate = true;
+			glm::mat4 OthroMat = glm::mat4{ 1.0f };
+		} CameraManager;;
+	};
+
+	class PepperExtension : public BackBone::Extension
+	{
+	public:
+		PepperExtension(const PepperExtensionConfig& Config = PepperExtensionConfig())
+			:_Config(Config)
+		{
+		}
+		~PepperExtension() {}
+
+		virtual void Build(BackBone::App& App) override;
+
+		virtual const char* Name() const override { return "PepperExtension"; }
+	private:
+		PepperExtensionConfig _Config;
+	};
+#pragma endregion
+
+	struct DeafultExtensionConfig
+	{
+		RenderExtensionConfig RenderConfig{};
+		WindowExtensionConfig WindowConfig{};
+		PepperExtensionConfig PepperConfig{};
+	};
+
+	// ---- Basic Extensions ----
+	class DeafultExtension : public BackBone::Extension
+	{
+	public:
+		DeafultExtension(const DeafultExtensionConfig& Config = DeafultExtensionConfig())
+			:_Config(Config)
+		{
+		}
+		~DeafultExtension() {}
+
+		virtual void Build(BackBone::App& App) override;
+
+		virtual const char* Name() const override { return "DeafultExtension"; }
+	private:
+		DeafultExtensionConfig _Config;
+	};
+
+#pragma region Camera Extension
+	struct MainCameraTag {};
+	struct UICameraTag {};
+
+	// Main camera component (like Bevy's Camera3d)
+	struct CameraComponent {
+		float Fov = 60.0f;
+		float Near_Clip = 0.1f;
+		float Far_Clip = 1000.0f;
+		bool Is_Orthro = false;
+		Vec2 Orthro_Size = { 1.0f, 1.0f };
+	};
+
+	// ---- Basic Extensions ----
+	class CameraExtension : public BackBone::Extension
+	{
+	public:
+		CameraExtension() {}
+		~CameraExtension() {}
+
+		virtual void Build(BackBone::App& App) override;
+
+		virtual const char* Name() const override { return "CameraExtension"; }
+	private:
+	};
+
+	namespace CameraBundle
+	{
+		Chilli::BackBone::Entity Create3D(Chilli::BackBone::SystemContext& Ctxt,
+			glm::vec3 Pos = { 0, 0, 5.0f },
+			bool Main_Cam = true);
+
+		// If Resolution is not provided it will use window coordinates
+		Chilli::BackBone::Entity Create2D(Chilli::BackBone::SystemContext& Ctxt,
+			bool Main_Cam = true, const IVec2& Resolution = { 0, 0 });
+	}
+#pragma endregion
+
+#pragma region Command
 	class Command
 	{
 	public:
@@ -306,20 +579,26 @@ namespace Chilli
 		~Command() {}
 
 		// Render Services Related
-		Mesh CreateMesh(const MeshCreateInfo& Info);
-		void DestroyMesh(Mesh& mesh);
+		BackBone::AssetHandle<Mesh> CreateMesh(const BetterMeshCreateInfo& Info);
+		BackBone::AssetHandle<Mesh> CreateMesh(BasicShapes Shape, float Scale = 0.5f);
+		void DestroyMesh(BackBone::AssetHandle<Mesh> mesh, bool Free = true);
+		void FreeMesh(Mesh& mesh);
 
 		uint32_t CreateEntity();
 		void DestroyEntity(uint32_t EntityID);
 
 		BackBone::AssetHandle<Sampler> CreateSampler(const Sampler& Spec);
-		void DestroySampler(const BackBone::AssetHandle<Sampler>& sampler);
+		void FreeSampler(Sampler& sampler);
+		void DestroySampler(const BackBone::AssetHandle<Sampler>& sampler, bool Free = true);
 
 		BackBone::AssetHandle<GraphicsPipeline> CreateGraphicsPipeline(const GraphicsPipelineCreateInfo& Spec);
-		void DestroyGraphicsPipeline(const BackBone::AssetHandle<GraphicsPipeline>& Pipeline);
+		void FreeGraphicsPipeline(GraphicsPipeline& Pipeline);
+		void DestroyGraphicsPipeline(const BackBone::AssetHandle<GraphicsPipeline>& Pipeline, bool Free = true);
 
-		BackBone::AssetHandle<Texture> CreateTexture(const ImageSpec& ImgSpec, const char* FilePath);;
-		void DestroyTexture(const BackBone::AssetHandle<Texture>& Tex);
+		BackBone::AssetHandle<Texture> CreateTexture(const ImageSpec& ImgSpec, const char* FilePath);
+		void LoadImageData(const BackBone::AssetHandle<Texture>& Tex, void* Data, IVec2 Resolution);
+		void DestroyTexture(const BackBone::AssetHandle<Texture>& Tex, bool Free = true);
+		void FreeTexture(const Texture& Tex);
 
 		BackBone::AssetHandle<Material> AddMaterial(const Material& Mat);;
 
@@ -338,6 +617,11 @@ namespace Chilli
 			_Ctxt.ServiceRegistry->RegisterService<_ServiceType>(
 				std::make_shared<_ServiceType>(std::forward<Args>(args)...)
 			);
+		}
+
+		template<typename _Type>
+		void RegisterComponent() {
+			_Ctxt.Registry->Register<_Type>();
 		}
 
 		template<typename _Type>
@@ -386,6 +670,8 @@ namespace Chilli
 
 		template<typename _ServiceType>
 		_ServiceType* GetService() { return _Ctxt.ServiceRegistry->GetService<_ServiceType>(); }
+
+		Window* GetActiveWindow();
 	private:
 		void _Setup(const BackBone::SystemContext& Ctxt);
 	private:
@@ -394,13 +680,13 @@ namespace Chilli
 		Renderer* _RenderService = nullptr;
 		RenderCommand* _RenderCommandService = nullptr;
 		WindowManager* _WindowService = nullptr;
-		EventHandler* _EventService = nullptr;		
+		EventHandler* _EventService = nullptr;
 		// Common Asset Stores
 		BackBone::AssetStore<Sampler>* _SamplerStore = nullptr;
 		BackBone::AssetStore<Texture>* _TextureStore = nullptr;
-		BackBone::AssetStore<Material>* _MaterialStore= nullptr;
+		BackBone::AssetStore<Material>* _MaterialStore = nullptr;
 		BackBone::AssetStore<Mesh>* _MeshStore = nullptr;
-		BackBone::AssetStore<GraphicsPipeline>* _GraphicsPipelineStore = nullptr;		
+		BackBone::AssetStore<GraphicsPipeline>* _GraphicsPipelineStore = nullptr;
 	};
-
+#pragma endregion 
 }

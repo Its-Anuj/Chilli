@@ -7,13 +7,14 @@ layout(set = 0, binding = 0) uniform GlobalUniformBufferObject {
 } GlobalUBO;
 
 layout(set = 0, binding = 1) uniform SceneUniformBufferObject {
+    mat4 ViewProjMatrix;
     vec4 CameraPos; // x and y for resolution of rendering framebuffer ,z for time, w is nothing
 } SceneUBO;
 
 const int MAX_SAMPLER_COUNT = 16;
 
-layout(set = 1, binding = 0) uniform texture2D Textures[];
-layout(set = 1, binding = 1) uniform sampler Sampler[MAX_SAMPLER_COUNT];
+layout(set = 1, binding = 0) uniform sampler Sampler[MAX_SAMPLER_COUNT];
+layout(set = 1, binding = 1) uniform texture2D Textures[];
 
 struct Material
 {

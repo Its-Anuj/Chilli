@@ -69,14 +69,13 @@ namespace Chilli
 
 	void VulkanSwapChainKHR::Recreate(VulkanDevice& device, VkSurfaceKHR SurfaceKHR, int Width, int Height, bool VSync)
 	{
+		vkDeviceWaitIdle(device.GetHandle());
 		Destroy(device);
 		Init(device, SurfaceKHR, Width, Height, VSync);
 	}
 
 	void VulkanSwapChainKHR::_CreateSwapChainKHR(VulkanDevice& device, VkSurfaceKHR SurfaceKHR, int Width, int Height, bool VSync)
 	{
-		vkDeviceWaitIdle(device.GetHandle());
-
 		auto& deviceInfo = device.GetPhysicalDevice()->Info;
 		SwapChainSupportDetails support = QuerySwapChainSupport(device.GetPhysicalDevice()->PhysicalDevice, SurfaceKHR);
 
@@ -125,7 +124,7 @@ namespace Chilli
 		createInfo.oldSwapchain = VK_NULL_HANDLE;
 
 		if (VSync)
-		createInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+			createInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
 		else
 			createInfo.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
 
@@ -143,6 +142,10 @@ namespace Chilli
 	{
 		// Imave Views
 		_ImageViews.resize(_Images.size());
+		_Layout.resize(_Images.size());
+
+		for (auto& layout : _Layout)
+			layout = VK_IMAGE_LAYOUT_UNDEFINED;
 
 		for (int i = 0; i < _Images.size(); i++)
 		{

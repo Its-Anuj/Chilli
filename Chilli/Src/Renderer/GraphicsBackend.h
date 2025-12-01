@@ -56,28 +56,20 @@ namespace Chilli
 
 	struct GraphcisBackendCreateSpec
 	{
-		GraphicsBackendType Type;
-		const char* Name;
-		bool EnableValidation;
-		GraphicsDeviceFeatures DeviceFeatures;
-		void* WindowSurfaceHandle;
+		GraphicsBackendType Type  = GraphicsBackendType::VULKAN_1_3;
+		const char* Name = "UnDefined";
+		bool EnableValidation = true;
+		GraphicsDeviceFeatures DeviceFeatures{
+			.EnableSwapChain = true,
+			.EnableDescriptorIndexing = true,
+		};
 
-		bool VSync;
-		IVec2 ViewPortSize;
-		bool ViewPortResized;
-		uint32_t MaxFrameInFlight;
-	};
+		void* WindowSurfaceHandle = nullptr;
 
-	struct ColorAttachment
-	{
-		bool UseSwapChainImage = true;
-		Vec4 ClearColor;
-	};
-
-	struct RenderPass
-	{
-		ColorAttachment* pColorAttachments = nullptr;
-		uint32_t ColorAttachmentCount = 0;
+		bool VSync = true;;
+		IVec2 ViewPortSize = { 800, 600 };
+		bool ViewPortResized = true;
+		uint32_t MaxFrameInFlight = 3;
 	};
 
 	struct BufferCopyInfo
@@ -93,6 +85,7 @@ namespace Chilli
 	// Global Set(0) Data Binding  1
 	struct SceneShaderData
 	{
+		glm::mat4 ViewProjMatrix{ 1.0f };
 		Vec4 CameraPos;
 	};
 
@@ -115,6 +108,34 @@ namespace Chilli
 	{
 		glm::mat4 TransformationMat;
 		glm::mat4 InverseTransformationMat;
+	};
+
+	enum class AttachmentLoadOp { LOAD, CLEAR };
+	enum class AttachmentStoreOp { STORE, DONT_CARE};
+
+	struct ColorAttachment
+	{
+		BackBone::AssetHandle<Texture> ColorTexture;
+		bool UseSwapChainImage = false;
+		Vec4 ClearColor;
+		AttachmentLoadOp LoadOp;
+		AttachmentStoreOp StoreOp;
+	};
+
+	struct DepthAttachment
+	{
+		BackBone::AssetHandle<Texture> DepthTexture;
+		AttachmentLoadOp LoadOp;
+		AttachmentStoreOp StoreOp;
+		float Near, Far;
+	};
+
+	struct RenderPassInfo
+	{
+		const char* DebugName = nullptr;
+		std::vector< ColorAttachment> ColorAttachments;
+		DepthAttachment DepthAttachment;
+		IVec2 RenderArea;
 	};
 
 	class GraphicsBackendApi
@@ -146,7 +167,7 @@ namespace Chilli
 		virtual void FrameBufferResize(int Width, int Height) = 0;
 
 		virtual bool RenderBegin(const CommandBufferAllocInfo& Info, uint32_t FrameIndex) = 0;
-		virtual void BeginRenderPass(const RenderPass& Pass) = 0;
+		virtual void BeginRenderPass(const RenderPassInfo& Pass) = 0;
 		virtual void EndRenderPass() = 0;
 		virtual void RenderEnd() = 0;
 
@@ -156,6 +177,7 @@ namespace Chilli
 
 		virtual uint32_t AllocateImage(const ImageSpec& ImgSpec, const char* FilePath = nullptr) = 0;
 		virtual void LoadImageData(uint32_t TexHandle, const char* FilePath) = 0;
+		virtual void LoadImageData(uint32_t TexHandle, void* Data, IVec2 Resolution) = 0;
 		virtual void FreeTexture(uint32_t TexHandle) = 0;
 
 		virtual uint32_t CreateSampler(const Sampler& sampler) = 0;
@@ -166,16 +188,16 @@ namespace Chilli
 
 		virtual void BindGraphicsPipeline(uint32_t PipelineHandle) = 0;
 		virtual void BindVertexBuffers(uint32_t* BufferHandles, uint32_t Count) = 0;
-		virtual void BindIndexBuffer(uint32_t IBHandle) = 0;
+		virtual void BindIndexBuffer(uint32_t IBHandle, IndexBufferType Type) = 0;
 
 		virtual void SetViewPortSize(int Width, int Height) = 0;
-		virtual void SetViewPortSize(bool UseSwapChainDimensions) = 0;
+		virtual void SetViewPortSize(bool UseActiveRenderPassArea) = 0;
 		virtual void SetScissorSize(int Width, int Height) = 0;
-		virtual void SetScissorSize(bool UseSwapChainDimensions) = 0;
+		virtual void SetScissorSize(bool UseActiveRenderPassArea) = 0;
 
 		virtual void DrawArrays(uint32_t Count) = 0;
-		virtual void DrawIndexed() = 0;
-		virtual void SendPushConstant(ShaderStageType Stage, void* Data, uint32_t Size
+		virtual void DrawIndexed(uint32_t Count) = 0;
+		virtual void SendPushConstant(int Type, void* Data, uint32_t Size
 			, uint32_t Offset = 0) = 0;
 
 		virtual uint32_t GetActiveCommandBufferHandle() const = 0;
@@ -194,6 +216,10 @@ namespace Chilli
 		virtual void WaitForFence(const Fence& fence, uint64_t TimeOut = UINT64_MAX) = 0;
 
 		virtual SparseSet<uint32_t>& GetMap(BindlessSetTypes Type) = 0;
+		virtual void PrepareForShutDown() = 0;
+
+		virtual ShaderModule CreateShaderModule(const char* FilePath, ShaderStageType Type) = 0;
+		virtual void DestroyShaderModule(const ShaderModule& Module) = 0;
 	private:
 	};
 }

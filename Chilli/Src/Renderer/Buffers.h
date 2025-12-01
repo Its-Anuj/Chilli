@@ -13,10 +13,9 @@ namespace Chilli
 
 	enum class IndexBufferType
 	{
-		UINT8_T,
 		UINT16_T,
 		UINT32_T,
-		UINT64_T,
+		NONE
 	};
 
 	struct VertexBufferSpec

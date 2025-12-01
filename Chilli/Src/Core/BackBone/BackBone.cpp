@@ -18,16 +18,50 @@ namespace Chilli
 			return NewComponentID++;
 		}
 
+		uint32_t GetNewAssetID()
+		{
+			static uint32_t NewAssetID = 0;
+			return NewAssetID++;
+		}
+
+		uint32_t GetNewServiceID()
+		{
+			static uint32_t NewServiceID = 0;
+			return NewServiceID++;
+		}
+
 		void Schedule::AddSystem(ScheduleTimer Stage, const std::function<void(SystemContext&)>& Function)
 		{
 			_SystemFunctions[int(Stage)].push_back(Function);
 		}
 
+		void Schedule::AddSystemOverLayBefore(ScheduleTimer Stage, const std::function<void(SystemContext&)>& Function)
+		{
+			_SystemOverLayBefore[int(Stage)].push_back(Function);
+		}
+
+		void Schedule::AddSystemOverLayAfter(ScheduleTimer Stage, const std::function<void(SystemContext&)>& Function)
+		{
+			_SystemOverLayAfter[int(Stage)].push_back(Function);
+		}
+
 		void Schedule::Run(ScheduleTimer Stage, SystemContext& Ctxt)
 		{
-			auto& SystemFuncss = _SystemFunctions[int(Stage)];
-			for (auto& ScheduledSytem : SystemFuncss)
-				ScheduledSytem(Ctxt);
+			{
+				auto& SystemFuncss = _SystemOverLayBefore[int(Stage)];
+				for (auto& ScheduledSytem : SystemFuncss)
+					ScheduledSytem(Ctxt);
+			}
+			{
+				auto& SystemFuncss = _SystemFunctions[int(Stage)];
+				for (auto& ScheduledSytem : SystemFuncss)
+					ScheduledSytem(Ctxt);
+			} 
+			{
+				auto& SystemFuncss = _SystemOverLayAfter[int(Stage)];
+				for (auto& ScheduledSytem : SystemFuncss)
+					ScheduledSytem(Ctxt);
+			}
 		}
 		// Extensions
 		void ExtensionRegistry::AddExtension(std::unique_ptr<Extension> Ext, bool BuildNow, App* app)
@@ -75,13 +109,9 @@ namespace Chilli
 					Printed = true;
 				}
 
-				SystemScheduler.Run(ScheduleTimer::UPDATE_BEGIN, Ctxt);
 				SystemScheduler.Run(ScheduleTimer::UPDATE, Ctxt);
-				SystemScheduler.Run(ScheduleTimer::UPDATE_END, Ctxt);
 
-				SystemScheduler.Run(ScheduleTimer::RENDER_BEGIN, Ctxt);
 				SystemScheduler.Run(ScheduleTimer::RENDER, Ctxt);
-				SystemScheduler.Run(ScheduleTimer::RENDER_END, Ctxt);
 
 				if (FrameData->IsRunning == false)
 					CH_CORE_INFO("Window Close");

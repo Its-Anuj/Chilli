@@ -17,6 +17,10 @@ namespace Chilli
 
 		VkImageView GetHandle() const { return _ImageView; }
 		VkImage GetImageHandle() const { return _Image; }
+		const ImageSpec& GetSpec() { return _Spec; }
+
+		void SetImageLayout(VkImageLayout layout) { _Layout = layout; }
+		VkImageLayout GetImageLayout() { return _Layout; }
 	private:
 		void _CreateImage(VmaAllocator Allocator,const ImageSpec& Spec);
 		void _DestroyImage(VmaAllocator Allocator);
@@ -28,6 +32,7 @@ namespace Chilli
 		VkImage _Image;
 		VmaAllocation _Allocation;
 		VmaAllocationInfo _AllocationInfo;
+		VkImageLayout _Layout = VK_IMAGE_LAYOUT_UNDEFINED;
 
 		ImageSpec _Spec;
 		std::string _FilePath;

@@ -10,6 +10,6 @@ layout(location = 0) out vec2 OutTexCoords;
 void main()
 {
     Object Obj = Objects[DrawPushData.ObjectIndex];
-    gl_Position = SceneUBO.ViewProjMatrix * Obj.TransformationMat * vec4(InPosition, 1.0);
+    gl_Position = Obj.TransformationMat * vec4(InPosition, 1.0);
     OutTexCoords = InTexCoords;
 }

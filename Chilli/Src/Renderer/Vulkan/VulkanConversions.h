@@ -18,6 +18,17 @@ namespace Chilli
 		return usage;
 	}
 
+	inline VkIndexType IndexTypeToVK(IndexBufferType Type)
+	{
+		switch (Type)
+		{
+		case IndexBufferType::UINT16_T:
+			return VK_INDEX_TYPE_UINT16;
+		case IndexBufferType::UINT32_T:
+			return VK_INDEX_TYPE_UINT32;
+		}
+	}
+
 	inline VkFormat FormatToVk(ImageFormat Format)
 	{
 		switch (Format)
@@ -69,14 +80,94 @@ namespace Chilli
 		case FrontFaceMode::Counter_Clock_Wise: return VK_FRONT_FACE_COUNTER_CLOCKWISE;
 		}
 	}
-
-	inline VkShaderStageFlags ShaderStageToVk(ShaderStageType Type)
+	
+	inline VkShaderStageFlags ShaderStageTypeToVk(int type)
 	{
-		switch (Type)
+		VkShaderStageFlags flags = 0;
+
+		if (type & SHADER_STAGE_VERTEX)                   flags |= VK_SHADER_STAGE_VERTEX_BIT;
+		if (type & SHADER_STAGE_TESSELLATION_CONTROL)    flags |= VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+		if (type & SHADER_STAGE_TESSELLATION_EVALUATION) flags |= VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+		if (type & SHADER_STAGE_GEOMETRY)                flags |= VK_SHADER_STAGE_GEOMETRY_BIT;
+		if (type & SHADER_STAGE_FRAGMENT)                flags |= VK_SHADER_STAGE_FRAGMENT_BIT;
+
+		if (type & SHADER_STAGE_TASK)                    flags |= VK_SHADER_STAGE_TASK_BIT_EXT;
+		if (type & SHADER_STAGE_MESH)                    flags |= VK_SHADER_STAGE_MESH_BIT_EXT;
+
+		if (type & SHADER_STAGE_COMPUTE)                 flags |= VK_SHADER_STAGE_COMPUTE_BIT;
+
+		if (type & SHADER_STAGE_RAYGEN)                  flags |= VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+		if (type & SHADER_STAGE_ANY_HIT)                 flags |= VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+		if (type & SHADER_STAGE_CLOSEST_HIT)             flags |= VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+		if (type & SHADER_STAGE_MISS)                    flags |= VK_SHADER_STAGE_MISS_BIT_KHR;
+		if (type & SHADER_STAGE_INTERSECTION)            flags |= VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
+		if (type & SHADER_STAGE_CALLABLE)                flags |= VK_SHADER_STAGE_CALLABLE_BIT_KHR;
+
+		return flags;
+	}
+
+	inline VkShaderStageFlags ShaderStageTypeToVk(ShaderStageType type)
+	{
+		VkShaderStageFlags flags = 0;
+		if (type & SHADER_STAGE_VERTEX)                  flags |= VK_SHADER_STAGE_VERTEX_BIT;
+		if (type & SHADER_STAGE_TESSELLATION_CONTROL)    flags |= VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+		if (type & SHADER_STAGE_TESSELLATION_EVALUATION) flags |= VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+		if (type & SHADER_STAGE_GEOMETRY)                flags |= VK_SHADER_STAGE_GEOMETRY_BIT;
+		if (type & SHADER_STAGE_FRAGMENT)                flags |= VK_SHADER_STAGE_FRAGMENT_BIT;
+		if (type & SHADER_STAGE_TASK)                    flags |= VK_SHADER_STAGE_TASK_BIT_EXT;
+		if (type & SHADER_STAGE_MESH)                    flags |= VK_SHADER_STAGE_MESH_BIT_EXT;
+		if (type & SHADER_STAGE_COMPUTE)                 flags |= VK_SHADER_STAGE_COMPUTE_BIT;
+		if (type & SHADER_STAGE_RAYGEN)                  flags |= VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+		if (type & SHADER_STAGE_ANY_HIT)                 flags |= VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+		if (type & SHADER_STAGE_CLOSEST_HIT)             flags |= VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+		if (type & SHADER_STAGE_MISS)                    flags |= VK_SHADER_STAGE_MISS_BIT_KHR;
+		if (type & SHADER_STAGE_INTERSECTION)            flags |= VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
+		if (type & SHADER_STAGE_CALLABLE)                flags |= VK_SHADER_STAGE_CALLABLE_BIT_KHR;
+		return flags;
+	}
+
+	inline VkShaderStageFlagBits ShaderStageTypeToVkFlagBit(ShaderStageType type)
+	{
+		switch (type)
 		{
-		case ShaderStageType::VERTEX: return VK_SHADER_STAGE_VERTEX_BIT;
-		case ShaderStageType::FRAGMENT:return VK_SHADER_STAGE_FRAGMENT_BIT;
-		};
+		case SHADER_STAGE_VERTEX:                  return VK_SHADER_STAGE_VERTEX_BIT;
+		case SHADER_STAGE_TESSELLATION_CONTROL:    return VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+		case SHADER_STAGE_TESSELLATION_EVALUATION: return VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+		case SHADER_STAGE_GEOMETRY:                return VK_SHADER_STAGE_GEOMETRY_BIT;
+		case SHADER_STAGE_FRAGMENT:                return VK_SHADER_STAGE_FRAGMENT_BIT;
+		case SHADER_STAGE_TASK:                    return VK_SHADER_STAGE_TASK_BIT_EXT;
+		case SHADER_STAGE_MESH:                    return VK_SHADER_STAGE_MESH_BIT_EXT;
+		case SHADER_STAGE_COMPUTE:                 return VK_SHADER_STAGE_COMPUTE_BIT;
+		case SHADER_STAGE_RAYGEN:                  return VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+		case SHADER_STAGE_ANY_HIT:                 return VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+		case SHADER_STAGE_CLOSEST_HIT:             return VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+		case SHADER_STAGE_MISS:                    return VK_SHADER_STAGE_MISS_BIT_KHR;
+		case SHADER_STAGE_INTERSECTION:            return VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
+		case SHADER_STAGE_CALLABLE:                return VK_SHADER_STAGE_CALLABLE_BIT_KHR;
+		default:                                   return static_cast<VkShaderStageFlagBits>(0);
+		}
+	}
+
+	inline ShaderStageType VkFlagBitToShaderStageType(VkShaderStageFlagBits flag)
+	{
+		switch (flag)
+		{
+		case VK_SHADER_STAGE_VERTEX_BIT:                  return SHADER_STAGE_VERTEX;
+		case VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT:   return SHADER_STAGE_TESSELLATION_CONTROL;
+		case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:return SHADER_STAGE_TESSELLATION_EVALUATION;
+		case VK_SHADER_STAGE_GEOMETRY_BIT:               return SHADER_STAGE_GEOMETRY;
+		case VK_SHADER_STAGE_FRAGMENT_BIT:               return SHADER_STAGE_FRAGMENT;
+		case VK_SHADER_STAGE_TASK_BIT_EXT:               return SHADER_STAGE_TASK;
+		case VK_SHADER_STAGE_MESH_BIT_EXT:               return SHADER_STAGE_MESH;
+		case VK_SHADER_STAGE_COMPUTE_BIT:                return SHADER_STAGE_COMPUTE;
+		case VK_SHADER_STAGE_RAYGEN_BIT_KHR:             return SHADER_STAGE_RAYGEN;
+		case VK_SHADER_STAGE_ANY_HIT_BIT_KHR:            return SHADER_STAGE_ANY_HIT;
+		case VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR:        return SHADER_STAGE_CLOSEST_HIT;
+		case VK_SHADER_STAGE_MISS_BIT_KHR:               return SHADER_STAGE_MISS;
+		case VK_SHADER_STAGE_INTERSECTION_BIT_KHR:       return SHADER_STAGE_INTERSECTION;
+		case VK_SHADER_STAGE_CALLABLE_BIT_KHR:           return SHADER_STAGE_CALLABLE;
+		default:                                         return SHADER_STAGE_NONE;
+		}
 	}
 
 	inline VkDescriptorType UniformTypeToVkDescriptorType(ShaderUniformTypes Type)
@@ -95,8 +186,8 @@ namespace Chilli
 	{
 		switch (Type)
 		{
-		case VK_SHADER_STAGE_VERTEX_BIT: return ShaderStageType::VERTEX;
-		case VK_SHADER_STAGE_FRAGMENT_BIT: return ShaderStageType::FRAGMENT;
+		case VK_SHADER_STAGE_VERTEX_BIT: return ShaderStageType::SHADER_STAGE_VERTEX;
+		case VK_SHADER_STAGE_FRAGMENT_BIT: return ShaderStageType::SHADER_STAGE_FRAGMENT;
 		};
 	}
 
@@ -159,7 +250,7 @@ namespace Chilli
 			return VK_IMAGE_VIEW_TYPE_3D;
 		};
 	}
-	
+
 	inline VkFilter SamplerFilterToVk(SamplerFilter Filter)
 	{
 		switch (Filter)
@@ -183,6 +274,73 @@ namespace Chilli
 			return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 		case SamplerMode::MIRRORED_REPEAT:
 			return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+		}
+	}
+
+	inline VkAttachmentLoadOp LoadOpToVk(AttachmentLoadOp Mode)
+	{
+		switch (Mode)
+		{
+		case AttachmentLoadOp::LOAD:
+			return VkAttachmentLoadOp::VK_ATTACHMENT_LOAD_OP_LOAD;
+		case AttachmentLoadOp::CLEAR:
+			return VkAttachmentLoadOp::VK_ATTACHMENT_LOAD_OP_CLEAR;
+		}
+	}
+
+	inline VkAttachmentStoreOp StoreOpToVk(AttachmentStoreOp Mode)
+	{
+		switch (Mode)
+		{
+		case AttachmentStoreOp::DONT_CARE:
+			return VkAttachmentStoreOp::VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		case AttachmentStoreOp::STORE:
+			return VkAttachmentStoreOp::VK_ATTACHMENT_STORE_OP_STORE;
+		}
+	}
+
+	inline VkFormat ShaderObjectTypeToVkFormat(ShaderObjectTypes type)
+	{
+		switch (type)
+		{
+		case ShaderObjectTypes::FLOAT1:  return VK_FORMAT_R32_SFLOAT;
+		case ShaderObjectTypes::FLOAT2:  return VK_FORMAT_R32G32_SFLOAT;
+		case ShaderObjectTypes::FLOAT3:  return VK_FORMAT_R32G32B32_SFLOAT;
+		case ShaderObjectTypes::FLOAT4:  return VK_FORMAT_R32G32B32A32_SFLOAT;
+
+		case ShaderObjectTypes::INT1:    return VK_FORMAT_R32_SINT;
+		case ShaderObjectTypes::INT2:    return VK_FORMAT_R32G32_SINT;
+		case ShaderObjectTypes::INT3:    return VK_FORMAT_R32G32B32_SINT;
+		case ShaderObjectTypes::INT4:    return VK_FORMAT_R32G32B32A32_SINT;
+
+		case ShaderObjectTypes::UINT1:   return VK_FORMAT_R32_UINT;
+		case ShaderObjectTypes::UINT2:   return VK_FORMAT_R32G32_UINT;
+		case ShaderObjectTypes::UINT3:   return VK_FORMAT_R32G32B32_UINT;
+		case ShaderObjectTypes::UINT4:   return VK_FORMAT_R32G32B32A32_UINT;
+
+		default: return VK_FORMAT_UNDEFINED;
+		}
+	}
+	inline ShaderObjectTypes VkFormatToShaderObjectType(VkFormat format)
+	{
+		switch (format)
+		{
+		case VK_FORMAT_R32_SFLOAT:           return ShaderObjectTypes::FLOAT1;
+		case VK_FORMAT_R32G32_SFLOAT:        return ShaderObjectTypes::FLOAT2;
+		case VK_FORMAT_R32G32B32_SFLOAT:     return ShaderObjectTypes::FLOAT3;
+		case VK_FORMAT_R32G32B32A32_SFLOAT:  return ShaderObjectTypes::FLOAT4;
+
+		case VK_FORMAT_R32_SINT:             return ShaderObjectTypes::INT1;
+		case VK_FORMAT_R32G32_SINT:          return ShaderObjectTypes::INT2;
+		case VK_FORMAT_R32G32B32_SINT:       return ShaderObjectTypes::INT3;
+		case VK_FORMAT_R32G32B32A32_SINT:    return ShaderObjectTypes::INT4;
+
+		case VK_FORMAT_R32_UINT:             return ShaderObjectTypes::UINT1;
+		case VK_FORMAT_R32G32_UINT:          return ShaderObjectTypes::UINT2;
+		case VK_FORMAT_R32G32B32_UINT:       return ShaderObjectTypes::UINT3;
+		case VK_FORMAT_R32G32B32A32_UINT:    return ShaderObjectTypes::UINT4;
+
+		default: return ShaderObjectTypes::FLOAT1; // fallback
 		}
 	}
 

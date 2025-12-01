@@ -76,8 +76,8 @@ namespace Chilli
 	void VulkanTexture::Init(VkDevice Device, VmaAllocator Allocator, const ImageSpec& Spec, const char* FilePath)
 	{
 		_Spec = Spec;
-		_FilePath = FilePath;
-
+		_FilePath = (FilePath == nullptr) ? " " : FilePath;
+		
 		_CreateImage(Allocator, Spec);
 		_CreateImageView(Device, Spec);
 	}
@@ -106,6 +106,8 @@ namespace Chilli
 		Info.SharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
 		Info.Usage = ImageUsageToVk(Spec.Usage);
+		if (Spec.Usage == ImageUsage::IMAGE_USAGE_SAMPLED_IMAGE)
+			Info.Usage += VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
 		auto [Image, Allocation, AllocInfo] = CreateVulkanImage(Allocator, Info);
 		_Image = Image;

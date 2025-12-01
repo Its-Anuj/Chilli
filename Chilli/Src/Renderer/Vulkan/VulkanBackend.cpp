@@ -163,6 +163,12 @@ namespace Chilli
 
 	bool VulkanGraphicsBackendApi::RenderBegin(const CommandBufferAllocInfo& Info, uint32_t FrameIndex)
 	{
+		// Check for resize at the start of frame
+		if (_Spec.ViewPortResized) {
+			_ReCreateSwapChainKHR();
+			return false; // Skip this frame, start fresh next frame
+		}
+
 		auto ActiveCommandBuffer = *_CommandBuffers.Get(Info.CommandBufferHandle);
 		_Data.CurrentFrameIndex = FrameIndex;
 		vkWaitForFences(_Data.Device.GetHandle(), 1, &_Data.InFlightFences[_Data.CurrentFrameIndex], VK_TRUE, UINT64_MAX);
@@ -189,12 +195,19 @@ namespace Chilli
 		vkResetCommandBuffer(ActiveCommandBuffer, 0);
 
 		BeginCommandBuffer(Info);
+
+		_TransitionImageLayout(ActiveCommandBuffer, _Data.SwapChainKHR.GetImages()[_Data.CurrentImageIndex], _Data.SwapChainKHR.GetImageLayout(_Data.CurrentImageIndex), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_ASPECT_COLOR_BIT);
+		_Data.SwapChainKHR.SetImageLayout(_Data.CurrentImageIndex, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
 		return true;
 	}
 
-	void VulkanGraphicsBackendApi::BeginRenderPass(const RenderPass& Pass)
+	void VulkanGraphicsBackendApi::BeginRenderPass(const RenderPassInfo& Pass)
 	{
 		auto commandBuffer = _ActiveCommandBuffer;
+
+		_ActiveRenderPass = (RenderPassInfo*)&Pass;
 
 		// Continue with dynamic rendering...
 		VkRenderingInfo renderingInfo{};
@@ -205,51 +218,47 @@ namespace Chilli
 		renderingInfo.pColorAttachments = nullptr;
 
 		std::vector< VkRenderingAttachmentInfo> ColorAttachments;
-		ColorAttachments.reserve(Pass.ColorAttachmentCount);
+		ColorAttachments.reserve(Pass.ColorAttachments.size());
 
-		if (Pass.ColorAttachmentCount > 0)
+		renderingInfo.renderArea = { {0, 0}, {(unsigned int)Pass.RenderArea.x
+			,(unsigned int)Pass.RenderArea.y} };
+
+		if (Pass.ColorAttachments.size() > 0)
 		{
-			for (int i = 0; i < Pass.ColorAttachmentCount; i++)
+			for (int i = 0; i < Pass.ColorAttachments.size(); i++)
 			{
-				auto& ActiveColorAttachmentInfo = Pass.pColorAttachments[i];
+				auto& ActiveColorAttachmentInfo = Pass.ColorAttachments[i];
 
 				VkRenderingAttachmentInfo colorAttachment{};
 				colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 				colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // ✅ Now correct
-				colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-				colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+				colorAttachment.storeOp = StoreOpToVk(ActiveColorAttachmentInfo.StoreOp);
+				colorAttachment.loadOp = LoadOpToVk(ActiveColorAttachmentInfo.LoadOp);
 				colorAttachment.clearValue = { {ActiveColorAttachmentInfo.ClearColor.x,
 					ActiveColorAttachmentInfo.ClearColor.y, ActiveColorAttachmentInfo.ClearColor.z,
 					ActiveColorAttachmentInfo.ClearColor.w} };
 
+				// Render To SwapChain Image
 				if (ActiveColorAttachmentInfo.UseSwapChainImage)
 				{
-					// 🆕 TRANSITION: undefined → color attachment optimal (for rendering)
-					VkImageMemoryBarrier barrier{};
-					barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-					barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-					barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-					barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-					barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-					barrier.image = _Data.SwapChainKHR.GetImages()[_Data.CurrentImageIndex]; // 🆕 Use the actual image
-					barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-					barrier.subresourceRange.baseMipLevel = 0;
-					barrier.subresourceRange.levelCount = 1;
-					barrier.subresourceRange.baseArrayLayer = 0;
-					barrier.subresourceRange.layerCount = 1;
-					barrier.srcAccessMask = 0;
-					barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-
-					vkCmdPipelineBarrier(
-						commandBuffer,
-						VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,             // Before any operations
-						VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // Before color attachment output
-						0,
-						0, nullptr,
-						0, nullptr,
-						1, &barrier);
-
 					colorAttachment.imageView = _Data.SwapChainKHR.GetImageViews()[_Data.CurrentImageIndex];
+					// For swapchain, render area MUST fit within swapchain extent
+					VkExtent2D swapchainExtent = _Data.SwapChainKHR.GetExtent();
+					renderingInfo.renderArea.extent = {
+						min((uint32_t)Pass.RenderArea.x, swapchainExtent.width),
+						min((uint32_t)Pass.RenderArea.y, swapchainExtent.height)
+					};
+				}// Render to a custom target
+				else {
+					auto RenderTargetTexture = _TextureSet.Get(ActiveColorAttachmentInfo.ColorTexture.ValPtr->RawTextureHandle);
+
+					if (RenderTargetTexture->GetImageLayout() != VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+					{
+						_TransitionImageLayout(commandBuffer, RenderTargetTexture->GetImageHandle(), RenderTargetTexture->GetImageLayout(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+							VK_IMAGE_ASPECT_COLOR_BIT);
+					}
+					RenderTargetTexture->SetImageLayout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+					colorAttachment.imageView = RenderTargetTexture->GetHandle();
 				}
 
 				ColorAttachments.push_back(colorAttachment);
@@ -260,8 +269,6 @@ namespace Chilli
 		renderingInfo.colorAttachmentCount = static_cast<uint32_t>(ColorAttachments.size());
 		renderingInfo.pColorAttachments = ColorAttachments.data();
 
-		renderingInfo.renderArea = { {0, 0}, {(unsigned int)_Data.SwapChainKHR.GetExtent().width
-			,(unsigned int)_Data.SwapChainKHR.GetExtent().height} };
 		vkCmdBeginRendering(commandBuffer, &renderingInfo);
 	}
 
@@ -271,35 +278,33 @@ namespace Chilli
 
 		vkCmdEndRendering(commandBuffer);
 
-		// 🆕 TRANSITION: color attachment optimal → present source (for presentation)
-		VkImageMemoryBarrier barrier{};
-		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-		barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR; // ✅ Required for presentation
-		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		barrier.image = _Data.SwapChainKHR.GetImages()[_Data.CurrentImageIndex]; // 🆕 Use the actual image
-		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		barrier.subresourceRange.baseMipLevel = 0;
-		barrier.subresourceRange.levelCount = 1;
-		barrier.subresourceRange.baseArrayLayer = 0;
-		barrier.subresourceRange.layerCount = 1;
-		barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-		barrier.dstAccessMask = 0;
+		for (int i = 0; i < _ActiveRenderPass->ColorAttachments.size(); i++)
+		{
+			auto& ActiveColorAttachmentInfo = _ActiveRenderPass->ColorAttachments[i];
 
-		vkCmdPipelineBarrier(
-			commandBuffer,
-			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // After color attachment writing
-			VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,          // Before presentation
-			0,
-			0, nullptr,
-			0, nullptr,
-			1, &barrier);
+			// Render to a custom target
+			if (ActiveColorAttachmentInfo.UseSwapChainImage == false) {
+				auto RenderTargetTexture = _TextureSet.Get(ActiveColorAttachmentInfo.ColorTexture.ValPtr->RawTextureHandle);
+
+				if (RenderTargetTexture->GetImageLayout() != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+				{
+					_TransitionImageLayout(commandBuffer, RenderTargetTexture->GetImageHandle(), RenderTargetTexture->GetImageLayout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+						VK_IMAGE_ASPECT_COLOR_BIT);
+				}
+				RenderTargetTexture->SetImageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			}
+		}
+		_ActiveRenderPass = nullptr;
 	}
 
 	void VulkanGraphicsBackendApi::RenderEnd()
 	{
 		auto commandBuffer = _ActiveCommandBuffer;
+
+		_TransitionImageLayout(_ActiveCommandBuffer, _Data.SwapChainKHR.GetImages()[_Data.CurrentImageIndex],
+			_Data.SwapChainKHR.GetImageLayout(_Data.CurrentImageIndex), VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_ASPECT_COLOR_BIT);
+		_Data.SwapChainKHR.SetImageLayout(_Data.CurrentImageIndex, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
 		EndCommandBuffer();
 
 		{
@@ -320,6 +325,7 @@ namespace Chilli
 
 			VULKAN_SUCCESS_ASSERT(vkQueueSubmit(_Data.Device.GetQueue(QueueFamilies::GRAPHICS), 1, &submitInfo, _Data.InFlightFences[_Data.CurrentFrameIndex]), "Failed to Submit Graphics Queue");
 		}
+
 		{
 
 			VkSemaphore signalSemaphores[] = { _Data.RenderFinishedSemaphores[_Data.CurrentFrameIndex] };
@@ -338,9 +344,8 @@ namespace Chilli
 
 			auto result = vkQueuePresentKHR(_Data.Device.GetQueue(QueueFamilies::PRESENT), &presentInfo);
 
-			if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || _Spec.ViewPortResized) {
+			if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
 				_Spec.ViewPortResized = true;
-				_ReCreateSwapChainKHR();
 			}
 			else if (result != VK_SUCCESS) {
 				throw std::runtime_error("failed to present swap chain image!");
@@ -350,17 +355,11 @@ namespace Chilli
 
 	void VulkanGraphicsBackendApi::BindGraphicsPipeline(uint32_t PipelineHandle)
 	{
-		VkPipelineLayout OldLayout = nullptr;
-
-		if (_ActivePipeline != nullptr)
-			OldLayout = _ActivePipeline->GetLayoutFromInfo(_LayoutManager);
 		_ActivePipeline = _GraphicsPipelineSet.Get(PipelineHandle);
 		vkCmdBindPipeline(_ActiveCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
 			_ActivePipeline->GetHandle());
 
-		auto NewLayout = _ActivePipeline->GetLayoutFromInfo(_LayoutManager);
-		if (NewLayout != OldLayout)
-			_ActivePipelineLayout = NewLayout;
+		_ActivePipelineLayout = _ActivePipeline->GetLayoutFromInfo(_LayoutManager);
 
 		VkDescriptorSet Sets[] = {
 			_BindlessSetManager.Sets()[_Data.CurrentFrameIndex][int(BindlessSetTypes::GLOBAL_SCENE)],
@@ -384,9 +383,10 @@ namespace Chilli
 		vkCmdBindVertexBuffers(_ActiveCommandBuffer, 0, Count, vertexBuffers, offsets);
 	}
 
-	void VulkanGraphicsBackendApi::BindIndexBuffer(uint32_t IBHandle)
+	void VulkanGraphicsBackendApi::BindIndexBuffer(uint32_t IBHandle, IndexBufferType Type)
 	{
-		vkCmdBindIndexBuffer(_ActiveCommandBuffer, _BufferSet.Get(IBHandle)->Buffer, 0, VK_INDEX_TYPE_UINT16);
+		vkCmdBindIndexBuffer(_ActiveCommandBuffer, _BufferSet.Get(IBHandle)->Buffer, 0,
+			IndexTypeToVK(Type));
 	}
 
 	void VulkanGraphicsBackendApi::SetViewPortSize(int Width, int Height)
@@ -416,7 +416,6 @@ namespace Chilli
 	{
 		_Spec.ViewPortResized = true;
 		_Spec.ViewPortSize = { Width, Height };
-		_ReCreateSwapChainKHR();
 	}
 
 	void VulkanGraphicsBackendApi::DrawArrays(uint32_t Count)
@@ -424,7 +423,12 @@ namespace Chilli
 		vkCmdDraw(_ActiveCommandBuffer, Count, 1, 0, 0);
 	}
 
-	void VulkanGraphicsBackendApi::SendPushConstant(ShaderStageType Stage, void* Data, uint32_t Size, uint32_t Offset)
+	void VulkanGraphicsBackendApi::DrawIndexed(uint32_t Count)
+	{
+		vkCmdDrawIndexed(_ActiveCommandBuffer, Count, 1, 0, 0, 0);
+	}
+
+	void VulkanGraphicsBackendApi::SendPushConstant(int Type, void* Data, uint32_t Size, uint32_t Offset)
 	{
 		if (_ActivePipeline->GetLayoutInfo().PushConstants.size() > 0 && _ActivePipeline->GetLayoutInfo().PushConstants[0].size < Size)
 		{
@@ -433,7 +437,7 @@ namespace Chilli
 			return;
 		}
 		vkCmdPushConstants(_ActiveCommandBuffer, _ActivePipelineLayout,
-			ShaderStageToVk(Stage), Offset, Size, Data);
+			ShaderStageToVk(Type), Offset, Size, Data);
 	}
 
 	uint32_t VulkanGraphicsBackendApi::AllocateBuffer(const BufferCreateInfo& Info)
@@ -453,9 +457,9 @@ namespace Chilli
 		{
 			// Static GPU-only buffer: You should use a staging upload.
 			bufferInfo.usage += VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-			allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 			bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 			// No MAPPED flag — GPU_ONLY means it’s not directly mappable
+			allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 			allocInfo.flags = 0;
 		}
 		else if (Info.State == BufferState::DYNAMIC_DRAW)
@@ -476,9 +480,9 @@ namespace Chilli
 
 			// STREAM can also use sequential write + mapped, but could also benefit
 			// from `HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT` if you double-buffer updates.
-			allocInfo.flags =
-				VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-				VMA_ALLOCATION_CREATE_MAPPED_BIT;
+			allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
+				VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+				VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT;
 		}
 
 		VkBuffer Buffer;
@@ -497,47 +501,7 @@ namespace Chilli
 
 		if (Info.State == BufferState::STATIC_DRAW)
 		{
-			// Use Staging Buffer
-			// Check Data is not NUll
-			assert(Info.Data != nullptr && "For a STATIC_DRAW Buffer Create Info State Data should not be nullptr!");
-
-			if (Info.SizeInBytes > _StagingBufferManager.StagingBufferPoolSize)
-			{
-				// Chunked copy for large buffers
-				size_t remainingBytes = Info.SizeInBytes;
-				size_t offset = 0;
-				void* dataPtr = static_cast<void*>(Info.Data);
-
-				while (remainingBytes > 0)
-				{
-					size_t chunkSize = min(remainingBytes,
-						static_cast<size_t>(_StagingBufferManager.StagingBufferPoolSize));
-					MapBufferData(_StagingBufferManager.BufferID, dataPtr, chunkSize, offset);
-
-					BufferCopyInfo CopyInfo{};
-					CopyInfo.DstOffset = offset;
-					CopyInfo.SrcOffset = 0;
-					CopyInfo.Size = chunkSize;
-
-					CopyBufferToBuffer(_StagingBufferManager.BufferID, NewBufferHandle, CopyInfo);
-
-					offset += chunkSize;
-					remainingBytes -= chunkSize;
-				};
-			}
-			else
-			{
-				// Copy Whole
-				MapBufferData(_StagingBufferManager.BufferID, Info.Data, Info.SizeInBytes, 0);
-
-				// Copy Buffer
-				BufferCopyInfo CopyInfo{};
-				CopyInfo.DstOffset = 0;
-				CopyInfo.SrcOffset = 0;
-				CopyInfo.Size = Info.SizeInBytes;
-
-				CopyBufferToBuffer(_StagingBufferManager.BufferID, NewBufferHandle, CopyInfo);
-			}
+			MapBufferData(NewBufferHandle, Info.Data, Info.SizeInBytes, 0);
 		}
 
 		return NewBufferHandle;
@@ -549,10 +513,46 @@ namespace Chilli
 		if (Buffer == nullptr)
 			return;
 
-		void* data;
-		vmaMapMemory(_Allocator, Buffer->Allocation, &data);
-		memcpy((uint8_t*)data + Offset, Data, static_cast<uint32_t>(Size));
-		vmaUnmapMemory(_Allocator, Buffer->Allocation);
+		// If is static then use stagign buffer
+		if (Buffer->CreateInfo.State == BufferState::DYNAMIC_DRAW || Buffer->CreateInfo.State == BufferState::DYNAMIC_STREAM)
+		{
+			memcpy((uint8_t*)Buffer->AllocationInfo.pMappedData + Offset, Data, static_cast<uint32_t>(Size));
+			return;
+		}
+		// Use Staging Buffer
+		// Check Data is not NUll
+
+		// STATIC DRAW – USE STAGING BUFFER
+		assert(Data != nullptr && "STATIC_DRAW requires Data != nullptr");
+
+		size_t remaining = Size;
+		size_t srcOffset = 0;
+
+		while (remaining > 0)
+		{
+			size_t chunk = min(remaining, (size_t)_StagingBufferManager.StagingBufferPoolSize);
+
+			// Write into STAGING BUFFER memory
+			uint32_t staging = _StagingBufferManager.BufferID;
+			auto stagingBuf = _BufferSet.Get(staging);
+
+			memcpy(
+				(uint8_t*)stagingBuf->AllocationInfo.pMappedData,
+				(uint8_t*)Data + srcOffset,
+				chunk
+			);
+
+			// Perform copy from staging → target
+			BufferCopyInfo copy{};
+			copy.SrcOffset = 0;
+			copy.DstOffset = Offset + srcOffset;  // FIXED OFFSET
+			copy.Size = chunk;
+
+			CopyBufferToBuffer(staging, BufferHandle, copy);
+
+			srcOffset += chunk;
+			remaining -= chunk;
+		}
 	}
 
 	void VulkanGraphicsBackendApi::FreeBuffer(uint32_t BufferHandle)
@@ -563,6 +563,7 @@ namespace Chilli
 		vmaDestroyBuffer(_Allocator, Buffer->Buffer, Buffer->Allocation);
 		_BufferSet.Destroy(BufferHandle);
 	}
+
 #pragma region Textures and Images
 	uint32_t VulkanGraphicsBackendApi::AllocateImage(const ImageSpec& ImgSpec, const char* FilePath)
 	{
@@ -588,74 +589,10 @@ namespace Chilli
 
 		NewTexutre.Init(_Data.Device.GetHandle(), _Allocator, Spec, FilePath);
 
-		// Copy Data Into Image
-		// Step 1 - Copy Data into staging Buffer
-		MapBufferData(_StagingBufferManager.BufferID, (void*)Pixels, Spec.Resolution.Width * Spec.Resolution.Height * 4, 0);
-		// Transition Image to Be able to Buffer Data copied into Image
-
-		auto NewCmdInfo = AllocateCommandBuffer(CommandBufferPurpose::GRAPHICS);
-
-		Fence fence;
-		fence.Handle = CreateFence();
-
-		BeginCommandBuffer(NewCmdInfo);
-
-		_TransitionImageLayout(_ActiveCommandBuffer, NewTexutre.GetImageHandle(), VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
-
-		EndCommandBuffer();
-
-		ResetFence(fence);
-		SubmitCommandBuffer(NewCmdInfo, fence);;
-		WaitForFence(fence);
-
-		NewCmdInfo.Purpose = CommandBufferPurpose::TRANSFER;
-		BeginCommandBuffer(NewCmdInfo);
-		// Copy Data
-		VkBufferImageCopy region{};
-		region.bufferOffset = 0;
-		region.bufferRowLength = 0;   // Tightly packed
-		region.bufferImageHeight = 0; // Tightly packed
-
-		region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		region.imageSubresource.mipLevel = 0;
-		region.imageSubresource.baseArrayLayer = 0;
-		region.imageSubresource.layerCount = 1;
-
-		region.imageOffset = { 0, 0, 0 };
-		region.imageExtent.width = Spec.Resolution.Width;
-		region.imageExtent.height = Spec.Resolution.Height;
-		region.imageExtent.depth = 1;
-
-		// Issue copy command
-		vkCmdCopyBufferToImage(
-			_ActiveCommandBuffer,
-			_BufferSet.Get(_StagingBufferManager.BufferID)->Buffer,
-			NewTexutre.GetImageHandle(),
-			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			1,
-			&region);
-
-		EndCommandBuffer();
-
-		ResetFence(fence);
-		SubmitCommandBuffer(NewCmdInfo, fence);;
-		WaitForFence(fence);
-
-		NewCmdInfo.Purpose = CommandBufferPurpose::GRAPHICS;
-		BeginCommandBuffer(NewCmdInfo);
-		_TransitionImageLayout(_ActiveCommandBuffer, NewTexutre.GetImageHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
-
-		EndCommandBuffer();
-
-		ResetFence(fence);
-		SubmitCommandBuffer(NewCmdInfo, fence);;
-		WaitForFence(fence);
-
-		DestroyFence(fence);
-		FreeCommandBuffer(NewCmdInfo);
-
 		auto ReturnIndex = _TextureSet.Create(NewTexutre);
+
+		if (FilePath != nullptr)
+			LoadImageData(ReturnIndex, Pixels, { Spec.Resolution.Width	, Spec.Resolution.Height });
 
 		uint32_t  GpuMaterialID;
 		if (_BindlessSetManager.GetTextureMap().Contains(ReturnIndex) == false)
@@ -676,6 +613,107 @@ namespace Chilli
 
 	void VulkanGraphicsBackendApi::LoadImageData(uint32_t TexHandle, const char* FilePath)
 	{
+		VulkanTexture* Texture = _TextureSet.Get(TexHandle);
+		stbi_uc* Pixels = nullptr;
+		IVec2 NewResolution;
+
+		if (FilePath != nullptr)
+		{
+			stbi_set_flip_vertically_on_load(Texture->GetSpec().YFlip);
+
+			// Load image data using stb_image
+			int texWidth, texHeight, texChannels;
+			std::string Filepath = FilePath;
+
+			Pixels = stbi_load(Filepath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+
+			if (!Pixels)
+				throw std::runtime_error("failed to load texture image!");
+			// ReSize Texture	
+			NewResolution = { texWidth, texHeight };
+		}
+
+		if (NewResolution.x > Texture->GetSpec().Resolution.Width ||
+			NewResolution.y > Texture->GetSpec().Resolution.Height)
+		{
+			auto Spec = Texture->GetSpec();
+			Spec.Resolution = { NewResolution.x, NewResolution.y };
+
+			Texture->Terminate(_Data.Device.GetHandle(), _Allocator);
+			Texture->Init(_Data.Device.GetHandle(), _Allocator, Spec, FilePath);
+		}
+		LoadImageData(TexHandle, Pixels, NewResolution);
+		stbi_image_free(Pixels);
+	}
+
+	void VulkanGraphicsBackendApi::LoadImageData(uint32_t TexHandle, void* Data, IVec2 Resolution)
+	{
+		auto Texture = _TextureSet.Get(TexHandle);
+		// Copy Data Into Image
+		// Step 1 - Copy Data into staging Buffer
+		MapBufferData(_StagingBufferManager.BufferID, (void*)Data, Resolution.x * Resolution.y * 4, 0);
+		// Transition Image to Be able to Buffer Data copied into Image
+
+		auto NewCmdInfo = AllocateCommandBuffer(CommandBufferPurpose::GRAPHICS);
+		NewCmdInfo.State = CommandBufferSubmitState::COMMAND_BUFFER_SUBMIT_STATE_ONE_TIME;
+		Fence fence;
+		fence.Handle = CreateFence();
+
+		BeginCommandBuffer(NewCmdInfo);
+
+		_TransitionImageLayout(_ActiveCommandBuffer, Texture->GetImageHandle(), VK_IMAGE_LAYOUT_UNDEFINED,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+
+		EndCommandBuffer();
+
+		ResetFence(fence);
+		SubmitCommandBuffer(NewCmdInfo, fence);;
+		WaitForFence(fence);
+		{
+			BeginCommandBuffer(_StagingBufferManager.StagingBufferCmd);
+			// Copy Data
+			VkBufferImageCopy region{};
+			region.bufferOffset = 0;
+			region.bufferRowLength = 0;   // Tightly packed
+			region.bufferImageHeight = 0; // Tightly packed
+
+			region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			region.imageSubresource.mipLevel = 0;
+			region.imageSubresource.baseArrayLayer = 0;
+			region.imageSubresource.layerCount = 1;
+
+			region.imageOffset = { 0, 0, 0 };
+			region.imageExtent.width = Resolution.x;
+			region.imageExtent.height = Resolution.y;
+			region.imageExtent.depth = 1;
+
+			// Issue copy command
+			vkCmdCopyBufferToImage(
+				_ActiveCommandBuffer,
+				_BufferSet.Get(_StagingBufferManager.BufferID)->Buffer,
+				Texture->GetImageHandle(),
+				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				1,
+				&region);
+
+			EndCommandBuffer();
+
+			ResetFence(fence);
+			SubmitCommandBuffer(_StagingBufferManager.StagingBufferCmd, fence);;
+			WaitForFence(fence);
+		}
+
+		BeginCommandBuffer(NewCmdInfo);
+		_TransitionImageLayout(_ActiveCommandBuffer, Texture->GetImageHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+
+		EndCommandBuffer();
+
+		ResetFence(fence);
+		SubmitCommandBuffer(NewCmdInfo, fence);;
+		WaitForFence(fence);
+
+		DestroyFence(fence);
+		FreeCommandBuffer(NewCmdInfo);
 	}
 
 	void VulkanGraphicsBackendApi::FreeTexture(uint32_t TexHandle)
@@ -769,7 +807,6 @@ namespace Chilli
 		if (RequiredExts.size() != 0)
 			createInfo.ppEnabledExtensionNames = RequiredExts.data();
 
-		createInfo.enabledLayerCount = 0;
 		createInfo.pNext = nullptr;
 
 		if (_Spec.EnableValidation)
@@ -911,6 +948,7 @@ namespace Chilli
 	{
 		if (_Spec.ViewPortResized)
 			_Data.SwapChainKHR.Recreate(_Data.Device, _Data.SurfaceKHR, _Spec.ViewPortSize.x, _Spec.ViewPortSize.y, _Spec.VSync);
+
 		_Spec.ViewPortResized = false;
 	}
 
@@ -922,7 +960,7 @@ namespace Chilli
 			VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 		_CommandPools[int(CommandBufferPurpose::TRANSFER)] = __VkCreateCommandPool(_Data.Device.GetHandle(),
 			_Data.Device.GetPhysicalDevice()->Info.QueueIndicies.Queues[QueueFamilies::TRANSFER].value(),
-			VK_COMMAND_POOL_CREATE_TRANSIENT_BIT);
+			VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 	}
 
 	void VulkanGraphicsBackendApi::_DeleteCommandPools()
@@ -1049,6 +1087,7 @@ namespace Chilli
 		StagingBufferInfo.SizeInBytes = _StagingBufferManager.StagingBufferPoolSize;
 		StagingBufferInfo.Type = BUFFER_TYPE_STORAGE | BUFFER_TYPE_TRANSFER_SRC;
 		auto StagingBufferID = AllocateBuffer(StagingBufferInfo);
+		this;
 
 		_StagingBufferManager.BufferID = StagingBufferID;
 
@@ -1090,16 +1129,6 @@ namespace Chilli
 		ResetFence(_StagingBufferManager.Fence);
 		SubmitCommandBuffer(_StagingBufferManager.StagingBufferCmd, _StagingBufferManager.Fence);
 		WaitForFence(_StagingBufferManager.Fence);
-
-		//VkSubmitInfo submitInfo{};
-	//submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	//submitInfo.commandBufferCount = 1;
-	//submitInfo.pCommandBuffers = &VkCmdHandle;
-
-	//// Add Fences
-	//vkQueueSubmit(_Data.Device.GetQueue(QueueFamilies::TRANSFER), 1, &submitInfo, _StagingBufferManager.Fence);
-	//vkWaitForFences(_Data.Device.GetHandle(), 1, &_StagingBufferManager.Fence, VK_TRUE, UINT64_MAX);
-
 		ResetCommandBuffer(_StagingBufferManager.StagingBufferCmd);
 	}
 #pragma endregion 
@@ -1127,17 +1156,95 @@ namespace Chilli
 	{
 		_Fences.Wait(_Data.Device.GetHandle(), fence.Handle, TimeOut);
 	}
+
+	void _ShaderReadFile(const char* FilePath, std::vector<char>& CharData)
+	{
+		std::ifstream file(FilePath, std::ios::ate | std::ios::binary);
+
+		if (!file.is_open())
+			throw std::runtime_error("failed to open file!");
+
+		size_t fileSize = (size_t)file.tellg();
+		CharData.resize(fileSize);
+
+		file.seekg(0);
+		file.read(CharData.data(), fileSize);
+		file.close();
+	}
+
+	VkShaderModule _CreateVkShaderModule(VkDevice device, std::vector<char>& code)
+	{
+		VkShaderModuleCreateInfo createinfo{};
+		createinfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+		createinfo.codeSize = code.size();
+		createinfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
+
+		VkShaderModule shaderModule;
+		if (vkCreateShaderModule(device, &createinfo, nullptr, &shaderModule) != VK_SUCCESS)
+			throw std::runtime_error("failed to create shader module!");
+
+		return shaderModule;
+	}
+
+	ShaderModule VulkanGraphicsBackendApi::CreateShaderModule(const char* FilePath, ShaderStageType Type)
+	{
+		ShaderModule Module;
+		Module.Path = std::string(FilePath);
+		Module.Stage = Type;
+
+		std::vector<char> Code;
+		_ShaderReadFile(FilePath, Code);
+
+		VulkanShaderModule RawModule;
+		RawModule.Module = _CreateVkShaderModule(_Data.Device.GetHandle(), Code);
+		RawModule.ReflectedInfo = ReflectShaderModule(_Data.Device.GetHandle(), Module.Path,
+			ShaderStageTypeToVkFlagBit(Type));
+		Module.RawModuleHandle = _ShaderModules.Create(RawModule);
+		Module.ReflectedInfo = &RawModule.ReflectedInfo;
+
+		// 3️⃣ Extract the file name if valid
+		std::filesystem::path p(Module.Path);
+
+		if (p.has_extension()) // valid shader path
+		{
+			Module.Name = p.stem().string(); // filename without extension
+			// optional: convert to lowercase if you want uniform names
+			std::transform(Module.Name.begin(), Module.Name.end(), Module.Name.begin(),
+				[](unsigned char c) { return std::tolower(c); });
+		}
+		else
+		{
+			// fallback if no extension
+			Module.Name = Module.Path;
+		}
+
+		return Module;
+	}
+
+	void VulkanGraphicsBackendApi::DestroyShaderModule(const ShaderModule& Module)
+	{
+		if (Module.RawModuleHandle == BackBone::npos)
+			VULKAN_ERROR("No Valid Raw Module Handle Given!");
+		auto RawModule = _ShaderModules.Get(Module.RawModuleHandle);
+		if (RawModule == nullptr)
+			VULKAN_ERROR("No Valid Raw VK Module Given!");
+		vkDestroyShaderModule(_Data.Device.GetHandle(), RawModule->Module, nullptr);
+		_ShaderModules.Destroy(Module.RawModuleHandle);
+	}
 #pragma region Bindless Descriptor Set
+
+	void VulkanGraphicsBackendApi::PrepareForShutDown()
+	{
+		vkDeviceWaitIdle(_Data.Device.GetHandle());
+	}
 
 	void VulkanGraphicsBackendApi::UpdateGlobalShaderData(const GlobalShaderData& Data)
 	{
-		assert(_ActiveCommandBuffer != VK_NULL_HANDLE && "Cant be updated without a CommandBuffer Recording!");
 		_BindlessSetManager.UpdateGlobalShaderData(Data);
 	}
 
 	void VulkanGraphicsBackendApi::UpdateSceneShaderData(const SceneShaderData& Data)
 	{
-		assert(_ActiveCommandBuffer != VK_NULL_HANDLE && "Cant be updated without a CommandBuffer Recording!");
 		_BindlessSetManager.UpdateSceneShaderData(Data);
 	}
 

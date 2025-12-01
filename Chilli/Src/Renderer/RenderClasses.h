@@ -36,7 +36,7 @@ namespace Chilli
 		void FreeBuffer(uint32_t BufferHandle) { _Api.lock()->FreeBuffer(BufferHandle); }
 
 		uint32_t CreateGraphicsPipeline(const GraphicsPipelineCreateInfo& CreateInfo) { return _Api.lock()->CreateGraphicsPipeline(CreateInfo); }
-		
+
 		void DestroyGraphicsPipeline(uint32_t PipelineHandle) { _Api.lock()->DestroyGraphicsPipeline(PipelineHandle); }
 
 
@@ -56,6 +56,12 @@ namespace Chilli
 		inline void LoadImageData(uint32_t TexHandle, const char* FilePath) {
 			_Api.lock()->LoadImageData(TexHandle, FilePath);
 		}
+		inline void LoadImageData(uint32_t TexHandle, void* Data,IVec2 Resolution) {
+			_Api.lock()->LoadImageData(TexHandle, Data, Resolution);
+		}
+		inline void LoadImageData(uint32_t TexHandle, void* Data, uint32_t Size) {
+			_Api.lock()->LoadImageData(TexHandle, Data, Size);
+		}
 		inline void FreeTexture(uint32_t TexHandle)
 		{
 			_Api.lock()->FreeTexture(TexHandle);
@@ -66,6 +72,10 @@ namespace Chilli
 		}
 		inline void DestroySampler(uint32_t  sampler) {
 			_Api.lock()->DestroySampler(sampler);
+		}
+
+		inline void PrepareForShutDown() {
+			_Api.lock()->PrepareForShutDown();
 		}
 
 	private:
@@ -89,7 +99,7 @@ namespace Chilli
 			return  _Api->RenderBegin(Info, FrameIndex);
 		}
 
-		void BeginRenderPass(const RenderPass& Pass)
+		void BeginRenderPass(const RenderPassInfo& Pass)
 		{
 			_Api->BeginRenderPass(Pass);
 		}
@@ -105,26 +115,28 @@ namespace Chilli
 
 		inline void BindGraphicsPipeline(uint32_t PipelineHandle) { _Api->BindGraphicsPipeline(PipelineHandle); }
 		inline void BindVertexBuffers(uint32_t* BufferHandles, uint32_t Count) { _Api->BindVertexBuffers(BufferHandles, Count); }
-		inline void BindIndexBuffer(uint32_t IBHandle) { _Api->BindIndexBuffer(IBHandle); }
+		inline void BindIndexBuffer(uint32_t IBHandle, IndexBufferType Type) {
+			_Api->BindIndexBuffer(IBHandle, Type);
+		}
 
 		inline void SetViewPortSize(int Width, int Height) { _Api->SetViewPortSize(Width, Height); }
 		inline void SetScissorSize(int Width, int Height) { _Api->SetScissorSize(Width, Height); }
 
-		inline  void SetViewPortSize(bool UseSwapChainDimensions) {
-			_Api->SetViewPortSize(UseSwapChainDimensions);
+		inline  void SetViewPortSize(bool UseActiveRenderPassArea) {
+			_Api->SetViewPortSize(UseActiveRenderPassArea);
 		}
 
-		inline void SetScissorSize(bool UseSwapChainDimensions) {
-			_Api->SetScissorSize(UseSwapChainDimensions);
+		inline void SetScissorSize(bool UseActiveRenderPassArea) {
+			_Api->SetScissorSize(UseActiveRenderPassArea);
 		}
 
 		inline  void FrameBufferResize(int Width, int Height) { _Api->FrameBufferResize(Width, Height); };
 
 		inline void DrawArrays(uint32_t Count) { _Api->DrawArrays(Count); }
-		inline void DrawIndexed() { _Api->DrawIndexed(); }
-		inline void SendPushConstant(ShaderStageType Stage, void* Data, uint32_t Size
+		inline void DrawIndexed(uint32_t Count) { _Api->DrawIndexed(Count); }
+		inline void SendPushConstant(int Type, void* Data, uint32_t Size
 			, uint32_t Offset = 0) {
-			_Api->SendPushConstant(Stage, Data, Size, Offset);
+			_Api->SendPushConstant(Type, Data, Size, Offset);
 		}
 		inline void UpdateGlobalShaderData(const GlobalShaderData& Data)
 		{

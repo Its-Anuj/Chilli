@@ -22,19 +22,19 @@ namespace Chilli
 		using SystemID = std::uint32_t;
 		using ExtensionID = std::uint32_t;
 
+		static constexpr Entity npos = static_cast<Entity>(-1);
+
 		template<typename _T>
 		struct AssetHandle
 		{
-			uint32_t Handle;
-			_T* ValPtr;
+			uint32_t Handle = npos;
+			_T* ValPtr = nullptr;
 
 			bool operator==(const AssetHandle& other) const noexcept
 			{
 				return Handle == other.Handle;
 			}
 		};
-
-		static constexpr Entity npos = static_cast<Entity>(-1);
 
 		class World;
 		class System;
@@ -48,6 +48,8 @@ namespace Chilli
 
 		uint32_t GetNewResourceID();
 		uint32_t GetNewComponentID();
+		uint32_t GetNewAssetID();
+		uint32_t GetNewServiceID();
 
 		template<typename _ResType>
 		uint32_t GetResourceID()
@@ -61,6 +63,20 @@ namespace Chilli
 		{
 			static uint32_t ComponentID = GetNewComponentID();
 			return ComponentID;
+		}
+
+		template<typename _Type>
+		uint32_t GetAssetID()
+		{
+			static uint32_t AssetID = GetNewAssetID();
+			return AssetID;
+		}
+
+		template<typename _Type>
+		uint32_t GetServiceID()
+		{
+			static uint32_t ServiceID = GetNewServiceID();
+			return ServiceID;
 		}
 
 		struct __IPerComponentStorage__
@@ -78,7 +94,7 @@ namespace Chilli
 			std::vector<Entity> Dense;
 			std::vector<uint32_t> Sparse;
 			std::vector<_T> Components;
-			
+
 			void Add(Entity id, _T component)
 			{
 				if (id >= Sparse.size()) Sparse.resize(id + 1, npos);
@@ -158,7 +174,7 @@ namespace Chilli
 				ps->ResizeSparse(entityCapacity);                      // initialize sparse size
 				Storage[ID] = ps;
 			}
-			
+
 			template<typename _Type>
 			PerComponentStorage<_Type>* GetComponentStorage() {
 				uint32_t ID = GetComponentID<_Type>();
@@ -192,7 +208,7 @@ namespace Chilli
 			Entity NextEntityId = 0;
 
 			std::vector<std::shared_ptr<void>> Resources;
-			
+
 			template<typename _ResType>
 			void AddResource()
 			{
@@ -486,12 +502,8 @@ namespace Chilli
 		enum class ScheduleTimer
 		{
 			START_UP,
-			UPDATE_BEGIN,
 			UPDATE,
-			UPDATE_END,
-			RENDER_BEGIN,
 			RENDER,
-			RENDER_END,
 			SHUTDOWN,
 			COUNT
 		};
@@ -500,11 +512,15 @@ namespace Chilli
 		{
 		public:
 			void AddSystem(ScheduleTimer Stage, const std::function<void(SystemContext&)>& Function);
+			void AddSystemOverLayBefore(ScheduleTimer Stage, const std::function<void(SystemContext&)>& Function);
+			void AddSystemOverLayAfter(ScheduleTimer Stage, const std::function<void(SystemContext&)>& Function);
 
 			// Runs Everything
 			void Run(ScheduleTimer Stage, SystemContext& Ctxt);
 		private:
 			std::array<std::vector< std::function<void(SystemContext&)>>, int(ScheduleTimer::COUNT)> _SystemFunctions;
+			std::array<std::vector< std::function<void(SystemContext&)>>, int(ScheduleTimer::COUNT)> _SystemOverLayBefore;
+			std::array<std::vector< std::function<void(SystemContext&)>>, int(ScheduleTimer::COUNT)> _SystemOverLayAfter;
 		};
 
 		class Extension
@@ -634,6 +650,87 @@ namespace Chilli
 
 			const uint32_t GetActiveCount() const { return _Dense.size(); }
 			const uint32_t GetSparseCount() const { return _Sparse.size(); }
+
+			// For range-based for loops:
+			template<typename T>
+			class HandleView {
+			public:
+				struct Iterator {
+					const AssetStore<T>* _Store;
+					size_t _Index;
+
+					Iterator& operator++() {
+						++_Index;
+						return *this;
+					}
+
+					bool operator!=(const Iterator& other) const {
+						return _Index != other._Index;
+					}
+
+					AssetHandle<T> operator*() const {
+						// No bounds check needed - assume _Index is always valid when dereferenced
+						AssetHandle<T> handle;
+						handle.Handle = _Store->_Dense[_Index];
+						handle.ValPtr = _Store->_Data[_Index].get();
+						return handle;
+					}
+				};
+				const AssetStore<T>* _Store;
+
+				HandleView<T> GetHandles() const {
+					return HandleView(this);
+				}
+
+				Iterator begin() const {
+					return Iterator{ _Store, 0 };
+				}
+
+				Iterator end() const {
+					return Iterator{ _Store, _Store->_Dense.size() };  // Points ONE PAST the end
+				}
+			};
+
+			HandleView<T> GetHandles() const { return HandleView(this); }
+
+			// For range-based for loops:
+			template<typename T>
+			class RefView {
+			public:
+				struct Iterator {
+					const AssetStore<T>* _Store;
+					size_t _Index;
+
+					Iterator& operator++() {
+						++_Index;
+						return *this;
+					}
+
+					bool operator!=(const Iterator& other) const {
+						return _Index != other._Index;
+					}
+
+					T* operator*() const {
+						// No bounds check needed - assume _Index is always valid when dereferenced
+						return _Store->_Data[_Index].get();
+					}
+				};
+				const AssetStore<T>* _Store;
+
+				RefView<T> GetHandles() const {
+					return RefView(this);
+				}
+
+				Iterator begin() const {
+					return Iterator{ _Store, 0 };
+				}
+
+				Iterator end() const {
+					return Iterator{ _Store, _Store->_Dense.size() };  // Points ONE PAST the end
+				}
+			};
+
+			RefView<T> GetRefs() const { return RefView(this); }
 		private:
 			uint32_t NextId = 0;
 
@@ -659,37 +756,33 @@ namespace Chilli
 			template<typename T>
 			inline void RegisterStore()  // ✅ Renamed for clarity
 			{
-				AssetID ID = typeid(T).hash_code();
-				if (_Storage.find(ID) != _Storage.end()) return;  // ✅ Avoid duplicates
+				AssetID ID = GetAssetID<T>();
+				if (_Storage.size() <= ID) _Storage.resize(ID + 1);
 				_Storage[ID] = std::make_unique<AssetStore<T>>();  // ✅ Use unique_ptr
 			}
 
 			template<typename T>
 			inline void RegisterSingle()  // ✅ Separate method for single assets
 			{
-				AssetID ID = typeid(SingleAsset<T>).hash_code();
-				if (_Storage.find(ID) != _Storage.end()) return;
+				AssetID ID = GetAssetID<T>();
+				if (_Storage.size() <= ID) _Storage.resize(ID + 1);
 				_Storage[ID] = std::make_unique<SingleAsset<T>>();
 			}
 
 			template<typename T>
 			inline AssetStore<T>* GetStore()  // ✅ Get entire store
 			{
-				AssetID ID = typeid(T).hash_code();
-				auto It = _Storage.find(ID);
-				if (It == _Storage.end())
-					return nullptr;
-				return static_cast<AssetStore<T>*>(It->second.get());  // ✅ Correct cast
+				AssetID ID = GetAssetID<T>();
+				if (ID >= _Storage.size() || !_Storage[ID]) return nullptr;
+				return static_cast<AssetStore<T>*>(_Storage[ID].get());
 			}
 
 			template<typename T>
 			inline SingleAsset<T>* GetSingle()  // ✅ Get single asset
 			{
-				AssetID ID = typeid(T).hash_code();
-				auto It = _Storage.find(ID);
-				if (It == _Storage.end())
-					return nullptr;
-				return static_cast<SingleAsset<T>*>(It->second.get());
+				AssetID ID = GetAssetID<T>();
+				if (ID >= _Storage.size() || !_Storage[ID]) return nullptr;
+				return static_cast<SingleAsset<T>*>(_Storage[ID].get());
 			}
 
 			template<typename T>
@@ -717,7 +810,7 @@ namespace Chilli
 			}
 
 		private:
-			std::unordered_map<AssetID, std::unique_ptr<IAssetStorage>> _Storage;  // ✅ Type-safe storage
+			std::vector< std::unique_ptr<IAssetStorage>> _Storage;
 		};
 
 		class ServiceTable
@@ -729,23 +822,21 @@ namespace Chilli
 			template<typename T>
 			void RegisterService(std::shared_ptr<T> service)
 			{
-				ServiceID type = typeid(T).hash_code();
-				_Services[type] = std::move(service);
+				ServiceID ID = GetServiceID<T>();
+				if (_Services.size() <= ID) _Services.resize(ID + 1);
+				_Services[ID] = std::move(service);  // ✅ Use unique_ptr
 			}
 
 			template<typename T>
 			T* GetService()
 			{
-				ServiceID type = typeid(T).hash_code();
-				auto it = _Services.find(type);
-				if (it != _Services.end())
-					// cast back to the right service type
-					return static_cast<T*>(it->second.get());
-				return nullptr; // not found
+				ServiceID ID = GetServiceID<T>();
+				if (ID >= _Services.size() || !_Services[ID]) return nullptr;
+				return static_cast<T*>(_Services[ID].get());
 			}
 
 		private:
-			std::unordered_map<ServiceID, std::shared_ptr<void>> _Services;
+			std::vector<std::shared_ptr<void>> _Services;
 		};
 
 		struct App

@@ -12,6 +12,7 @@
 #include <string.h>
 #include <optional>
 #include <assert.h>
+#include <filesystem>
 
 #define VULKAN_PRINT(x)                 \
     {                                   \

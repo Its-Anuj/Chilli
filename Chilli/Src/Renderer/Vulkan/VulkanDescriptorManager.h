@@ -88,9 +88,11 @@ namespace Chilli
 		VulkanMaterialDescriptorManager() {}
 		~VulkanMaterialDescriptorManager() {}
 
+		std::array<VkDescriptorSet, int(BindlessSetTypes::COUNT_NON_USER)>& GetSet(uint32_t MaterialID);
+
 	private:
 		VkDescriptorPool _Pool;
+		uint32_t _PerFrameOffset = 0;
 		std::vector<std::array<VkDescriptorSet, int(BindlessSetTypes::COUNT_NON_USER)>> _Sets;
-
 	};
 }

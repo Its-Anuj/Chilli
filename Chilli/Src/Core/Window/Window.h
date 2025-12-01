@@ -47,6 +47,7 @@ namespace Chilli
 
 		int GetWidth() const { return _Data.Dimensions.x; }
 		int GetHeight() const { return _Data.Dimensions.y; }
+		float GetAspectRatio() const { return (float)GetWidth() / (float)GetHeight(); }
 		const char* GetName() const { return _Data.Name.c_str(); }
 
 		void* GetWin32Surface() const;

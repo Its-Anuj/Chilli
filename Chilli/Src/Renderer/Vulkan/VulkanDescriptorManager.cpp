@@ -62,16 +62,11 @@ namespace Chilli
 	void VulkanBindlessSetManager::Destroy(VulkanBindlessSetManagerCreateInfo& Info)
 	{
 		auto device = Info.Device->GetHandle();
-		vkDestroyDescriptorPool(device, _BindlessPool, nullptr);
+			vkDestroyDescriptorPool(device, _BindlessPool, nullptr);
 
 		for (auto& BufferHandle : _SetBuffers)
 			if (BufferHandle != SparseSet<uint32_t>::npos)
 				Info.FreeBuffer(BufferHandle);
-
-		for (auto& SetArray : _Sets)
-			for (auto& Set : SetArray)
-				if (Set != VK_NULL_HANDLE)
-					vkFreeDescriptorSets(device, _BindlessPool, 1, &Set);
 
 		for (auto Layout : _SetLayouts)
 			if (Layout != VK_NULL_HANDLE)
@@ -90,7 +85,7 @@ namespace Chilli
 				VkWriteDescriptorSet descriptorWrite{};
 				descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 				descriptorWrite.dstSet = _Sets[i][int(BindlessSetTypes::TEX_SAMPLERS)];
-				descriptorWrite.dstBinding = 0;
+				descriptorWrite.dstBinding = 1;
 				descriptorWrite.dstArrayElement = Index;
 
 				descriptorWrite.descriptorType = UniformTypeToVkDescriptorType(ShaderUniformTypes::SAMPLED_IMAGE);
@@ -116,7 +111,7 @@ namespace Chilli
 				VkWriteDescriptorSet descriptorWrite{};
 				descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 				descriptorWrite.dstSet = _Sets[i][int(BindlessSetTypes::TEX_SAMPLERS)];
-				descriptorWrite.dstBinding = 1;
+				descriptorWrite.dstBinding = 0;
 				descriptorWrite.dstArrayElement = Index;
 
 				descriptorWrite.descriptorType = UniformTypeToVkDescriptorType(ShaderUniformTypes::SAMPLER);
@@ -181,22 +176,23 @@ namespace Chilli
 
 			_SetLayouts[int(BindlessSetTypes::GLOBAL_SCENE)] = __CreateSetLayout(
 				device, 2, Bindings);
-		}
-		{
-			// Tex Sampler Set - 1 Binding - 0
-			auto TextureBinding = __CreateSetLayoutBinding(0, ShaderUniformTypes::SAMPLED_IMAGE,
+		} {
+			// Tex Sampler Set - CORRECT ORDER for bindless
+			// Binding 0: Samplers (fixed count)
+			auto SamplerBinding = __CreateSetLayoutBinding(0, ShaderUniformTypes::SAMPLER,
+				int(BindlessRenderingLimits::MAX_SAMPLERS), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr);
+
+			// Binding 1: Textures (variable count - MUST BE HIGHEST BINDING)
+			auto TextureBinding = __CreateSetLayoutBinding(1, ShaderUniformTypes::SAMPLED_IMAGE,
 				int(BindlessRenderingLimits::MAX_TEXTURES), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr);
 
-			// Tex Sampler Set - 1 Binding - 1
-			auto SamplerBinding = __CreateSetLayoutBinding(1, ShaderUniformTypes::SAMPLER,
-				int(BindlessRenderingLimits::MAX_SAMPLERS), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr);
-			VkDescriptorSetLayoutBinding Bindings[] = { TextureBinding, SamplerBinding };
+			VkDescriptorSetLayoutBinding Bindings[] = { SamplerBinding, TextureBinding }; // REVERSED ORDER!
 
-			// ---- Binding flags for variable descriptor count ----
+			// ---- Binding flags ----
 			VkDescriptorBindingFlags bindingFlags[2] = {};
-			bindingFlags[0] = VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT |
-				VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT; // for bindless
-			bindingFlags[1] = 0; // no special flags for samplers
+			bindingFlags[0] = 0; // No flags for samplers (binding 0)
+			bindingFlags[1] = VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT |  // for bindless textures (binding 1)
+				VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
 
 			VkDescriptorSetLayoutBindingFlagsCreateInfoEXT bindingFlagsInfo{};
 			bindingFlagsInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT;
@@ -206,6 +202,7 @@ namespace Chilli
 			_SetLayouts[int(BindlessSetTypes::TEX_SAMPLERS)] = __CreateSetLayout(
 				device, 2, Bindings, &bindingFlagsInfo);
 		}
+
 		{
 			// Material Set - 0 Binding 0
 			auto MaterialBinding = __CreateSetLayoutBinding(0, ShaderUniformTypes::STORAGE_BUFFER,
@@ -302,12 +299,20 @@ namespace Chilli
 		}
 		{
 			// Global Scene Set - 0
+			std::vector<uint32_t> variableCounts(Info.MaxFrameInFlight, BindlessRenderingLimits::MAX_TEXTURES);
+
+			VkDescriptorSetVariableDescriptorCountAllocateInfo variableCountInfo{};
+			variableCountInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO;
+			variableCountInfo.descriptorSetCount = Info.MaxFrameInFlight;
+			variableCountInfo.pDescriptorCounts = variableCounts.data();
+
 			std::vector<VkDescriptorSetLayout> layouts(Info.MaxFrameInFlight, _SetLayouts[int(BindlessSetTypes::TEX_SAMPLERS)]);
 			VkDescriptorSetAllocateInfo allocInfo{};
 			allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 			allocInfo.descriptorPool = _BindlessPool;
 			allocInfo.descriptorSetCount = static_cast<uint32_t>(Info.MaxFrameInFlight);
 			allocInfo.pSetLayouts = layouts.data();
+			allocInfo.pNext = &variableCountInfo;
 
 			std::vector<VkDescriptorSet> DescSets;
 			DescSets.resize(Info.MaxFrameInFlight);

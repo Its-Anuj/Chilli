@@ -49,4 +49,5 @@ namespace Chilli
 #define CH_WARN(...)          
 #define CH_ERROR(...)         
 #define CH_CRITICAL(...)      
+#define CH_CORE_ASSERT(...)
 #endif

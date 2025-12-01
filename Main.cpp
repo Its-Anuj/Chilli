@@ -5,6 +5,8 @@
 struct GameResource
 {
 	Chilli::BackBone::Entity Player;
+	Chilli::BackBone::Entity Camera;
+
 	uint32_t GameWindow;
 };
 
@@ -27,39 +29,14 @@ void OnGameCreate(Chilli::BackBone::SystemContext& Ctxt)
 
 	Chilli::BackBone::AssetHandle<Chilli::Mesh> SquareMeshID;
 	{
-		const std::vector<float> Vertices = {
-			// x      y      z      u    v
-
-			// Triangle 1
-			-0.5f, -0.5f, 0.0f,    0.0f, 0.0f,   // bottom-left
-			 0.5f, -0.5f, 0.0f,    1.0f, 0.0f,   // bottom-right
-			 0.5f,  0.5f, 0.0f,    1.0f, 1.0f,   // top-right
-
-			 // Triangle 2
-			  0.5f,  0.5f, 0.0f,    1.0f, 1.0f,   // top-right
-			 -0.5f,  0.5f, 0.0f,    0.0f, 1.0f,   // top-left
-			 -0.5f, -0.5f, 0.0f,    0.0f, 0.0f    // bottom-left
-		};
-
-		Chilli::BufferCreateInfo VBInfo{};
-		VBInfo.SizeInBytes = Vertices.size() * sizeof(float);
-		VBInfo.Type = Chilli::BUFFER_TYPE_VERTEX;
-		VBInfo.State = Chilli::BufferState::STATIC_DRAW;
-		VBInfo.Data = (void*)Vertices.data();
-		VBInfo.Count = Vertices.size();
-
-		Chilli::MeshCreateInfo SquareInfo{};
-		SquareInfo.VBs.push_back(VBInfo);
-		SquareInfo.Layout.push_back({ Chilli::ShaderObjectTypes::FLOAT3, "InPosition" });
-		SquareInfo.Layout.push_back({ Chilli::ShaderObjectTypes::FLOAT2, "InTexCoord" });
-		auto SquareMesh = Command.CreateMesh(SquareInfo);
-		SquareMeshID = MeshStore->Add(SquareMesh);
+		SquareMeshID = Command.CreateMesh(Chilli::BasicShapes::QUAD);
 	}
 
 	Chilli::GraphicsPipelineCreateInfo ShaderCreateInfo{};
 	ShaderCreateInfo.VertPath = "Assets/Shaders/shader_vert.spv";
 	ShaderCreateInfo.FragPath = "Assets/Shaders/shader_frag.spv";
-	ShaderCreateInfo.UseSwapChainColorFormat = true;
+	ShaderCreateInfo.UseSwapChainColorFormat = false;
+	ShaderCreateInfo.ColorFormat = Chilli::ImageFormat::RGBA8;
 
 	auto ShaderHandle = Command.CreateGraphicsPipeline(ShaderCreateInfo);
 
@@ -94,9 +71,31 @@ void OnGameCreate(Chilli::BackBone::SystemContext& Ctxt)
 		.MaterialHandle = DeafultMaterial
 		});
 	Command.AddComponent<Chilli::TransformComponent>(GameData->Player, Chilli::TransformComponent{
-		.Position = {0.0f, 0.0f, 0.0f},
-		.Scale = {1.0f},
-		.Rotation = {0.0f, 0.0f, 0.0f},
+		{0.0f, 0.0f, 0.0f},
+		{1.0f},
+		{0.0f, 0.0f, 0.0f},
+		});
+
+	GameData->Camera = Chilli::CameraBundle::Create3D(Ctxt, { 0, 0, 3.0f });
+
+	auto Panel  = Command.CreateEntity();
+	Command.AddComponent<Chilli::PepperElement>(Panel, Chilli::PepperElement());
+	Command.AddComponent<Chilli::PepperTransform>(Panel, Chilli::PepperTransform{
+		.PercentageDimensions = {10, 10},
+		.PercentagePosition = {20, 20},
+		.AnchorX = Chilli::AnchorX::CENTER,
+		.AnchorY = Chilli::AnchorY::CENTER,
+		.Anchor = {0,0},
+		});
+
+	auto Panel2 = Command.CreateEntity();
+	Command.AddComponent<Chilli::PepperElement>(Panel2, Chilli::PepperElement());
+	Command.AddComponent<Chilli::PepperTransform>(Panel2, Chilli::PepperTransform{
+		.PercentageDimensions = {10, 10},
+		.PercentagePosition = {70, 70},
+		.AnchorX = Chilli::AnchorX::CENTER,
+		.AnchorY = Chilli::AnchorY::CENTER,
+		.Anchor = {0,0},
 		});
 }
 
@@ -128,6 +127,7 @@ void OnGameShutDown(Chilli::BackBone::SystemContext& Ctxt)
 	auto Command = Chilli::Command(Ctxt);
 
 	Command.DestroyEntity(GameData->Player);
+	Command.DestroyEntity(GameData->Camera);
 }
 
 int main()
@@ -136,8 +136,17 @@ int main()
 
 	Chilli::BackBone::App App;
 
-	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::START_UP, OnWindowCreate);
-	App.Extensions.AddExtension(std::make_unique<Chilli::DeafultExtension>(), true, &App);
+	Chilli::RenderExtensionConfig RenderConfig{};
+	RenderConfig.Spec.VSync = true;
+	RenderConfig.Spec.EnableValidation = true;
+
+	App.SystemScheduler.AddSystemOverLayBefore(Chilli::BackBone::ScheduleTimer::START_UP, OnWindowCreate);
+
+	App.Extensions.AddExtension(std::make_unique<Chilli::DeafultExtension>(
+		Chilli::DeafultExtensionConfig{
+			.RenderConfig = RenderConfig
+		}), true, &App);
+
 	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::START_UP, OnGameCreate);
 
 	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::UPDATE, OnGamePlay);
