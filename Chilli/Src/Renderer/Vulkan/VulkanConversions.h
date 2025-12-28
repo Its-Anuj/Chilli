@@ -1,86 +1,10 @@
 #pragma once
 
-#include "Buffers.h"
 #include "Pipeline.h"
-#include "GraphicsBackend.h"
+#include "RenderPass.h"
 
 namespace Chilli
 {
-	inline VkBufferUsageFlags BufferTypesToVk(int Type)
-	{
-		VkBufferUsageFlags usage = 0;
-		if (Type & BufferType::BUFFER_TYPE_VERTEX)       usage |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-		if (Type & BufferType::BUFFER_TYPE_INDEX)        usage |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-		if (Type & BufferType::BUFFER_TYPE_STORAGE)      usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-		if (Type & BufferType::BUFFER_TYPE_UNIFORM)      usage |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-		if (Type & BufferType::BUFFER_TYPE_TRANSFER_DST) usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-		if (Type & BufferType::BUFFER_TYPE_TRANSFER_SRC) usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-		return usage;
-	}
-
-	inline VkIndexType IndexTypeToVK(IndexBufferType Type)
-	{
-		switch (Type)
-		{
-		case IndexBufferType::UINT16_T:
-			return VK_INDEX_TYPE_UINT16;
-		case IndexBufferType::UINT32_T:
-			return VK_INDEX_TYPE_UINT32;
-		}
-	}
-
-	inline VkFormat FormatToVk(ImageFormat Format)
-	{
-		switch (Format)
-		{
-		case ImageFormat::RGBA8:
-			return VK_FORMAT_R8G8B8A8_SRGB;
-		case ImageFormat::D32:
-			return VK_FORMAT_D32_SFLOAT;
-		case ImageFormat::D24_S8:
-			return VK_FORMAT_D24_UNORM_S8_UINT;
-		case ImageFormat::D32_S8:
-			return VK_FORMAT_D32_SFLOAT_S8_UINT;
-		}
-	}
-
-	inline VkPrimitiveTopology TopologyToVk(InputTopologyMode Mode)
-	{
-		switch (Mode)
-		{
-		case InputTopologyMode::Triangle_List: return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-		case InputTopologyMode::Triangle_Strip: return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
-		}
-	}
-
-	inline VkPolygonMode PolygonModeToVk(PolygonMode  Mode)
-	{
-		switch (Mode)
-		{
-		case PolygonMode::Fill: return VK_POLYGON_MODE_FILL;
-		case PolygonMode::Wireframe: return VK_POLYGON_MODE_LINE;
-		}
-	}
-
-	inline VkCullModeFlags CullModeToVk(CullMode Mode)
-	{
-		switch (Mode)
-		{
-		case CullMode::Back: return VK_CULL_MODE_BACK_BIT;
-		case CullMode::Front: return VK_CULL_MODE_FRONT_BIT;
-		case CullMode::None: return VK_CULL_MODE_NONE;
-		}
-	}
-
-	inline VkFrontFace FrontFaceToVk(FrontFaceMode Mode)
-	{
-		switch (Mode)
-		{
-		case FrontFaceMode::Clock_Wise: return VK_FRONT_FACE_CLOCKWISE;
-		case FrontFaceMode::Counter_Clock_Wise: return VK_FRONT_FACE_COUNTER_CLOCKWISE;
-		}
-	}
-	
 	inline VkShaderStageFlags ShaderStageTypeToVk(int type)
 	{
 		VkShaderStageFlags flags = 0;
@@ -170,135 +94,6 @@ namespace Chilli
 		}
 	}
 
-	inline VkDescriptorType UniformTypeToVkDescriptorType(ShaderUniformTypes Type)
-	{
-		switch (Type)
-		{
-		case ShaderUniformTypes::UNIFORM_BUFFER: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		case ShaderUniformTypes::SAMPLED_IMAGE: return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-		case ShaderUniformTypes::COMBINED_IMAGE_SAMPLER: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		case ShaderUniformTypes::SAMPLER: return VK_DESCRIPTOR_TYPE_SAMPLER;
-		case ShaderUniformTypes::STORAGE_BUFFER: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		};
-	}
-
-	inline ShaderStageType VkShaderStageToChilli(VkShaderStageFlags Type)
-	{
-		switch (Type)
-		{
-		case VK_SHADER_STAGE_VERTEX_BIT: return ShaderStageType::SHADER_STAGE_VERTEX;
-		case VK_SHADER_STAGE_FRAGMENT_BIT: return ShaderStageType::SHADER_STAGE_FRAGMENT;
-		};
-	}
-
-	inline VkCommandBufferUsageFlags CommandBufferSubmitStateToVk(int state)
-	{
-		VkCommandBufferUsageFlags flags = 0;
-		// Assuming CommandBufferSubmitState is an enum or bitmask similar to BufferType.
-		// Replace these with actual enum/bitmask values as defined in your codebase.
-		if (state & COMMAND_BUFFER_SUBMIT_STATE_ONE_TIME)      flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-		if (state & COMMAND_BUFFER_SUBMIT_STATE_RENDER_PASS_CONTINUE) flags |= VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
-		if (state & COMMAND_BUFFER_SUBMIT_STATE_SIMULTANEOUS_USE)     flags |= VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
-		return flags;
-	}
-
-	inline VkImageUsageFlags ImageUsageToVk(uint32_t Type)
-	{
-		VkImageUsageFlags Flags = 0;
-
-		if (Type & IMAGE_USAGE_TRANSFER_SRC)
-			Flags |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-		if (Type & IMAGE_USAGE_TRANSFER_DST)
-			Flags |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-		if (Type & IMAGE_USAGE_SAMPLED_IMAGE)
-			Flags |= VK_IMAGE_USAGE_SAMPLED_BIT;
-		if (Type & IMAGE_USAGE_STORAGE_IMAGE)
-			Flags |= VK_IMAGE_USAGE_STORAGE_BIT;
-		if (Type & IMAGE_USAGE_COLOR_ATTACHMENT)
-			Flags |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-		if (Type & IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT)
-			Flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-		if (Type & IMAGE_USAGE_INPUT_ATTACHMENT)
-			Flags |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
-
-		assert(Flags != 0 && "Unhandled ImageUsage value");
-		return Flags;
-	}
-
-	inline VkImageType ImageTypeToVk(ImageType Type)
-	{
-		switch (Type)
-		{
-		case ImageType::IMAGE_TYPE_1D:
-			return VK_IMAGE_TYPE_1D;
-		case ImageType::IMAGE_TYPE_2D:
-			return VK_IMAGE_TYPE_2D;
-		case ImageType::IMAGE_TYPE_3D:
-			return VK_IMAGE_TYPE_3D;
-		};
-	}
-
-	inline VkImageViewType ImageViewTypeToVk(ImageType Type)
-	{
-		switch (Type)
-		{
-		case ImageType::IMAGE_TYPE_1D:
-			return VK_IMAGE_VIEW_TYPE_1D;
-		case ImageType::IMAGE_TYPE_2D:
-			return VK_IMAGE_VIEW_TYPE_2D;
-		case ImageType::IMAGE_TYPE_3D:
-			return VK_IMAGE_VIEW_TYPE_3D;
-		};
-	}
-
-	inline VkFilter SamplerFilterToVk(SamplerFilter Filter)
-	{
-		switch (Filter)
-		{
-		case SamplerFilter::LINEAR:
-			return VK_FILTER_LINEAR;
-		case SamplerFilter::NEAREST:
-			return VK_FILTER_NEAREST;
-		}
-	}
-
-	inline VkSamplerAddressMode SamplerModeToVk(SamplerMode Mode)
-	{
-		switch (Mode)
-		{
-		case SamplerMode::REPEAT:
-			return VK_SAMPLER_ADDRESS_MODE_REPEAT;
-		case SamplerMode::CLAMP_TO_BORDER:
-			return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-		case SamplerMode::CLAMP_TO_EDGE:
-			return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-		case SamplerMode::MIRRORED_REPEAT:
-			return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
-		}
-	}
-
-	inline VkAttachmentLoadOp LoadOpToVk(AttachmentLoadOp Mode)
-	{
-		switch (Mode)
-		{
-		case AttachmentLoadOp::LOAD:
-			return VkAttachmentLoadOp::VK_ATTACHMENT_LOAD_OP_LOAD;
-		case AttachmentLoadOp::CLEAR:
-			return VkAttachmentLoadOp::VK_ATTACHMENT_LOAD_OP_CLEAR;
-		}
-	}
-
-	inline VkAttachmentStoreOp StoreOpToVk(AttachmentStoreOp Mode)
-	{
-		switch (Mode)
-		{
-		case AttachmentStoreOp::DONT_CARE:
-			return VkAttachmentStoreOp::VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		case AttachmentStoreOp::STORE:
-			return VkAttachmentStoreOp::VK_ATTACHMENT_STORE_OP_STORE;
-		}
-	}
-
 	inline VkFormat ShaderObjectTypeToVkFormat(ShaderObjectTypes type)
 	{
 		switch (type)
@@ -341,6 +136,409 @@ namespace Chilli
 		case VK_FORMAT_R32G32B32A32_UINT:    return ShaderObjectTypes::UINT4;
 
 		default: return ShaderObjectTypes::FLOAT1; // fallback
+		}
+	}
+
+	inline ShaderObjectTypes FormatToShaderType(VkFormat format)
+	{
+		switch (format)
+		{
+		case VK_FORMAT_R32_SFLOAT:
+			return Chilli::ShaderObjectTypes::FLOAT1;
+		case VK_FORMAT_R32G32_SFLOAT:
+			return Chilli::ShaderObjectTypes::FLOAT2;
+		case VK_FORMAT_R32G32B32_SFLOAT:
+			return Chilli::ShaderObjectTypes::FLOAT3;
+		case VK_FORMAT_R32G32B32A32_SFLOAT:
+			return Chilli::ShaderObjectTypes::FLOAT4;
+		case VK_FORMAT_R32_SINT:
+			return Chilli::ShaderObjectTypes::INT1;
+		case VK_FORMAT_R32G32_SINT:
+			return Chilli::ShaderObjectTypes::INT2;
+		case VK_FORMAT_R32G32B32_SINT:
+			return Chilli::ShaderObjectTypes::INT3;
+		case VK_FORMAT_R32G32B32A32_SINT:
+			return Chilli::ShaderObjectTypes::INT4;
+		case VK_FORMAT_R32_UINT:
+			return Chilli::ShaderObjectTypes::UINT1;
+		case VK_FORMAT_R32G32_UINT:
+			return Chilli::ShaderObjectTypes::UINT2;
+		case VK_FORMAT_R32G32B32_UINT:
+			return Chilli::ShaderObjectTypes::UINT3;
+		case VK_FORMAT_R32G32B32A32_UINT:
+			return Chilli::ShaderObjectTypes::UINT4;
+		}
+	}
+
+	inline VkDescriptorType ShaderUniformTypeToVk(ShaderUniformTypes Type)
+	{
+		switch (Type)
+		{
+		case ShaderUniformTypes::UNIFORM_BUFFER:  return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		case ShaderUniformTypes::STORAGE_BUFFER:  return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		case ShaderUniformTypes::SAMPLER:  return VK_DESCRIPTOR_TYPE_SAMPLER;
+		case ShaderUniformTypes::COMBINED_IMAGE_SAMPLER:  return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		case ShaderUniformTypes::SAMPLED_IMAGE:  return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+		};
+	}
+
+	inline VkFormat FormatToVk(ImageFormat format)
+	{
+		switch (format)
+		{
+		case ImageFormat::NONE:
+			return VK_FORMAT_UNDEFINED;
+
+		case ImageFormat::RGBA8:
+			return VK_FORMAT_R8G8B8A8_UNORM;
+
+		case ImageFormat::SRGBA8:
+			return VK_FORMAT_R8G8B8A8_SRGB;
+
+		case ImageFormat::R16F:
+			return VK_FORMAT_R16_SFLOAT;
+
+		case ImageFormat::RG16F:
+			return VK_FORMAT_R16G16_SFLOAT;
+
+		case ImageFormat::RGBA16F:
+			return VK_FORMAT_R16G16B16A16_SFLOAT;
+
+		case ImageFormat::RGBA32F:
+			return VK_FORMAT_R32G32B32A32_SFLOAT;
+
+		case ImageFormat::BGRA8:
+			return VK_FORMAT_B8G8R8A8_SRGB;
+
+		case ImageFormat::S8I:
+			return VK_FORMAT_S8_UINT;
+
+		case ImageFormat::D32F:
+			return VK_FORMAT_D32_SFLOAT;
+
+		case ImageFormat::D32F_S8I:
+			return VK_FORMAT_D32_SFLOAT_S8_UINT;
+		}
+
+		// Should never happen
+		return VK_FORMAT_UNDEFINED;
+	}
+
+
+	inline VkPrimitiveTopology TopologyToVk(InputTopologyMode Mode)
+	{
+		switch (Mode)
+		{
+		case InputTopologyMode::Triangle_List:
+			return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+		case InputTopologyMode::Triangle_Strip:
+			return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+		default:
+			return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+		}
+	}
+
+	inline VkDynamicState DynamicStateToVk(ShaderDynamicStates State)
+	{
+		switch (State)
+		{
+		case SHADER_DYNAMIC_STATE_VIEWPORT:               return VK_DYNAMIC_STATE_VIEWPORT;
+		case SHADER_DYNAMIC_STATE_SCISSOR:               return VK_DYNAMIC_STATE_SCISSOR;
+		case SHADER_DYNAMIC_STATE_CULL_MODE:             return VK_DYNAMIC_STATE_CULL_MODE;
+		case SHADER_DYNAMIC_STATE_FRONT_FACE:            return VK_DYNAMIC_STATE_FRONT_FACE;
+		case SHADER_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY:    return VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY;
+		case SHADER_DYNAMIC_STATE_DEPTH_TEST_ENABLE:     return VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE;
+		case SHADER_DYNAMIC_STATE_DEPTH_WRITE_ENABLE:    return VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE;
+		case SHADER_DYNAMIC_STATE_DEPTH_COMPARE_OP:      return VK_DYNAMIC_STATE_DEPTH_COMPARE_OP;
+		case SHADER_DYNAMIC_STATE_STENCIL_TEST_ENABLE:   return VK_DYNAMIC_STATE_STENCIL_TEST_ENABLE;
+		case SHADER_DYNAMIC_STATE_POLYGON_MODE:          return VK_DYNAMIC_STATE_POLYGON_MODE_EXT;
+		case SHADER_DYNAMIC_STATE_RASTERIZER_DISCARD_ENABLE: return VK_DYNAMIC_STATE_RASTERIZER_DISCARD_ENABLE;
+		case SHADER_DYNAMIC_STATE_COLOR_WRITE_ENABLE:    return VK_DYNAMIC_STATE_COLOR_WRITE_ENABLE_EXT;
+		case SHADER_DYNAMIC_STATE_COLOR_BLEND_ENABLE:    return VK_DYNAMIC_STATE_COLOR_BLEND_ENABLE_EXT;
+		case SHADER_DYNAMIC_STATE_LINE_WIDTH:    return VK_DYNAMIC_STATE_LINE_WIDTH;
+		default:                                         return VK_DYNAMIC_STATE_MAX_ENUM; // invalid
+		}
+	}
+
+	inline VkPolygonMode PolygonModeToVk(PolygonMode  Mode)
+	{
+		switch (Mode)
+		{
+		case PolygonMode::Fill: return VK_POLYGON_MODE_FILL;
+		case PolygonMode::Wireframe: return VK_POLYGON_MODE_LINE;
+		}
+	}
+
+	inline VkCullModeFlags CullModeToVk(CullMode Mode)
+	{
+		switch (Mode)
+		{
+		case CullMode::Back: return VK_CULL_MODE_BACK_BIT;
+		case CullMode::Front: return VK_CULL_MODE_FRONT_BIT;
+		case CullMode::None: return VK_CULL_MODE_NONE;
+		}
+	}
+
+	inline VkFrontFace FrontFaceToVk(FrontFaceMode Mode)
+	{
+		switch (Mode)
+		{
+		case FrontFaceMode::Clock_Wise: return VK_FRONT_FACE_CLOCKWISE;
+		case FrontFaceMode::Counter_Clock_Wise: return VK_FRONT_FACE_COUNTER_CLOCKWISE;
+		}
+	}
+
+	inline VkCompareOp CompareOpToVk(CompareOp op)
+	{
+		switch (op)
+		{
+		case CompareOp::NEVER:             return VK_COMPARE_OP_NEVER;
+		case CompareOp::LESS:              return VK_COMPARE_OP_LESS;
+		case CompareOp::EQUAL:             return VK_COMPARE_OP_EQUAL;
+		case CompareOp::LESS_OR_EQUAL:     return VK_COMPARE_OP_LESS_OR_EQUAL;
+		case CompareOp::GREATER:           return VK_COMPARE_OP_GREATER;
+		case CompareOp::NOT_EQUAL:         return VK_COMPARE_OP_NOT_EQUAL;
+		case CompareOp::GREATER_OR_EQUAL:  return VK_COMPARE_OP_GREATER_OR_EQUAL;
+		case CompareOp::ALWAYS:            return VK_COMPARE_OP_ALWAYS;
+		default:                                 return VK_COMPARE_OP_ALWAYS; // safe fallback
+		}
+	}
+
+	inline VkBufferUsageFlags BufferTypesToVk(uint32_t Type)
+	{
+		VkBufferUsageFlags Flag = 0;
+		if (Type & BUFFER_TYPE_INDEX) Flag |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+		if (Type & BUFFER_TYPE_VERTEX) Flag |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+		if (Type & BUFFER_TYPE_STORAGE) Flag |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+		if (Type & BUFFER_TYPE_TRANSFER_DST) Flag |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		if (Type & BUFFER_TYPE_TRANSFER_SRC) Flag |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+		if (Type & BUFFER_TYPE_UNIFORM) Flag |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+		return Flag;
+	}
+
+	inline VkAttachmentLoadOp LoadOpToVk(AttachmentLoadOp Mode)
+	{
+		switch (Mode)
+		{
+		case AttachmentLoadOp::LOAD:
+			return VkAttachmentLoadOp::VK_ATTACHMENT_LOAD_OP_LOAD;
+		case AttachmentLoadOp::CLEAR:
+			return VkAttachmentLoadOp::VK_ATTACHMENT_LOAD_OP_CLEAR;
+		}
+	}
+
+	inline VkAttachmentStoreOp StoreOpToVk(AttachmentStoreOp Mode)
+	{
+		switch (Mode)
+		{
+		case AttachmentStoreOp::DONT_CARE:
+			return VkAttachmentStoreOp::VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		case AttachmentStoreOp::STORE:
+			return VkAttachmentStoreOp::VK_ATTACHMENT_STORE_OP_STORE;
+		}
+	}
+
+	inline VkStencilOp StencilOpToVulkan(StencilOp op)
+	{
+		switch (op)
+		{
+		case StencilOp::KEEP:                   return VK_STENCIL_OP_KEEP;
+		case StencilOp::ZERO:                   return VK_STENCIL_OP_ZERO;
+		case StencilOp::REPLACE:                return VK_STENCIL_OP_REPLACE;
+		case StencilOp::INCREMENT_AND_CLAMP:    return VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+		case StencilOp::DECREMENT_AND_CLAMP:    return VK_STENCIL_OP_DECREMENT_AND_CLAMP;
+		case StencilOp::INVERT:                 return VK_STENCIL_OP_INVERT;
+		case StencilOp::INCREMENT_AND_WRAP:     return VK_STENCIL_OP_INCREMENT_AND_WRAP;
+		case StencilOp::DECREMENT_AND_WRAP:     return VK_STENCIL_OP_DECREMENT_AND_WRAP;
+		default:
+			// Handle error or return a safe default
+			return VK_STENCIL_OP_KEEP;
+		}
+	}
+
+	inline VkBlendFactor BlendFactorToVk(BlendFactor factor)
+	{
+		switch (factor)
+		{
+		case BlendFactor::ZERO:               return VK_BLEND_FACTOR_ZERO;
+		case BlendFactor::ONE:                return VK_BLEND_FACTOR_ONE;
+		case BlendFactor::SRC_COLOR:          return VK_BLEND_FACTOR_SRC_COLOR;
+		case BlendFactor::ONE_MINUS_SRC_COLOR:return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+		case BlendFactor::DST_COLOR:          return VK_BLEND_FACTOR_DST_COLOR;
+		case BlendFactor::ONE_MINUS_DST_COLOR:return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
+		case BlendFactor::SRC_ALPHA:          return VK_BLEND_FACTOR_SRC_ALPHA;
+		case BlendFactor::ONE_MINUS_SRC_ALPHA:return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		case BlendFactor::DST_ALPHA:          return VK_BLEND_FACTOR_DST_ALPHA;
+		case BlendFactor::ONE_MINUS_DST_ALPHA:return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+			// Add more factors if you expand your enum
+		default:                              return VK_BLEND_FACTOR_ONE; // Fallback
+		}
+	}
+
+	inline VkBlendOp BlendOpToVk(BlendOp op)
+	{
+		switch (op)
+		{
+		case BlendOp::ADD:               return VK_BLEND_OP_ADD;
+		case BlendOp::SUBTRACT:          return VK_BLEND_OP_SUBTRACT;
+		case BlendOp::REVERSE_SUBTRACT:  return VK_BLEND_OP_REVERSE_SUBTRACT;
+		case BlendOp::MIN:               return VK_BLEND_OP_MIN;
+		case BlendOp::MAX:               return VK_BLEND_OP_MAX;
+		default:                         return VK_BLEND_OP_ADD; // Fallback
+		}
+	}
+
+	inline VkSampleCountFlagBits SampleCountToVk(uint32_t Count)
+	{
+		switch (Count)
+		{
+		case 1:   return VK_SAMPLE_COUNT_1_BIT;
+		case 2:   return VK_SAMPLE_COUNT_2_BIT;
+		case 4:   return VK_SAMPLE_COUNT_4_BIT;
+		case 8:   return VK_SAMPLE_COUNT_8_BIT;
+		case 16:  return VK_SAMPLE_COUNT_16_BIT;
+		case 32:  return VK_SAMPLE_COUNT_32_BIT;
+		case 64:  return VK_SAMPLE_COUNT_64_BIT;
+		default:  return VK_SAMPLE_COUNT_1_BIT; // Fallback to 1 sample
+		}
+	}
+
+
+	inline VkImageUsageFlags ImageUsageToVk(uint32_t Type)
+	{
+		VkImageUsageFlags Flags = 0;
+
+		if (Type & IMAGE_USAGE_TRANSFER_SRC)
+			Flags |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+		if (Type & IMAGE_USAGE_TRANSFER_DST)
+			Flags |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+		if (Type & IMAGE_USAGE_SAMPLED_IMAGE)
+			Flags |= VK_IMAGE_USAGE_SAMPLED_BIT;
+		if (Type & IMAGE_USAGE_STORAGE_IMAGE)
+			Flags |= VK_IMAGE_USAGE_STORAGE_BIT;
+		if (Type & IMAGE_USAGE_COLOR_ATTACHMENT)
+			Flags |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+		if (Type & IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT)
+			Flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+		if (Type & IMAGE_USAGE_INPUT_ATTACHMENT)
+			Flags |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+
+		assert(Flags != 0 && "Unhandled ImageUsage value");
+		return Flags;
+	}
+
+	inline VkImageType ImageTypeToVk(ImageType Type)
+	{
+		switch (Type)
+		{
+		case ImageType::IMAGE_TYPE_1D:
+			return VK_IMAGE_TYPE_1D;
+		case ImageType::IMAGE_TYPE_2D:
+			return VK_IMAGE_TYPE_2D;
+		case ImageType::IMAGE_TYPE_3D:
+			return VK_IMAGE_TYPE_3D;
+		};
+	}
+
+	inline VkFilter SamplerFilterToVk(SamplerFilter Filter)
+	{
+		switch (Filter)
+		{
+		case SamplerFilter::LINEAR:
+			return VK_FILTER_LINEAR;
+		case SamplerFilter::NEAREST:
+			return VK_FILTER_NEAREST;
+		}
+	}
+
+	inline VkSamplerAddressMode SamplerModeToVk(SamplerMode Mode)
+	{
+		switch (Mode)
+		{
+		case SamplerMode::REPEAT:
+			return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+		case SamplerMode::CLAMP_TO_BORDER:
+			return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+		case SamplerMode::CLAMP_TO_EDGE:
+			return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		case SamplerMode::MIRRORED_REPEAT:
+			return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+		}
+	}
+
+	inline VkImageAspectFlags FormatToVkAspectMask(ImageFormat finalFormat, uint32_t Usage = 0) {
+		VkImageAspectFlags AspectFlag = 0;
+
+		if (finalFormat == ImageFormat::D32F) {
+			AspectFlag = VK_IMAGE_ASPECT_DEPTH_BIT;
+		}
+		else if (finalFormat == ImageFormat::S8I) {
+			AspectFlag = VK_IMAGE_ASPECT_STENCIL_BIT;
+		}
+		else if (finalFormat == ImageFormat::D32F_S8I) {
+			// CRITICAL: If this is for a Descriptor/Sampler, you usually only want DEPTH.
+			// If it's for a Framebuffer attachment, you want BOTH.
+			if (Usage & IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT) {
+				AspectFlag = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+			}
+			else {
+				AspectFlag = VK_IMAGE_ASPECT_DEPTH_BIT;
+			}
+		}
+		else {
+			AspectFlag = VK_IMAGE_ASPECT_COLOR_BIT;
+		}
+		return AspectFlag;
+	}
+	
+	struct VulkanStateMapping {
+		VkPipelineStageFlags2 stage;
+		VkAccessFlags2 access;
+		VkImageLayout layout;
+	};
+
+	inline VulkanStateMapping GetVulkanState(Chilli::ResourceState state) {
+		switch (state) {
+		case Chilli::ResourceState::Undefined:
+			return { VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+					 0,
+					 VK_IMAGE_LAYOUT_UNDEFINED };
+
+		case Chilli::ResourceState::RenderTarget:
+			return { VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+					 VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+					 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+
+		case Chilli::ResourceState::DepthWrite:
+			return { VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+					 VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+					 VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+
+		case Chilli::ResourceState::ShaderRead:
+			return { VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+					 VK_ACCESS_2_SHADER_READ_BIT,
+					 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+
+		case Chilli::ResourceState::ComputeRead:
+			return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+					 VK_ACCESS_2_SHADER_READ_BIT,
+					 VK_IMAGE_LAYOUT_GENERAL };
+
+		case Chilli::ResourceState::ComputeWrite:
+			return { VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+					 VK_ACCESS_2_SHADER_WRITE_BIT,
+					 VK_IMAGE_LAYOUT_GENERAL };
+
+		case Chilli::ResourceState::Present:
+			return { VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+					 0,
+					 VK_IMAGE_LAYOUT_PRESENT_SRC_KHR };
+
+		default:
+			// Fallback to Undefined
+			return { VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+					 0,
+					 VK_IMAGE_LAYOUT_UNDEFINED };
 		}
 	}
 

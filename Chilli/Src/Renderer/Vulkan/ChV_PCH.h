@@ -6,7 +6,9 @@
 #include <fstream>
 #include <sstream>
 #include <unordered_map>
+#include <unordered_set>
 #include "set"
+#include "map"
 #include <memory>
 #include <functional>
 #include <string.h>

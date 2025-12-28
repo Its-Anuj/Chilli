@@ -8,7 +8,15 @@ namespace Chilli
 	{
 		STATIC_DRAW,
 		DYNAMIC_DRAW,
-		DYNAMIC_STREAM
+		STREAM_DRAW,   // Set every frame, used once
+
+		// Readback (GPU -> User)
+		STATIC_READ,   // GPU writes once, user reads
+		DYNAMIC_READ,  // GPU writes often, user reads
+
+		// Internal Copy (GPU -> GPU)
+		STATIC_COPY,   // GPU writes once, GPU reads
+		DYNAMIC_COPY   // GPU writes often, GPU reads
 	};
 
 	enum class IndexBufferType
@@ -16,14 +24,6 @@ namespace Chilli
 		UINT16_T,
 		UINT32_T,
 		NONE
-	};
-
-	struct VertexBufferSpec
-	{
-		void* Data = nullptr;
-		size_t Size = 0;
-		uint32_t Count = 0;
-		BufferState State;
 	};
 
 	enum BufferType
@@ -43,6 +43,14 @@ namespace Chilli
 		uint32_t SizeInBytes = 0;
 		void* Data = nullptr;
 		BufferState State;
-		uint32_t Count;
+	};
+
+#define CH_BUFFER_MAX_DEBUG_NAME_SIZE 32
+
+	struct Buffer
+	{
+		uint32_t RawBufferHandle = UINT32_MAX;
+		BufferCreateInfo CreateInfo;
+		char DebugName[CH_BUFFER_MAX_DEBUG_NAME_SIZE];
 	};
 }

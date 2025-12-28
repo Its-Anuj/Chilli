@@ -2,11 +2,10 @@
 
 #include "GraphicsBackend.h"
 #include "VulkanDevice.h"
-#include "VulkanSwapChain.h"
-#include "VulkanPipeline.h"
-#include "VulkanTextures.h"
-#include "Core/SparseSet.h"
-#include "VulkanDescriptorManager.h"
+#include "VulkanSwapChainKHR.h"
+#include "VulkanShader.h"
+#include "VulkanBuffer.h"
+#include "VulkanTexture.h"
 
 const char* VkResultToChar(VkResult Result);
 
@@ -17,10 +16,22 @@ const char* VkResultToChar(VkResult Result);
             VULKAN_ERROR(err << " , VkResult: " << VkResultToChar(x));        \
         }                             \
     }
+
+#define VULKAN_ASSERT(x, err) \
+    {                                 \
+        if (x == false)          \
+        {                             \
+					VULKAN_PRINTLN(err);\
+					assert(false && "Vulkan Error");\
+		}                             \
+    }
+
+void _TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
+	VkImageLayout oldLayout, VkImageLayout newLayout,
+	VkImageAspectFlags aspectFlags);
+
 namespace Chilli
 {
-	struct VulkanFenceManager;
-
 	struct VulkanBackendData
 	{
 		VkInstance Instance;
@@ -32,214 +43,269 @@ namespace Chilli
 		int ActivePhysicalDeviceIndex = 0;
 
 		VulkanDevice Device;
-		uint16_t CurrentFrameIndex = 0;
-		uint32_t CurrentImageIndex = 0;
-
 		// SwapChain Info
 		VulkanSwapChainKHR SwapChainKHR;
 
-		std::vector<VkSemaphore >ImageAvailableSemaphores;
-		std::vector<VkSemaphore >RenderFinishedSemaphores;
-		std::vector<VkFence >InFlightFences;
+		VmaAllocator Allocator;
+		uint32_t MaxSets;;
 	};
 
-	struct VulkanBuffer
+	class VulkanCommandManager
 	{
-		VkBuffer Buffer;
-		VmaAllocation Allocation;
-		VmaAllocationInfo AllocationInfo;
-		BufferCreateInfo CreateInfo;
-	};
-
-	// Engine Fence API (non-virtual)
-	class VulkanFenceManager {
 	public:
-		// Create a new fence, returns handle
-		uint32_t CreateFence(VkDevice Device, bool signaled = false);
+		VulkanCommandManager() {}
+		~VulkanCommandManager() {}
 
-		// Wait for fence completion on CPU (blocks)
-		void Wait(VkDevice Device, const uint32_t& handle, uint64_t timeoutNs = UINT64_MAX);
+		void Init(const VulkanDevice& Device);
+		void Free(VkDevice Device);
 
-		// Check if fence is complete without blocking
-		bool IsSignaled(VkDevice Device, const uint32_t& handle);
+		CommandBufferAllocInfo AllocateCommandBuffer(VkDevice Device, CommandBufferPurpose Purpose);
+		std::vector<CommandBufferAllocInfo> AllocateCommandBuffers(VkDevice Device, CommandBufferPurpose Purpose, uint32_t Count);
 
-		// Reset fence
-		void Reset(VkDevice Device, const uint32_t& handle);
+		VkCommandBuffer Get(uint32_t Handle) { return *_Buffers.Get(Handle); }
 
-		// Destroy fence
-		void Destroy(VkDevice Device, const uint32_t& handle);
-
-		VkFence Get(uint32_t Handle) { return _Fences.Get(Handle)->BackendFence; }
 	private:
-		struct FenceEntry {
-			VkFence BackendFence; // e.g., VkFence, ID3D12Fence*, MTLFence*
-			bool inUse;
-		};
-
-		SparseSet<FenceEntry> _Fences; // sparse set or dense vector
+		std::array<VkCommandPool, int(QueueFamilies::COUNT)> _Pools;
+		SparseSet<VkCommandBuffer> _Buffers;
 	};
 
-	class VulkanGraphicsBackendApi : public GraphicsBackendApi
+	class VulkanDataUploader
 	{
 	public:
-		VulkanGraphicsBackendApi(const GraphcisBackendCreateSpec& Spec) { Init(Spec); }
-		~VulkanGraphicsBackendApi() {}
+		VulkanDataUploader() {}
+		~VulkanDataUploader() {}
 
-		virtual void Init(const GraphcisBackendCreateSpec& Spec) override;
-		virtual void Terminate() override;
+		void Init(VulkanDevice* Device, VmaAllocator Allocator, VkCommandBuffer CommandBufferHandle,
+			VkCommandBuffer GraphicsCmdBuffer);
+		void Destroy();
 
-		virtual const char* GetName() const override { return "Vulkan_1_3"; }
-		virtual GraphicsBackendType GetType() const override { return GraphicsBackendType::VULKAN_1_3; }
+		void BeginBatching(CommandBufferPurpose Purpose = CommandBufferPurpose::TRANSFER);
+		// Ends Recording and submits them
+		void EndBatching();
 
-		virtual CommandBufferAllocInfo AllocateCommandBuffer(CommandBufferPurpose Purpose) override;
-		virtual void FreeCommandBuffer(CommandBufferAllocInfo& Info) override;
+		void CopyBufferToBuffer(VkBuffer Src, VkBuffer Dst, const BufferCopyInfo& Info);
+		void CopyBufferToImage(VkBuffer Src, VkImage Dst, const VkBufferImageCopy& Copy);
+		void CopyImageToBuffer(VkImage Src, VkBuffer Dst, const VkBufferImageCopy& Copy);
+		void CopyImageToImage(VkImage Src, VkImage Dst, const VkImageCopy& Copy);
 
-		virtual void AllocateCommandBuffers(CommandBufferPurpose Purpose, std::vector<CommandBufferAllocInfo>& Infos, uint32_t Count) override;
-		virtual void FreeCommandBuffers(std::vector<CommandBufferAllocInfo>& Infos) override;
+		bool IsBatchRecording() const { return _BatchRecording; }
 
-		virtual void* AcquireSwapChainImage() { return nullptr; }
-		virtual void ResetCommandBuffer(const CommandBufferAllocInfo& Info) override;
-		virtual void BeginCommandBuffer(const CommandBufferAllocInfo& Info) override;
-		virtual void EndCommandBuffer() override;
-		virtual void SubmitCommandBuffer(const CommandBufferAllocInfo& Info, const Fence& SubmitFence) override;
+		void TransitionImageLayout(VkImage image,
+			VkImageLayout oldLayout, VkImageLayout newLayout,
+			VkImageAspectFlags aspectFlags);
 
-		virtual bool RenderBegin(const CommandBufferAllocInfo& Info, uint32_t FrameIndex) override;
-		virtual void BeginRenderPass(const RenderPassInfo& Pass) override;
-		virtual void EndRenderPass() override;
-		virtual void RenderEnd() override;
+	private:
+		VulkanDevice* _Device;
+		VmaAllocator _Allocator;
+		VkFence _TransferFence, _GraphicsFence;
+		VkCommandBuffer _CmdBuffer, _GraphicsCmdBuffer;
+		VkCommandBuffer _ActiveCmdBuffer;
 
-		virtual void BindGraphicsPipeline(uint32_t PipelineHandle) override;
-		virtual void BindVertexBuffers(uint32_t* BufferHandles, uint32_t Count) override;
-		virtual void BindIndexBuffer(uint32_t IBHandle, IndexBufferType Type) override;
-		virtual void SetViewPortSize(int Width, int Height) override;
+		ChBool8 _BatchRecording = CH_NONE;
+	};
 
-		inline virtual void SetViewPortSize(bool UseActiveRenderPassArea) override {
-			SetViewPortSize(_ActiveRenderPass->RenderArea.x, _ActiveRenderPass->RenderArea.y);
-		}
-		inline virtual void SetScissorSize(bool UseActiveRenderPassArea) override {
-			SetScissorSize(_ActiveRenderPass->RenderArea.x, _ActiveRenderPass->RenderArea.y);
-		}
-		 
-		virtual void SetScissorSize(int Width, int Height) override;
+	class VulkanGraphicsBackend : public GraphicsBackendApi
+	{
+	public:
+		VulkanGraphicsBackend(const GraphcisBackendCreateSpec& Spec);
+		~VulkanGraphicsBackend() {}
 
-		virtual void FrameBufferResize(int Width, int Height) override;
-		virtual void DrawArrays(uint32_t Count) override;
-		virtual void DrawIndexed(uint32_t Count) override;
-		virtual void SendPushConstant(int Type, void* Data, uint32_t Size
-			, uint32_t Offset = 0) override;
+		virtual void Init(const GraphcisBackendCreateSpec& Spec);
+		virtual void Terminate();
 
-		virtual void Present() override {}
+		virtual const char* GetName() const { return "VULKAN_1_3"; }
+		virtual GraphicsBackendType GetType() const { return GraphicsBackendType::VULKAN_1_3; }
 
-		virtual uint32_t AllocateBuffer(const BufferCreateInfo& Info) override;
-		virtual void MapBufferData(uint32_t BufferHandle, void* Data, uint32_t Size, uint32_t Offset = 0) override;
+		virtual void FrameBufferResize(int Width, int Height) {}
+		virtual void BeginFrame(uint32_t Index) override;
+
+		virtual void EndFrame(const std::vector<GraphicsCommandBuffer>& CmdBuffers) override;
+
+		virtual uint32_t AllocateBuffer(const BufferCreateInfo& Info);
+		virtual void MapBufferData(uint32_t BufferHandle, void* Data, uint32_t Size, uint32_t Offset = 0);
 		virtual void FreeBuffer(uint32_t BufferHandle) override;
 
-		virtual uint32_t AllocateImage(const ImageSpec& ImgSpec, const char* FilePath = nullptr) override;
-		virtual void LoadImageData(uint32_t TexHandle, const char* FilePath) override;
-		virtual void LoadImageData(uint32_t TexHandle, void* Data, IVec2 Resolution) override;
-		virtual void FreeTexture(uint32_t TexHandle) override;
+		virtual ShaderModule CreateShaderModule(const char* FilePath, ShaderStageType Type);
+		virtual void DestroyShaderModule(const ShaderModule& Module);
 
-		virtual uint32_t CreateSampler(const Sampler& sampler) override;
-		virtual void DestroySampler(uint32_t  sampler) override;
-
-		virtual uint32_t CreateGraphicsPipeline(const GraphicsPipelineCreateInfo& CreateInfo) override;
-		virtual void DestroyGraphicsPipeline(uint32_t PipelineHandle) override;
-
-		virtual uint32_t GetActiveCommandBufferHandle() const override { return _ActiveCommandBufferHandle; }
-		virtual void CopyBufferToBuffer(uint32_t SrcHandle, uint32_t DstHandle, const BufferCopyInfo& Info) override;
-
-		void BindDescriptorSets(uint32_t* Sets, uint32_t SetCount);
-		virtual void PrepareForShutDown() override;
-
-		virtual void UpdateGlobalShaderData(const GlobalShaderData& Data) override;
-		virtual void UpdateSceneShaderData(const SceneShaderData& Data) override;
-		virtual void UpdateMaterialSSBO(const BackBone::AssetHandle<Material>& Mat) override;
-		virtual void UpdateObjectSSBO(const glm::mat4& TransformationMat, BackBone::Entity EntityID) override;
-
-		virtual SparseSet<uint32_t>& GetMap(BindlessSetTypes Type) override {
-			return _BindlessSetManager.GetMap(Type);
+		virtual uint32_t MakeShaderProgram() override { return _ShaderManager.MakeShaderProgram(); }
+		virtual void AttachShader(uint32_t ProgramHandle, const ShaderModule& Shader) override {
+			_ShaderManager.AttachShader(ProgramHandle, Shader);
+		}
+		virtual void LinkShaderProgram(uint32_t ProgramHandle) override
+		{
+			_ShaderManager.LinkShaderProgram(_Data.Device.GetHandle(), ProgramHandle,
+				_BindlessManager.GetBindlessSetLayouts());
 		}
 
-		virtual uint32_t CreateFence(bool signaled = false) override;
-		virtual void DestroyFence(const Fence& fence) override;
-		virtual void ResetFence(const Fence& fence) override;
-		virtual bool IsFenceSignaled(const Fence& fence) override;
-		virtual void WaitForFence(const Fence& fence, uint64_t TimeOut = UINT64_MAX) override;
-
-		virtual ShaderModule CreateShaderModule(const char* FilePath, ShaderStageType Type) override;	
-		virtual void DestroyShaderModule(const ShaderModule& Module) override;
-
-	private:
-		VulkanBackendData _Data;
-		GraphcisBackendCreateSpec _Spec;
-		VmaAllocator _Allocator;
-
-		SparseSet<VkCommandBuffer> _CommandBuffers;
-
-		uint32_t _ActiveCommandBufferHandle = 0;
-		VkCommandBuffer _ActiveCommandBuffer;
-		VulkanGraphicsPipeline* _ActivePipeline = nullptr;
-		VkPipelineLayout _ActivePipelineLayout = nullptr;
-
-		std::array<VkCommandPool, int(CommandBufferPurpose::COUNT)> _CommandPools;
-		SparseSet<VulkanSampler> _Samplers;
-		SparseSet<VulkanBuffer> _BufferSet;
-		SparseSet<VulkanTexture> _TextureSet;
-		SparseSet<VulkanGraphicsPipeline> _GraphicsPipelineSet;
-		VulkanPipelineLayoutManager _LayoutManager;
-
-		struct VulkanShaderModule
+		virtual void ClearShaderProgram(uint32_t ProgramHandle) override
 		{
-			VkShaderModule Module;
-			ReflectedShaderInfo ReflectedInfo;
+			_ShaderManager.ClearShaderProgram(_Data.Device.GetHandle(), ProgramHandle);
+		}
+
+		void SetActiveGraphicsPipelineState(VkCommandBuffer CmdBuffer, const PipelineStateInfo& State);
+		virtual void PrepareForShutDown() override;
+
+		void SetColorBlendState(VkCommandBuffer CmdBuffer, const std::vector<ColorBlendAttachmentState>& ColorBlendAttachments);
+
+		void SetPrimitiveTopology(VkCommandBuffer CmdBuffer, InputTopologyMode mode);
+		void SetPrimitiveRestartEnable(VkCommandBuffer CmdBuffer, ChBool8 enable);
+
+		void SetCullMode(VkCommandBuffer CmdBuffer, CullMode mode);
+		void SetFrontFace(VkCommandBuffer CmdBuffer, FrontFaceMode mode);
+		void SetPolygonMode(VkCommandBuffer CmdBuffer, PolygonMode mode);
+		void SetLineWidth(VkCommandBuffer CmdBuffer, float width);
+		void SetRasterizerDiscardEnable(VkCommandBuffer CmdBuffer, ChBool8 enable);
+
+		void SetDepthBiasEnable(VkCommandBuffer CmdBuffer, ChBool8 enable);
+		void SetDepthBias(VkCommandBuffer CmdBuffer, float constantFactor, float clamp, float slopeFactor);
+		void SetDepthTestEnable(VkCommandBuffer CmdBuffer, ChBool8 enable);
+
+		void SetDepthWriteEnable(VkCommandBuffer CmdBuffer, ChBool8 enable);
+		void SetDepthCompareOp(VkCommandBuffer CmdBuffer, CompareOp op);
+
+		void SetStencilTestEnable(VkCommandBuffer CmdBuffer, ChBool8 enable);
+		void SetStencilFrontOp(VkCommandBuffer CmdBuffer, const StencilOpState& state);
+		void SetStencilBackOp(VkCommandBuffer CmdBuffer, const StencilOpState& state);
+		void SetAlphaToCoverageEnable(VkCommandBuffer CmdBuffer, ChBool8 enable);
+		void SetVertexInputState(VkCommandBuffer CmdBuffer, const VertexInputShaderLayout& Layout);
+
+		void SetColorWriteEnable(VkCommandBuffer CmdBuffer, size_t Count, ChBool8* States);
+		void SetSampleMask(VkCommandBuffer CmdBuffer, uint32_t sampleCount,
+			uint32_t sampleMask);
+		void SetRasterizationSamples(VkCommandBuffer CmdBuffer, uint32_t sampleCount);
+
+		void UpdateGlobalShaderData(const GlobalShaderData& Data) override {
+			_BindlessManager.UpdateGlobalShaderData(Data);
+		}
+
+		void UpdateSceneShaderData(const SceneShaderData& Data) override {
+			_BindlessManager.UpdateSceneShaderData(Data);
+		}
+
+		void FillDescriptorSetInfos(const std::vector<RenderShaderDataUpdateInfo>& Info);
+
+		uint32_t PrepareMaterialData(uint32_t ShaderProgramHandle) override;
+		void ClearMaterialData(uint32_t RawMaterialHandle) override;
+
+		virtual const GraphcisBackendCreateSpec& GetSpec() const override { return _Spec; }
+		virtual uint32_t GetCurrentFrameIndex() override { return _FrameResource.CurrentFrameIndex; }
+
+		virtual uint32_t AllocateImage(const ImageSpec& Spec) override {
+			return _ImageDataManager.AllocateImage(_Data.Allocator, Spec); 
+		}
+		virtual void DestroyImage(uint32_t ImageHandle) override {
+			_ImageDataManager.DestroyImage(_Data.Allocator, ImageHandle);
+		}
+		virtual void MapImageData(uint32_t ImageHandle, void* Data, int Width, int Height) override {
+			_ImageDataManager.MapImageData(ImageHandle, Data, Width, Height);
+		}
+
+		virtual uint32_t CreateTexture(uint32_t ImageHandle, const TextureSpec& Spec) override { 
+			auto Handle = _ImageDataManager.CreateTexture(_Data.Device.GetHandle(), ImageHandle, Spec);
+			_BindlessManager.PrepareForTexture(Handle);
+			return Handle;
+		}
+		virtual void DestroyTexture(uint32_t TextureHandle) override {
+			_ImageDataManager.DestroyTexture(_Data.Device.GetHandle(), TextureHandle);
+		}
+
+		virtual uint32_t CreateSampler(const SamplerSpec& Spec);
+		virtual void DestroySampler(uint32_t SamplerHandle) override;
+
+		virtual uint32_t GetTextureShaderIndex(uint32_t RawTextureHandle) override;
+		virtual uint32_t GetSamplerShaderIndex(uint32_t RawSamplerHandle) override;
+		virtual uint32_t GetMaterialShaderIndex(uint32_t RawMaterialHandle) override;
+
+		virtual void UpdateMaterialShaderData(uint32_t MaterialHandle, const MaterialShaderData& Data) {
+			_BindlessManager.UpdateMaterialShaderData(MaterialHandle, Data);
+		}
+		virtual void UpdateObjectShaderData(const ObjectShaderData& Data) override{}
+	private:
+		GraphcisBackendCreateSpec _Spec;
+		VulkanBackendData _Data;
+
+		VulkanShaderDataManager _ShaderManager;
+		VulkanBufferManager _BufferManager;
+		VulkanCommandManager _CommandManager;
+		VkCommandBuffer _ActiveCommandBuffer = VK_NULL_HANDLE;
+
+		struct {
+			std::vector<CommandBufferAllocInfo> CommandBuffers;
+			uint16_t CurrentFrameIndex = 0;
+			uint32_t CurrentImageIndex = 0;
+
+			std::vector<VkSemaphore >ImageAvailableSemaphores;
+			std::vector<VkSemaphore >RenderFinishedSemaphores;
+			std::vector<VkFence >InFlightFences;
+		} _FrameResource;
+
+		PipelineStateInfo _ActivePipelineState;
+		VulkanBindlessRenderingManager _BindlessManager;
+		VulkanBindlessSetManagerCreateInfo  _BindlessCreateInfo;
+
+		struct VulkanBackendMaterialInfo
+		{
+			std::vector<std::array<VkDescriptorSet, int(BindlessSetTypes::COUNT_USER)>> Sets;
+			uint32_t ProgramID = UINT32_MAX;
+			std::vector<std::array<std::vector<uint64_t>, int(BindlessSetTypes::COUNT_USER)>> SetBindingsStates;
 		};
 
-		SparseSet<VulkanShaderModule> _ShaderModules;
-		RenderPassInfo* _ActiveRenderPass = nullptr;
+		SparseSet<VulkanBackendMaterialInfo> _MaterialManager;
 
-		struct
-		{
-			uint32_t BufferID = SparseSet<uint32_t>::npos;
-			CommandBufferAllocInfo StagingBufferCmd{ SparseSet<uint32_t>::npos, CommandBufferPurpose::TRANSFER,
-				COMMAND_BUFFER_SUBMIT_STATE_ONE_TIME };
-			Fence Fence;
-			// For now 1 megabyte
-			const uint32_t StagingBufferPoolSize = 1e6;
-		} _StagingBufferManager;
+		struct {
+			std::vector<VkDescriptorImageInfo> WritingImageInfos;
+			std::vector<VkDescriptorBufferInfo> WritingBufferInfos;
+			std::vector< VkWriteDescriptorSet> WritingSets;
+		} _DescriptorSetsData;
 
-		VulkanFenceManager _Fences;
-		VulkanBindlessSetManagerCreateInfo CreateInfo;
-		VulkanBindlessSetManager _BindlessSetManager;
+		VkDescriptorPool _GeneralDescriptorPool;
+		VulkanDataUploader _Uploader;
+		VulkanImageDataManager _ImageDataManager;
+		SparseSet<VulkanSampler> _SamplerSet;
 
 	private:
 		// Core Initials
 		void _CreateInstance();
+		void _DestroyInstance();
+
 		void _CreateDebugMessenger();
 		void _PopulateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
+		void _DestroyDebugMessenger();
+
 		void _CreateSurfaceKHR();
+		void _DestroySurfaceKHR();
 
 		// Devices
 		void _CreatePhysicalDevice(std::vector<const char*>& DeviceExtensions);
 		void _FindSuitablePhysicalDevice();
 		void _CreateLogicalDevice(std::vector<const char*>& DeviceExtensions);
+		void _DestroyLogicalDevice();
 
 		// SwapChain
 		void _CreateSwapChainKHR();
 		void _ReCreateSwapChainKHR();
+		void _DestroySwapChainKHR();
 
-		void _CreateCommandPools();
-		void _DeleteCommandPools();
+		void _CreateVMAAllocator();
+		void _DestroyVMAAllocator();
 
-		void _CreateAllocator();
-		void _DestroyAllocator();
+		void _CreateFrameResources();
+		void _DestroyFrameResources();
 
-		void _CreateSynchornization();
-		void _DestroySynchornization();
+		void _BeginDynamicRendering(VkCommandBuffer CmdBuffer, const RenderPassInfo& Pass);
+		void _PreparePassBarriers(VkCommandBuffer CmdBuffer, const std::vector< PipelineBarrier>& PrePassBarriers);
 
-		void _CreateStagingBufferManager();
-		void _FreeStagingBufferManager();
+		void _SetViewPortSize(VkCommandBuffer CmdBuffer, int Width, int Height);
+		void _SetScissorSize(VkCommandBuffer CmdBuffer, int Width, int Height);
 
-		void _SetupBindlessSetManager();
-		void _ShutDownBindlessSetManager();
+		void _CreateGeneralDescriptorPool();
+		void _DestroyGeneralDescriptorPool();
+
+		void _CreateVulkanDataUploader();
+		void _DestroyVulkanDataUploader();
+
+		void _CreateVulkanImageDataManager();
+		void _DestroyVulkanImageDataManager();
 	};
 }

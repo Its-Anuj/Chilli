@@ -23,18 +23,24 @@ namespace Chilli
 		using ExtensionID = std::uint32_t;
 
 		static constexpr Entity npos = static_cast<Entity>(-1);
+		
+		// Tag types
+		struct RuntimeResourceTag {};
+		struct CpuAssetTag {};
 
-		template<typename _T>
-		struct AssetHandle
+		template<typename T>
+		struct IHandle
 		{
 			uint32_t Handle = npos;
-			_T* ValPtr = nullptr;
+			T* ValPtr = nullptr;
 
-			bool operator==(const AssetHandle& other) const noexcept
-			{
+			bool operator==(const IHandle& other) const noexcept {
 				return Handle == other.Handle;
 			}
 		};
+
+		template<typename T>
+		using AssetHandle = IHandle<T>;
 
 		class World;
 		class System;
@@ -857,6 +863,18 @@ namespace Chilli
 			}
 
 			void Run();
+
+			void AddSystem(ScheduleTimer Stage, const std::function<void(SystemContext&)>& Function) {
+				 SystemScheduler.AddSystem(Stage, Function);
+			}
+
+			void AddSystemOverLayBefore(ScheduleTimer Stage, const std::function<void(SystemContext&)>& Function) { 
+				SystemScheduler.AddSystemOverLayBefore(Stage, Function); 
+			}
+
+			void AddSystemOverLayAfter(ScheduleTimer Stage, const std::function<void(SystemContext&)>& Function) { 
+				SystemScheduler.AddSystemOverLayAfter(Stage, Function);
+			}
 		};
 	}
 }
@@ -865,9 +883,9 @@ namespace Chilli
 namespace std
 {
 	template<typename T>
-	struct hash<Chilli::BackBone::AssetHandle<T>>
+	struct hash<Chilli::BackBone::IHandle<T>>
 	{
-		std::uint32_t operator()(const Chilli::BackBone::AssetHandle<T>& asset) const noexcept
+		std::uint32_t operator()(const Chilli::BackBone::IHandle<T>& asset) const noexcept
 		{
 			return std::hash<uint32_t>{}(static_cast<uint32_t>(asset.Handle));
 		}

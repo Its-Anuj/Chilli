@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef> // for size_t
+
 namespace Chilli
 {
 #pragma region Vec 2
@@ -779,4 +781,34 @@ namespace Chilli
 
 		const Vec3& GetCenter() const { return (Max + Min) / 2.0f; }
 	};
+
+	// Binary search function
+	// T: type of array elements (must be comparable with < and ==)
+	template <typename T>
+	int BinarySearch(const T* arr, size_t length, const T& value)
+	{
+		if (!arr || length == 0)
+			return -1; // invalid state
+
+		size_t left = 0;
+		size_t right = length - 1;
+
+		while (left <= right) {
+			size_t mid = left + (right - left) / 2;
+
+			if (arr[mid] == value) {
+				return static_cast<int>(mid); // found
+			}
+			else if (arr[mid] < value) {
+				left = mid + 1;
+			}
+			else {
+				if (mid == 0) break; // prevent underflow
+				right = mid - 1;
+			}
+		}
+
+		return -1; // not found
+	}
+
 }

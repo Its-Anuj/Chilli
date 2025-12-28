@@ -13,13 +13,15 @@ layout(set = 0, binding = 1) uniform SceneUniformBufferObject {
 
 const int MAX_SAMPLER_COUNT = 16;
 
-layout(set = 1, binding = 0) uniform sampler Sampler[MAX_SAMPLER_COUNT];
+layout(set = 1, binding = 0) uniform sampler Samplers[MAX_SAMPLER_COUNT];
 layout(set = 1, binding = 1) uniform texture2D Textures[];
 
 struct Material
 {
     // x for AlbedoTexture, y for AlbedoSampler
-    ivec4 Indicies;
+    int AlbedoTextureIndex;
+    int AlbedoSamplerIndex;
+    int Padding[2];
     vec4 AlbedoColor;
 };
 

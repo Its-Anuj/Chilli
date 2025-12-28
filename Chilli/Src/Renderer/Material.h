@@ -12,6 +12,7 @@ namespace Chilli
 		BackBone::AssetHandle <Sampler> AlbedoSamplerHandle;
 		Vec4 AlbedoColor;
 
-		BackBone::AssetHandle<GraphicsPipeline> GraphicsPipelineId;
+		uint32_t RawMaterialHandle = UINT32_MAX;
+		BackBone::AssetHandle<ShaderProgram> ShaderProgramId;
 	};
 }

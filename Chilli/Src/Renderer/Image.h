@@ -11,7 +11,20 @@ namespace Chilli
 
 	enum class ImageFormat
 	{
-		RGBA8, D32, D24_S8, D32_S8
+		NONE,
+
+		RGBA8,
+		SRGBA8,
+		R16F,
+		RG16F,
+		RGBA16F,
+		RGBA32F,
+
+		BGRA8,
+
+		S8I,
+		D32F,
+		D32F_S8I
 	};
 
 	enum ImageUsage : uint32_t {
@@ -29,12 +42,19 @@ namespace Chilli
 	struct ImageSpec
 	{
 		struct {
-			int Width, Height;
+			int Width, Height, Depth;
 		} Resolution;
 		ImageFormat Format = ImageFormat::RGBA8;
 		ImageType Type = ImageType::IMAGE_TYPE_2D;
 		void* ImageData = nullptr;
 		bool YFlip = false;
 		uint32_t Usage = ImageUsage::IMAGE_USAGE_SAMPLED_IMAGE;
+		uint32_t MipLevel = 1;
+	};
+
+	struct Image
+	{
+		uint32_t RawImageHandle = UINT32_MAX;
+		ImageSpec Spec;
 	};
 }

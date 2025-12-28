@@ -5,7 +5,6 @@
 
 #include "vk_mem_alloc.h"
 #include "VulkanDevice.h"
-#include "VulkanDescriptorManager.h"
 
 namespace Chilli
 {
@@ -53,7 +52,7 @@ namespace Chilli
 			vkGetPhysicalDeviceSurfaceSupportKHR(device, i, SurfaceKHR, &presentSupport);
 
 			if (presentSupport)
-				info.QueueIndicies.Queues[QueueFamilies::PRESENT] = i;
+				info.QueueIndicies.Queues[int(QueueFamilies::PRESENT)] = i;
 			i++;
 		}
 	}
@@ -96,8 +95,8 @@ namespace Chilli
 
 		float queuePriority = 1.0f;
 		std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-		std::set<uint32_t> uniqueQueueFamilies = { indices.Queues[QueueFamilies::GRAPHICS].value(), indices.Queues[QueueFamilies::PRESENT].value(),
-												  indices.Queues[QueueFamilies::COMPUTE].value(), indices.Queues[QueueFamilies::TRANSFER].value() };
+		std::set<uint32_t> uniqueQueueFamilies = { indices.Queues[int(QueueFamilies::GRAPHICS)].value(), indices.Queues[int(QueueFamilies::PRESENT)].value(),
+												  indices.Queues[int(QueueFamilies::COMPUTE)].value(), indices.Queues[int(QueueFamilies::TRANSFER)].value() };
 
 		for (uint32_t queueFamily : uniqueQueueFamilies)
 		{
@@ -118,6 +117,33 @@ namespace Chilli
 		createInfo.pQueueCreateInfos = queueCreateInfos.data();
 		createInfo.queueCreateInfoCount = queueCreateInfos.size();
 
+		VkPhysicalDeviceShaderObjectFeaturesEXT shaderObjectFeatures{};
+		shaderObjectFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_OBJECT_FEATURES_EXT;
+		shaderObjectFeatures.shaderObject = VK_TRUE; // **ENABLE THE FEATURE**
+
+		VkPhysicalDeviceColorWriteEnableFeaturesEXT ColorWriteExt{};
+		ColorWriteExt.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COLOR_WRITE_ENABLE_FEATURES_EXT;
+		ColorWriteExt.colorWriteEnable = true;
+
+		VkPhysicalDeviceExtendedDynamicState3FeaturesEXT dyn3{};
+		dyn3.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT;
+		dyn3.extendedDynamicState3ColorBlendEnable = VK_TRUE;
+		dyn3.extendedDynamicState3PolygonMode = VK_TRUE;
+
+		VkPhysicalDeviceExtendedDynamicState2FeaturesEXT dynState2{};
+		dynState2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_2_FEATURES_EXT;
+		dynState2.extendedDynamicState2 = true;
+
+		VkPhysicalDeviceExtendedDynamicStateFeaturesEXT dynState{};
+		dynState.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT;
+
+		// Always set features as last
+		shaderObjectFeatures.pNext = nullptr; // Temporarily set pNext to nullptr
+		ColorWriteExt.pNext = &shaderObjectFeatures;
+		dyn3.pNext = &ColorWriteExt;
+		dynState2.pNext = &dyn3;
+		dynState.pNext = &dynState2;
+
 		// ALl modern req features
 		VkPhysicalDeviceVulkan13Features features13{};
 		features13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
@@ -127,7 +153,7 @@ namespace Chilli
 		features13.pipelineCreationCacheControl = VK_TRUE;
 		features13.shaderDemoteToHelperInvocation = VK_TRUE;
 		features13.shaderTerminateInvocation = VK_TRUE;
-		features13.pNext = nullptr; // next in chain
+		features13.pNext = &dynState; // next in chain
 
 		VkPhysicalDeviceVulkan12Features features12{};
 		features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
@@ -142,24 +168,29 @@ namespace Chilli
 		features12.descriptorBindingUniformBufferUpdateAfterBind = PDevice->Info.features12.descriptorBindingUniformBufferUpdateAfterBind ? VK_TRUE : VK_FALSE;
 		features12.descriptorBindingSampledImageUpdateAfterBind = PDevice->Info.features12.descriptorBindingSampledImageUpdateAfterBind ? VK_TRUE : VK_FALSE;
 
+		VkPhysicalDeviceFeatures EnabledFeatures{};
+		EnabledFeatures.fillModeNonSolid = VK_TRUE;
+		EnabledFeatures.samplerAnisotropy = VK_TRUE;
+
 		VkPhysicalDeviceFeatures2 features2{};
 		features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 		features2.features.samplerAnisotropy = VK_TRUE;
+		features2.features = EnabledFeatures;
 		features2.pNext = &features12;
 
 		createInfo.enabledLayerCount = 0;
 		createInfo.pNext = &features2;
 
-		if(vkCreateDevice(PDevice->PhysicalDevice, &createInfo, nullptr, &_Device)!= VK_SUCCESS)
+		if (vkCreateDevice(PDevice->PhysicalDevice, &createInfo, nullptr, &_Device) != VK_SUCCESS)
 			assert(false && "Logical Device Failed to create!");
 
-		vkGetDeviceQueue(_Device, indices.Queues[QueueFamilies::GRAPHICS].value(), 0, &_Queues[QueueFamilies::GRAPHICS]);
-		vkGetDeviceQueue(_Device, indices.Queues[QueueFamilies::PRESENT].value(), 0, &_Queues[QueueFamilies::PRESENT]);
+		vkGetDeviceQueue(_Device, indices.Queues[int(QueueFamilies::GRAPHICS)].value(), 0, &_Queues[int(QueueFamilies::GRAPHICS)]);
+		vkGetDeviceQueue(_Device, indices.Queues[int(QueueFamilies::PRESENT)].value(), 0, &_Queues[int(QueueFamilies::PRESENT)]);
 
-		if (indices.Queues[QueueFamilies::TRANSFER].has_value())
-			vkGetDeviceQueue(_Device, indices.Queues[QueueFamilies::TRANSFER].value(), 0, &_Queues[QueueFamilies::TRANSFER]);
-		if (indices.Queues[QueueFamilies::COMPUTE].has_value())
-			vkGetDeviceQueue(_Device, indices.Queues[QueueFamilies::COMPUTE].value(), 0, &_Queues[QueueFamilies::COMPUTE]);
+		if (indices.Queues[int(QueueFamilies::TRANSFER)].has_value())
+			vkGetDeviceQueue(_Device, indices.Queues[int(QueueFamilies::TRANSFER)].value(), 0, &_Queues[int(QueueFamilies::TRANSFER)]);
+		if (indices.Queues[int(QueueFamilies::COMPUTE)].has_value())
+			vkGetDeviceQueue(_Device, indices.Queues[int(QueueFamilies::COMPUTE)].value(), 0, &_Queues[int(QueueFamilies::COMPUTE)]);
 	}
 
 	void VulkanDevice::Destroy()

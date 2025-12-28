@@ -9,7 +9,7 @@ namespace Chilli
         std::vector<VkPresentModeKHR> presentModes;
     };
 
-    enum QueueFamilies
+    enum class QueueFamilies
     {
         GRAPHICS,
         PRESENT,

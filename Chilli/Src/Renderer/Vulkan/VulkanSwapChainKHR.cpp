@@ -3,10 +3,10 @@
 #define VK_USE_PLATFORM_WIN32_KHR
 #define VK_ENABLE_BETA_EXTENSIONS
 #include "vulkan/vulkan.h"
-#include "VulkanDevice.h"
-
 #include "vk_mem_alloc.h"
 #include "VulkanBackend.h"
+
+#include "vk_mem_alloc.h"
 #include <cstdint>
 #include <limits>
 #include <algorithm>
@@ -107,9 +107,9 @@ namespace Chilli
 
 		// Handle queue families
 		QueueFamilyIndicies& indices = deviceInfo.QueueIndicies;
-		uint32_t queueFamilyIndices[] = { indices.Queues[QueueFamilies::GRAPHICS].value(), indices.Queues[QueueFamilies::PRESENT].value() };
+		uint32_t queueFamilyIndices[] = { indices.Queues[int(QueueFamilies::GRAPHICS)].value(), indices.Queues[int(QueueFamilies::PRESENT)].value() };
 
-		if (indices.Queues[QueueFamilies::GRAPHICS].value() != indices.Queues[QueueFamilies::PRESENT].value())
+		if (indices.Queues[int(QueueFamilies::GRAPHICS)].value() != indices.Queues[int(QueueFamilies::PRESENT)].value())
 		{
 			createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
 			createInfo.queueFamilyIndexCount = 2;

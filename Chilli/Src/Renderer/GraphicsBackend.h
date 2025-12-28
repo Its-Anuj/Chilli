@@ -7,6 +7,7 @@
 #include "Texture.h"
 #include "glm/glm.hpp"
 #include "Material.h"
+#include "RenderPass.h"
 
 namespace Chilli
 {
@@ -34,19 +35,20 @@ namespace Chilli
 
 	enum CommandBufferSubmitState
 	{
-		COMMAND_BUFFER_SUBMIT_STATE_ONE_TIME = 1, COMMAND_BUFFER_SUBMIT_STATE_SIMULTANEOUS_USE = 2, COMMAND_BUFFER_SUBMIT_STATE_RENDER_PASS_CONTINUE = 4, COMMAND_BUFFER_SUBMIT_STATE_NONE = 8
+		COMMAND_BUFFER_SUBMIT_STATE_ONE_TIME = 1, COMMAND_BUFFER_SUBMIT_STATE_SIMULTANEOUS_USE = 2, COMMAND_BUFFER_SUBMIT_STATE_RENDER_PASS_CONTINUE = 4, COMMAND_BUFFER_SUBMIT_STATE_NONE = 8,
+		COMMAND_BUFFER_SUBMIT_STATE_LAST = COMMAND_BUFFER_SUBMIT_STATE_NONE,
+		COMMAND_BUFFER_SUBMIT_STATE_COUNT = std::countr_zero((uint32_t)COMMAND_BUFFER_SUBMIT_STATE_LAST) + 1,
 	};
+
+	inline uint32_t GetCommandBufferSubmitTypeToIndex(uint32_t Stage) {
+		return std::countr_zero((uint32_t)Stage);
+	}
 
 	struct CommandBufferAllocInfo
 	{
 		uint32_t CommandBufferHandle;
 		CommandBufferPurpose Purpose = CommandBufferPurpose::NONE;
 		int State = CommandBufferSubmitState::COMMAND_BUFFER_SUBMIT_STATE_NONE;
-	};
-
-	struct CommandBufferBeginInfo
-	{
-		void* Buffer;
 	};
 
 	struct Semaphore
@@ -56,7 +58,7 @@ namespace Chilli
 
 	struct GraphcisBackendCreateSpec
 	{
-		GraphicsBackendType Type  = GraphicsBackendType::VULKAN_1_3;
+		GraphicsBackendType Type = GraphicsBackendType::VULKAN_1_3;
 		const char* Name = "UnDefined";
 		bool EnableValidation = true;
 		GraphicsDeviceFeatures DeviceFeatures{
@@ -98,7 +100,9 @@ namespace Chilli
 
 	struct MaterialShaderData
 	{
-		IVec4 Indicies;
+		uint32_t AlbedoTextureIndex;
+		uint32_t AlbedoSamplerIndex;
+		uint32_t Padding[2];
 		Vec4 AlbedoColor;
 	};
 
@@ -110,32 +114,111 @@ namespace Chilli
 		glm::mat4 InverseTransformationMat;
 	};
 
-	enum class AttachmentLoadOp { LOAD, CLEAR };
-	enum class AttachmentStoreOp { STORE, DONT_CARE};
-
-	struct ColorAttachment
-	{
-		BackBone::AssetHandle<Texture> ColorTexture;
-		bool UseSwapChainImage = false;
-		Vec4 ClearColor;
-		AttachmentLoadOp LoadOp;
-		AttachmentStoreOp StoreOp;
+	enum class CommandType : uint8_t {
+		Draw,
+		Dispatch,
 	};
 
-	struct DepthAttachment
-	{
-		BackBone::AssetHandle<Texture> DepthTexture;
-		AttachmentLoadOp LoadOp;
-		AttachmentStoreOp StoreOp;
-		float Near, Far;
+	struct RenderStateInfo {
+		uint32_t ShaderProgramID = UINT32_MAX;
+		uint32_t PipelineStateID = UINT32_MAX;
+		uint32_t VertexBufferID = UINT32_MAX;
+		uint32_t IndexBufferID = UINT32_MAX;
+		uint32_t RenderPassIndex = UINT32_MAX;
+		uint32_t MaterialID = UINT32_MAX;
+		IndexBufferType IndexType = IndexBufferType::NONE;
 	};
 
-	struct RenderPassInfo
+	struct RenderCommandInfo
 	{
-		const char* DebugName = nullptr;
-		std::vector< ColorAttachment> ColorAttachments;
-		DepthAttachment DepthAttachment;
-		IVec2 RenderArea;
+		CommandType Type;
+		RenderStateInfo RenderState;
+
+		InputTopologyMode TopologyMode;
+
+		CullMode ShaderCullMode;
+		PolygonMode ShaderFillMode;
+		FrontFaceMode FrontFace;
+		float LineWidth = 1.0f;
+		ChBool8 RasterizerDiscardEnable = CH_FALSE;
+
+		// Depth Bias (dynamic in most modern APIs)
+		ChBool8 DepthBiasEnable = CH_FALSE;
+		float DepthBiasConstantFactor = 0.0f;
+		float DepthBiasClamp = 0.0f;
+		float DepthBiasSlopeFactor = 0.0f;
+
+		// Draw-specific
+		// Specifis vertex or index count based on what is bounded
+		uint32_t ElementCount = 0;
+		uint32_t InstanceCount = 0;
+		uint32_t FirstElement = 0;
+		uint32_t FirstInstance = 0;
+
+		// Compute-specific
+		uint32_t GroupX = 0;
+		uint32_t GroupY = 0;
+		uint32_t GroupZ = 0;
+		// Data references (not owned!)
+		struct {
+			void* Block = nullptr;
+			size_t Offst = 0;
+			size_t TotalSize = 0;
+			uint32_t Stages = 0;
+		} InlineUniformData;
+	};
+
+	struct RenderCommandInfoInlineUniformData
+	{
+		void* Data;
+		uint32_t State;
+		uint32_t Size;
+		uint32_t Offset;
+	};
+
+	struct RenderShaderDataUpdateInfo
+	{
+		uint32_t MaterialHandle = UINT32_MAX;
+		char Name[SHADER_UNIFORM_BINDING_NAME_SIZE] = { 0 };
+		uint32_t DstArrayIndex = UINT32_MAX;
+
+		bool Persistent = false;
+
+		struct {
+			uint32_t Handle = UINT32_MAX;
+			uint32_t Offset = 0;
+			uint32_t Range = 0;
+		} BufferInfo;
+
+		struct {
+			uint32_t Handle = UINT32_MAX;
+			uint32_t Sampler = UINT32_MAX;
+		} ImageInfo;
+	};
+
+	// Submits Info To Gpu
+	struct GraphicsCommandBuffer
+	{
+		std::vector<RenderCommandInfo> _RenderCommandInfos;
+		std::vector<CompiledPass> _RenderPasses;
+		std::vector< RenderShaderDataUpdateInfo> _ShaderUpdateInfos;
+		std::vector<PipelineStateInfo> _PipelineStates;
+		uint32_t _PipelineOffset = 0;
+		RenderCommandInfo _CurrentInfo;
+
+		void Clear()
+		{
+			_RenderCommandInfos.clear();
+			_RenderPasses.clear();
+			_PipelineStates.clear();
+			_ShaderUpdateInfos.clear();
+			_PipelineOffset = 0;
+		}
+	};
+
+	struct RenderFrameData
+	{
+		uint32_t CurrentFrameIndex = 0;
 	};
 
 	class GraphicsBackendApi
@@ -152,74 +235,50 @@ namespace Chilli
 		static GraphicsBackendApi* Create(const GraphcisBackendCreateSpec& Spec);
 		static void Terminate(GraphicsBackendApi* Api, bool Delete = false);
 
-		virtual CommandBufferAllocInfo AllocateCommandBuffer(CommandBufferPurpose Purpose) = 0;
-		virtual void FreeCommandBuffer(CommandBufferAllocInfo& Info) = 0;
-
-		virtual void AllocateCommandBuffers(CommandBufferPurpose Purpose, std::vector<CommandBufferAllocInfo>& Infos, uint32_t Count) = 0;
-		virtual void FreeCommandBuffers(std::vector<CommandBufferAllocInfo>& Infos) = 0;
-
-		virtual void ResetCommandBuffer(const CommandBufferAllocInfo& Info) = 0;
-		virtual void BeginCommandBuffer(const CommandBufferAllocInfo& Info) = 0;
-		virtual void EndCommandBuffer() = 0;
-
-		virtual void SubmitCommandBuffer(const CommandBufferAllocInfo& Info, const Fence& SubmitFence) = 0;
-		virtual void Present() = 0;
 		virtual void FrameBufferResize(int Width, int Height) = 0;
 
-		virtual bool RenderBegin(const CommandBufferAllocInfo& Info, uint32_t FrameIndex) = 0;
-		virtual void BeginRenderPass(const RenderPassInfo& Pass) = 0;
-		virtual void EndRenderPass() = 0;
-		virtual void RenderEnd() = 0;
+		virtual void BeginFrame(uint32_t Index) = 0;
+		virtual void EndFrame(const std::vector<GraphicsCommandBuffer>& CmdBuffers) = 0;
 
 		virtual uint32_t AllocateBuffer(const BufferCreateInfo& Info) = 0;
 		virtual void MapBufferData(uint32_t BufferHandle, void* Data, uint32_t Size, uint32_t Offset = 0) = 0;
 		virtual void FreeBuffer(uint32_t BufferHandle) = 0;
 
-		virtual uint32_t AllocateImage(const ImageSpec& ImgSpec, const char* FilePath = nullptr) = 0;
-		virtual void LoadImageData(uint32_t TexHandle, const char* FilePath) = 0;
-		virtual void LoadImageData(uint32_t TexHandle, void* Data, IVec2 Resolution) = 0;
-		virtual void FreeTexture(uint32_t TexHandle) = 0;
-
-		virtual uint32_t CreateSampler(const Sampler& sampler) = 0;
-		virtual void DestroySampler(uint32_t  sampler) = 0;
-
-		virtual uint32_t CreateGraphicsPipeline(const GraphicsPipelineCreateInfo& CreateInfo) = 0;
-		virtual void DestroyGraphicsPipeline(uint32_t PipelineHandle) = 0;
-
-		virtual void BindGraphicsPipeline(uint32_t PipelineHandle) = 0;
-		virtual void BindVertexBuffers(uint32_t* BufferHandles, uint32_t Count) = 0;
-		virtual void BindIndexBuffer(uint32_t IBHandle, IndexBufferType Type) = 0;
-
-		virtual void SetViewPortSize(int Width, int Height) = 0;
-		virtual void SetViewPortSize(bool UseActiveRenderPassArea) = 0;
-		virtual void SetScissorSize(int Width, int Height) = 0;
-		virtual void SetScissorSize(bool UseActiveRenderPassArea) = 0;
-
-		virtual void DrawArrays(uint32_t Count) = 0;
-		virtual void DrawIndexed(uint32_t Count) = 0;
-		virtual void SendPushConstant(int Type, void* Data, uint32_t Size
-			, uint32_t Offset = 0) = 0;
-
-		virtual uint32_t GetActiveCommandBufferHandle() const = 0;
-		virtual void CopyBufferToBuffer(uint32_t SrcHandle, uint32_t DstHandle, const BufferCopyInfo& Info) = 0;
-
-		// Should be Inside of BeginFrame
-		virtual void UpdateGlobalShaderData(const GlobalShaderData& Data) = 0;
-		virtual void UpdateSceneShaderData(const SceneShaderData& Data) = 0;
-		virtual void UpdateMaterialSSBO(const BackBone::AssetHandle<Material>& Mat) = 0;
-		virtual void UpdateObjectSSBO(const glm::mat4& TransformationMat, BackBone::Entity EntityID) = 0;
-
-		virtual uint32_t CreateFence(bool signaled = false) = 0;
-		virtual void DestroyFence(const Fence& fence) = 0;
-		virtual void ResetFence(const Fence& fence) = 0;
-		virtual bool IsFenceSignaled(const Fence& fence) = 0;
-		virtual void WaitForFence(const Fence& fence, uint64_t TimeOut = UINT64_MAX) = 0;
-
-		virtual SparseSet<uint32_t>& GetMap(BindlessSetTypes Type) = 0;
 		virtual void PrepareForShutDown() = 0;
 
 		virtual ShaderModule CreateShaderModule(const char* FilePath, ShaderStageType Type) = 0;
 		virtual void DestroyShaderModule(const ShaderModule& Module) = 0;
+
+		virtual uint32_t MakeShaderProgram() = 0;
+		virtual void AttachShader(uint32_t ProgramHandle, const ShaderModule& Shader) = 0;
+		virtual void ClearShaderProgram(uint32_t ProgramHandle) = 0;
+		virtual void LinkShaderProgram(uint32_t ProgramHandle) = 0;
+
+		virtual void UpdateGlobalShaderData(const GlobalShaderData& Data) = 0;
+		virtual void UpdateSceneShaderData(const SceneShaderData& Data) = 0;
+
+		virtual uint32_t PrepareMaterialData(uint32_t ShaderProgramHandle) = 0;
+		virtual void ClearMaterialData(uint32_t RawMaterialHandle) = 0;
+
+		virtual const GraphcisBackendCreateSpec& GetSpec() const = 0;
+		virtual uint32_t GetCurrentFrameIndex() = 0;
+
+		virtual uint32_t AllocateImage(const ImageSpec& Spec) = 0;
+		virtual void DestroyImage(uint32_t ImageHandle) = 0;
+		virtual void MapImageData(uint32_t ImageHandle, void* Data, int Width, int Height) = 0;
+
+		virtual uint32_t CreateTexture(uint32_t ImageHandle, const TextureSpec& Spec) = 0;
+		virtual void DestroyTexture(uint32_t TextureHandle) = 0;
+
+		virtual uint32_t CreateSampler(const SamplerSpec& Spec) = 0;
+		virtual void DestroySampler(uint32_t SamplerHandle) = 0;
+
+		virtual uint32_t GetTextureShaderIndex(uint32_t RawTextureHandle) = 0;
+		virtual uint32_t GetSamplerShaderIndex(uint32_t RawSamplerHandle) = 0;
+		virtual uint32_t GetMaterialShaderIndex(uint32_t RawMaterialHandle) = 0;
+
+		virtual void UpdateMaterialShaderData(uint32_t MaterialHandle, const MaterialShaderData& Data) = 0;
+		virtual void UpdateObjectShaderData(const ObjectShaderData& Data) = 0;
 	private:
 	};
 }

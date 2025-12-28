@@ -1,14 +1,14 @@
 #version 460
-
 #include "Common.glsl"
 
+layout(location = 0) in vec2 fragUV;
+
 layout(location = 0) out vec4 outColor;
-layout(location = 0) in vec2 InTexCoords;
 
-void main() {
-    Material Mat = Materials[DrawPushData.MaterialIndex];
+void main()
+{
+    Material ActiveMat = Materials[DrawPushData.MaterialIndex];
+    vec4 texColor = texture(sampler2D(Textures[ActiveMat.AlbedoTextureIndex], Samplers[ActiveMat.AlbedoSamplerIndex]), fragUV);
 
-    // Sample it
-    outColor = texture(sampler2D(Textures[nonuniformEXT(Mat.Indicies.x)], Sampler[Mat.Indicies.y])
-    , InTexCoords) * Mat.AlbedoColor;
+    outColor = texColor;
 }

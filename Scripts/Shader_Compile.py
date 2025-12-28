@@ -39,7 +39,8 @@ def which_exe(name):
 
 def compile_shader(glslc_path: str, src: Path, dest: Path):
     dest.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [glslc_path, str(src), '-o', str(dest)]
+    cmd = [glslc_path, str(src), '-o', str(dest), '--target-env=vulkan1.2']
+    print(cmd)
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     except FileNotFoundError:

@@ -85,7 +85,7 @@ namespace Chilli
 			bool Is_Running = true;
 			float LastTime = 0.0f;
 
-			const int Count = 200;
+			const int Count = 0;
 			std::array<float, Count> FrameTimes;
 			int idx = 0;
 

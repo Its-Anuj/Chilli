@@ -36,7 +36,7 @@ namespace Chilli
 	{
 		// Key Events
 		auto KeyPressedRead = EventManager->GetEventStorage< KeyPressedEvent>();
-		if (KeyPressedRead->ActiveSize > 0)
+		if (KeyPressedRead->GetActiveSize()> 0)
 		{
 			for (auto KeyEvent : *KeyPressedRead)
 			{
@@ -47,7 +47,7 @@ namespace Chilli
 		}
 
 		auto KeyRepeatRead = EventManager->GetEventStorage< KeyRepeatEvent>();
-		if (KeyRepeatRead->ActiveSize > 0)
+		if (KeyRepeatRead->GetActiveSize()> 0)
 		{
 			for (auto KeyEvent : *KeyRepeatRead)
 			{
@@ -58,7 +58,7 @@ namespace Chilli
 		}
 
 		auto KeyReleaseRead = EventManager->GetEventStorage< KeyReleasedEvent>();
-		if (KeyReleaseRead->ActiveSize > 0)
+		if (KeyReleaseRead->GetActiveSize()> 0)
 		{
 			for (auto KeyEvent : *KeyReleaseRead)
 			{
@@ -70,7 +70,7 @@ namespace Chilli
 
 		// Mouse Event
 		auto MousePressedRead = EventManager->GetEventStorage< MouseButtonPressedEvent>();
-		if (MousePressedRead->ActiveSize > 0)
+		if (MousePressedRead->GetActiveSize()> 0)
 		{
 			for (auto MouseEvent : *MousePressedRead)
 			{
@@ -79,7 +79,7 @@ namespace Chilli
 			}
 		}
 		auto MouseRepeatRead = EventManager->GetEventStorage< MouseButtonRepeatEvent>();
-		if (MouseRepeatRead->ActiveSize > 0)
+		if (MouseRepeatRead->GetActiveSize()> 0)
 		{
 			for (auto MouseEvent : *MouseRepeatRead)
 			{
@@ -88,7 +88,7 @@ namespace Chilli
 			}
 		}
 		auto MouseReleasedRead = EventManager->GetEventStorage< MouseButtonReleasedEvent>();
-		if (MouseReleasedRead->ActiveSize > 0)
+		if (MouseReleasedRead->GetActiveSize()> 0)
 		{
 			for (auto MouseEvent : *MouseReleasedRead)
 			{
@@ -99,7 +99,7 @@ namespace Chilli
 		
 		// Cursor Pos
 		auto CursorPosRead = EventManager->GetEventStorage<CursorPosEvent>();
-		if (CursorPosRead->ActiveSize > 0)
+		if (CursorPosRead->GetActiveSize()> 0)
 			for (auto CursorEvent : *CursorPosRead)
 				_CursorPos = {(int) CursorEvent.GetX(),(int)CursorEvent.GetY() };
 	}

@@ -7,6 +7,7 @@
 #include "Renderer/RenderClasses.h"
 #include "Renderer/Mesh.h"
 #include "Material.h"
+#include "AssetLoader.h"
 
 inline glm::vec3 ToGlmVec3(Chilli::Vec3 Data) { return glm::vec3(Data.x, Data.y, Data.z); }
 inline Chilli::Vec3 FromGlmVec3(glm::vec3 Data) { return Chilli::Vec3(Data.x, Data.y, Data.z); }
@@ -18,23 +19,29 @@ namespace Chilli
 #pragma region Event Manager
 	struct __IPerEventStorage__
 	{
-	public:
 		virtual void Clear() = 0;
+		virtual uint32_t GetActiveSize() const = 0;
 	};
 
 	template<typename _EventType>
-	//requires std::derived_from<Event, _EventType>
 	struct PerEventStorage : __IPerEventStorage__
 	{
+	private:
 		std::vector< _EventType> Events;
 		uint32_t ActiveSize = 0;
+
+	public:
 
 		void Push(const _EventType& e) {
 			Events.push_back(e);
 			ActiveSize++;
 		}
 
+		virtual uint32_t GetActiveSize() const override { return ActiveSize; }
 		virtual void Clear() override { Events.clear(); ActiveSize = 0; }
+
+		_EventType* Data() { return Events.data(); }
+		const _EventType* Data() const { return Events.data(); }
 
 		std::vector< _EventType>::iterator begin() { return Events.begin(); }
 		std::vector< _EventType>::iterator end() { return Events.end(); }
@@ -43,40 +50,49 @@ namespace Chilli
 		std::vector< _EventType>::const_iterator end() const { return Events.end(); }
 	};
 
+	uint32_t GetNewEventID();
+
+	template<typename _Type>
+	uint32_t GetEventID()
+	{
+		static uint32_t ID = GetNewEventID();
+		return ID;
+	}
+
 	struct EventHandler
 	{
 	public:
-
 		EventHandler() {}
 		~EventHandler()
 		{
 			// free all allocated storages
-			for (auto& [id, storage] : Storage)
+			for (auto& storage : _Storage)
 				delete storage;
 
-			Storage.clear();
+			_Storage.clear();
 		}
 
 		template<typename _EventType>
-		//requires std::derived_from<Event, _EventType>
 		void Register()
 		{
-			EventID id = typeid(_EventType).hash_code();
-			if (Storage.contains(id)) return;
+			EventID id = GetEventID<_EventType>();
+			if (id < _Storage.size())
+				return;
 
-			Storage[id] = new PerEventStorage<_EventType>();
+			_Storage.push_back(new PerEventStorage<_EventType>());
 		}
 
 		template<typename _EventType>
 		PerEventStorage<_EventType>* GetEventStorage()
 		{
-			auto it = Storage.find(typeid(_EventType).hash_code());
-			if (it == Storage.end()) return nullptr;
-			return static_cast<PerEventStorage<_EventType>*>(it->second);
+			EventID id = GetEventID<_EventType>();
+			if (id >= _Storage.size())
+				return nullptr;
+
+			return static_cast<PerEventStorage<_EventType>*>(_Storage[id]);
 		}
 
 		template<typename _EventType>
-		//requires std::derived_from<Event, _EventType>
 		void Add(const _EventType& e)
 		{
 			auto* storage = GetEventStorage<_EventType>();
@@ -85,21 +101,21 @@ namespace Chilli
 
 		void ClearAll()
 		{
-			for (auto& [id, storage] : Storage)
+			for (auto& storage : _Storage)
 				storage->Clear();
 		}
 	private:
-		std::unordered_map<EventID, __IPerEventStorage__*> Storage;
+		std::vector<__IPerEventStorage__*> _Storage;
 	};
 
 	template<typename _EventType>
-		requires std::derived_from<_EventType, Event>
 	struct EventReader {
 		PerEventStorage<_EventType>* storage = nullptr;
-		uint32_t index = 0;  // how many events this reader has consumed
 
 		EventReader() = default;
-		EventReader(PerEventStorage<_EventType>* s) : storage(s) {}
+		EventReader(EventHandler* Handler) {
+			storage = Handler->GetEventStorage<_EventType>();
+		}
 
 		// --- Range-for support using custom iterator ---
 		struct Iterator {
@@ -119,7 +135,7 @@ namespace Chilli
 			}
 
 			reference operator*() const {
-				return storage->Events[idx];
+				return storage->Data()[idx];
 			}
 
 			Iterator& operator++() {
@@ -130,17 +146,12 @@ namespace Chilli
 
 		// begin = first unread event
 		Iterator begin() {
-			return Iterator(storage, index);
+			return Iterator(storage, 0);
 		}
 
 		// end = storage->ActiveSize
 		Iterator end() {
-			return Iterator(storage, storage->ActiveSize);
-		}
-
-		// Called after range-for loop to update reader position
-		void sync() {
-			index = storage->ActiveSize;
+			return Iterator(storage, storage->GetActiveSize());
 		}
 	};
 
@@ -237,9 +248,14 @@ namespace Chilli
 
 	struct DefferedRenderingResource
 	{
-		BackBone::AssetHandle<Texture> GeometryColorOutput;
-		BackBone::AssetHandle<GraphicsPipeline> ScenePipeline;
-		BackBone::AssetHandle<Mesh> SceneRenderMesh;
+		BackBone::AssetHandle<Image> GeometryColorImage;
+		BackBone::AssetHandle<Image> GeometryDepthImage;
+		BackBone::AssetHandle<Texture> GeometryColorTexture;
+		BackBone::AssetHandle<Texture> GeometryDepthTexture;
+		//BackBone::AssetHandle<GraphicsPipeline> ScenePipeline;
+		BackBone::AssetHandle<Mesh> ScreenRenderMesh;
+		BackBone::AssetHandle<ShaderProgram> ScreenShaderProgram;
+		BackBone::AssetHandle<Material> ScreenMaterial;
 		BackBone::Entity SceneEntity;
 	};
 
@@ -301,7 +317,7 @@ namespace Chilli
 	struct RenderGraphPass
 	{
 		const char* DebugName = nullptr;
-		RenderPassInfo Pass;
+		CompiledPass Pass;
 		std::function<void(BackBone::SystemContext&, RenderPassInfo&)> RenderFn;
 		uint32_t SortOrder = 0;
 	};
@@ -309,11 +325,20 @@ namespace Chilli
 	struct RenderGraph
 	{
 		std::vector<RenderGraphPass> Passes;
+
+		void PushGraphPass(const RenderGraphPass& Pass)
+		{
+			Passes.push_back(Pass);
+		}
+
+		std::vector<RenderGraphPass>::iterator begin() { return Passes.begin(); }
+		std::vector<RenderGraphPass>::iterator end() { return Passes.end(); }
 	};
 	class Renderer;
 	class RenderCommand;
-	
+
 	void OnPresentRender(BackBone::SystemContext& Ctxt, RenderPassInfo& Pass);
+	void OnRenderExtensionsSetup(BackBone::SystemContext& Ctxt);
 
 #pragma endregion
 
@@ -465,15 +490,14 @@ namespace Chilli
 	{
 
 	};
-	
 
 	struct PepperResource
 	{
 		static const uint32_t MeshQuadCount = 10000;
-	
+
 		BackBone::AssetHandle<Mesh> SquareMesh;
 		BackBone::AssetHandle<Texture> PepperDeafultTexture;
-		BackBone::AssetHandle<GraphicsPipeline> PepperPipeline;
+		//BackBone::AssetHandle<GraphicsPipeline> PepperPipeline;
 		BackBone::AssetHandle<Material> BasicMaterial;
 		IVec2 InitialWindowSize{ 0,0 };
 		IVec2 CurrentWindowSize{ 0,0 };
@@ -579,7 +603,7 @@ namespace Chilli
 		~Command() {}
 
 		// Render Services Related
-		BackBone::AssetHandle<Mesh> CreateMesh(const BetterMeshCreateInfo& Info);
+		BackBone::AssetHandle<Mesh> CreateMesh(const MeshCreateInfo& Info);
 		BackBone::AssetHandle<Mesh> CreateMesh(BasicShapes Shape, float Scale = 0.5f);
 		void DestroyMesh(BackBone::AssetHandle<Mesh> mesh, bool Free = true);
 		void FreeMesh(Mesh& mesh);
@@ -587,20 +611,34 @@ namespace Chilli
 		uint32_t CreateEntity();
 		void DestroyEntity(uint32_t EntityID);
 
-		BackBone::AssetHandle<Sampler> CreateSampler(const Sampler& Spec);
-		void FreeSampler(Sampler& sampler);
-		void DestroySampler(const BackBone::AssetHandle<Sampler>& sampler, bool Free = true);
+		BackBone::AssetHandle<Sampler> CreateSampler(const SamplerSpec& Spec);
+		void DestroySampler(const BackBone::AssetHandle<Sampler>& sampler);
 
-		BackBone::AssetHandle<GraphicsPipeline> CreateGraphicsPipeline(const GraphicsPipelineCreateInfo& Spec);
-		void FreeGraphicsPipeline(GraphicsPipeline& Pipeline);
-		void DestroyGraphicsPipeline(const BackBone::AssetHandle<GraphicsPipeline>& Pipeline, bool Free = true);
+		BackBone::AssetHandle<Image> AllocateImage(const ImageSpec& Spec);
+		std::pair<BackBone::AssetHandle<Image>, BackBone::AssetHandle<ImageData>> AllocateImage(const char* FilePath, ImageFormat Format, uint32_t Usage,
+			ImageType Type,uint32_t MipLevel = 1, bool YFlip = false);
+		void DestroyImage(const BackBone::AssetHandle<Image>& ImageHandle);
+		void MapImageData(const BackBone::AssetHandle<Image>& ImageHandle, void* Data, int Width, int Height);
 
-		BackBone::AssetHandle<Texture> CreateTexture(const ImageSpec& ImgSpec, const char* FilePath);
-		void LoadImageData(const BackBone::AssetHandle<Texture>& Tex, void* Data, IVec2 Resolution);
-		void DestroyTexture(const BackBone::AssetHandle<Texture>& Tex, bool Free = true);
-		void FreeTexture(const Texture& Tex);
+		BackBone::AssetHandle<Texture> CreateTexture(const BackBone::AssetHandle<Image>& ImageHandle, const TextureSpec& Spec);
+		void DestroyTexture(const BackBone::AssetHandle<Texture>& TextureHandle);
 
-		BackBone::AssetHandle<Material> AddMaterial(const Material& Mat);;
+		BackBone::AssetHandle<Material> CreateMaterial(const Material& Mat);;
+		void DestroyMaterial(const BackBone::AssetHandle<Material>& Mat);;
+
+		BackBone::AssetHandle<ShaderModule> CreateShaderModule(const char* FilePath, ShaderStageType Type);
+		void DestroyShaderModule(const BackBone::AssetHandle<ShaderModule>& Handle);
+
+		BackBone::AssetHandle<ShaderProgram> CreateShaderProgram();
+		void AttachShaderModule(const BackBone::AssetHandle<ShaderProgram>& Program,
+			const BackBone::AssetHandle<ShaderModule>& Module);
+		void LinkShaderProgram(const BackBone::AssetHandle<ShaderProgram>& Handle);
+		void DestroyShaderProgram(const BackBone::AssetHandle<ShaderProgram>& Handle);
+
+		BackBone::AssetHandle<Buffer> CreateBuffer(const BufferCreateInfo& Info, const char* DebugName = "");
+		void DestroyBuffer(const BackBone::AssetHandle<Buffer>& Handle);
+		void MapBufferData(const BackBone::AssetHandle<Buffer>& Handle, void* Data, size_t Size
+			, size_t Offset = 0);
 
 		// Window Services Related
 		uint32_t SpwanWindow(const WindowSpec& Spec);
@@ -668,6 +706,33 @@ namespace Chilli
 			return _Ctxt.AssetRegistry->AddAsset<T>(asset);
 		}
 
+		template<DerivedFromIAssetLoader _T>
+		void AddLoader()
+		{
+			auto AssetLoader = this->GetService<Chilli::AssetLoader>();
+			AssetLoader->AddLoader<_T>();
+		}
+
+		template<DerivedFromIAssetLoader _T>
+		_T* GetLoader()
+		{
+			auto AssetLoader = this->GetService<Chilli::AssetLoader>();
+			return AssetLoader->GetLoader<_T>();
+		}
+
+		template<typename _AssetType>
+		BackBone::AssetHandle<_AssetType> LoadAsset(const std::string& Path)
+		{
+			auto AssetLoader = this->GetService<Chilli::AssetLoader>();
+			return AssetLoader->Load<_AssetType>(Path);
+		}
+
+		void UnloadAsset(const std::string& Path)
+		{
+			auto AssetLoader = this->GetService<Chilli::AssetLoader>();
+			AssetLoader->Unload(Path);
+		}
+
 		template<typename _ServiceType>
 		_ServiceType* GetService() { return _Ctxt.ServiceRegistry->GetService<_ServiceType>(); }
 
@@ -676,17 +741,6 @@ namespace Chilli
 		void _Setup(const BackBone::SystemContext& Ctxt);
 	private:
 		BackBone::SystemContext _Ctxt;
-		// Common Services
-		Renderer* _RenderService = nullptr;
-		RenderCommand* _RenderCommandService = nullptr;
-		WindowManager* _WindowService = nullptr;
-		EventHandler* _EventService = nullptr;
-		// Common Asset Stores
-		BackBone::AssetStore<Sampler>* _SamplerStore = nullptr;
-		BackBone::AssetStore<Texture>* _TextureStore = nullptr;
-		BackBone::AssetStore<Material>* _MaterialStore = nullptr;
-		BackBone::AssetStore<Mesh>* _MeshStore = nullptr;
-		BackBone::AssetStore<GraphicsPipeline>* _GraphicsPipelineStore = nullptr;
 	};
 #pragma endregion 
 }

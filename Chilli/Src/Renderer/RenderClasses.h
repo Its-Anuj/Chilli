@@ -3,6 +3,8 @@
 #include "Mesh.h"
 #include "GraphicsBackend.h"
 #include "DeafultExtensions.h"
+#include "MemoryArena.h"
+#include "FrameAllocator.h"
 
 namespace Chilli
 {
@@ -14,20 +16,6 @@ namespace Chilli
 
 		void Terminate() {}
 
-		inline CommandBufferAllocInfo AllocateCommandBuffer(CommandBufferPurpose Purpose) { return _Api.lock()->AllocateCommandBuffer(Purpose); }
-		inline void FreeCommandBuffer(CommandBufferAllocInfo& Info) { _Api.lock()->FreeCommandBuffer(Info); }
-
-		inline void AllocateCommandBuffers(CommandBufferPurpose Purpose, std::vector<CommandBufferAllocInfo>& Infos, uint32_t Count)
-		{
-			_Api.lock()->AllocateCommandBuffers(Purpose, Infos, Count);
-		}
-
-		inline void FreeCommandBuffers(std::vector<CommandBufferAllocInfo>& Infos) { _Api.lock()->FreeCommandBuffers(Infos); }
-
-		inline void ResetCommandBuffer(const CommandBufferAllocInfo& Info) { _Api.lock()->ResetCommandBuffer(Info); }
-		inline void BeginCommandBuffer(const CommandBufferAllocInfo& Info) { _Api.lock()->BeginCommandBuffer(Info); }
-		inline void EndCommandBuffer() { _Api.lock()->EndCommandBuffer(); }
-
 		uint32_t AllocateBuffer(const BufferCreateInfo& Info) { return _Api.lock()->AllocateBuffer(Info); }
 		void MapBufferData(uint32_t BufferHandle, void* Data, uint32_t Size, uint32_t Offset = 0) {
 			_Api.lock()->MapBufferData(BufferHandle, Data, Size, Offset);
@@ -35,40 +23,8 @@ namespace Chilli
 
 		void FreeBuffer(uint32_t BufferHandle) { _Api.lock()->FreeBuffer(BufferHandle); }
 
-		uint32_t CreateGraphicsPipeline(const GraphicsPipelineCreateInfo& CreateInfo) { return _Api.lock()->CreateGraphicsPipeline(CreateInfo); }
-
-		void DestroyGraphicsPipeline(uint32_t PipelineHandle) { _Api.lock()->DestroyGraphicsPipeline(PipelineHandle); }
-
-
-		inline uint32_t CreateFence(bool signaled = false) { return _Api.lock()->CreateFence(signaled); }
-		inline void DestroyFence(const Fence& fence) { _Api.lock()->DestroyFence(fence); }
-		inline void ResetFence(const Fence& fence) { _Api.lock()->ResetFence(fence); }
-		inline bool IsFenceSignaled(const Fence& fence) { return _Api.lock()->IsFenceSignaled(fence); }
-		inline void WaitForFence(const Fence& fence, uint64_t TimeOut = UINT64_MAX) {
-			_Api.lock()->WaitForFence(fence, TimeOut);
-		}
-
-		inline uint32_t AllocateImage(const ImageSpec& ImgSpec, const char* FilePath = nullptr)
-		{
-			return _Api.lock()->AllocateImage(ImgSpec, FilePath);
-		}
-
-		inline void LoadImageData(uint32_t TexHandle, const char* FilePath) {
-			_Api.lock()->LoadImageData(TexHandle, FilePath);
-		}
-		inline void LoadImageData(uint32_t TexHandle, void* Data,IVec2 Resolution) {
-			_Api.lock()->LoadImageData(TexHandle, Data, Resolution);
-		}
-		inline void LoadImageData(uint32_t TexHandle, void* Data, uint32_t Size) {
-			_Api.lock()->LoadImageData(TexHandle, Data, Size);
-		}
-		inline void FreeTexture(uint32_t TexHandle)
-		{
-			_Api.lock()->FreeTexture(TexHandle);
-		}
-
-		inline uint32_t CreateSampler(const Sampler& sampler) {
-			return _Api.lock()->CreateSampler(sampler);
+		inline uint32_t CreateSampler(const SamplerSpec& Spec) {
+			return _Api.lock()->CreateSampler(Spec);
 		}
 		inline void DestroySampler(uint32_t  sampler) {
 			_Api.lock()->DestroySampler(sampler);
@@ -78,6 +34,71 @@ namespace Chilli
 			_Api.lock()->PrepareForShutDown();
 		}
 
+		inline ShaderModule CreateShaderModule(const char* FilePath, ShaderStageType Type) {
+			return _Api.lock()->CreateShaderModule(FilePath, Type);
+		}
+		inline void DestroyShaderModule(const ShaderModule& Module) {
+			_Api.lock()->DestroyShaderModule(Module);
+		}
+
+		inline uint32_t MakeShaderProgram() {
+			return _Api.lock()->MakeShaderProgram();
+		}
+		inline void AttachShader(uint32_t ProgramHandle, const ShaderModule& Shader) {
+			_Api.lock()->AttachShader(ProgramHandle, Shader);
+		}
+
+		inline void ClearShaderProgram(uint32_t ProgramHandle) {
+			_Api.lock()->ClearShaderProgram(ProgramHandle);
+		}
+		inline void LinkShaderProgram(uint32_t ProgramHandle) {
+			_Api.lock()->LinkShaderProgram(ProgramHandle);
+		}
+
+		inline uint32_t PrepareMaterialData(uint32_t ShaderProgramHandle)
+		{
+			return _Api.lock()->PrepareMaterialData(ShaderProgramHandle);
+		}
+
+		inline uint32_t PrepareMaterialData(const BackBone::AssetHandle<Material>& Mat)
+		{
+			return PrepareMaterialData(Mat.ValPtr->ShaderProgramId.ValPtr->RawProgramHandle);
+		}
+
+		void ClearMaterialData(uint32_t RawMaterialHandle)
+		{
+			_Api.lock()->ClearMaterialData(RawMaterialHandle);
+		}
+
+		void ClearMaterialData(const BackBone::AssetHandle<Material>& Mat)
+		{
+			_Api.lock()->ClearMaterialData(Mat.ValPtr->RawMaterialHandle);
+		}
+
+		const GraphcisBackendCreateSpec& GetSpec() const
+		{
+			return _Api.lock()->GetSpec();
+		}
+
+		inline uint32_t AllocateImage(const ImageSpec& Spec) {
+			return _Api.lock()->AllocateImage(Spec);
+		}
+
+		inline void DestroyImage(uint32_t ImageHandle) {
+			_Api.lock()->DestroyImage(ImageHandle);
+		}
+		inline void MapImageData(uint32_t ImageHandle, void* Data, int Width, int Height) {
+			_Api.lock()->MapImageData(ImageHandle, Data, Width, Height);
+		}
+
+		inline uint32_t CreateTexture(uint32_t ImageHandle, const TextureSpec& Spec) {
+			return _Api.lock()->CreateTexture(ImageHandle, Spec);
+		}
+		inline void DestroyTexture(uint32_t TextureHandle)
+		{
+			_Api.lock()->DestroyTexture(TextureHandle);
+		}
+
 	private:
 		std::weak_ptr<GraphicsBackendApi> _Api;
 	};
@@ -85,89 +106,172 @@ namespace Chilli
 	class Renderer
 	{
 	public:
-		Renderer() {}
+		Renderer() :_RenderPerFrameArena() {
+			_CommandBuffers.reserve(10);
+			_CommandBuffers.push_back(GraphicsCommandBuffer());
+			SetActiveCommandBuffer(0);
+		}
+
 		~Renderer() {}
 
 		void Init(const GraphcisBackendCreateSpec& Spec);
 		void Terminate();
 		std::shared_ptr<RenderCommand> CreateRenderCommand();
 
-		void BeginFrame();
-
-		bool RenderBegin(const CommandBufferAllocInfo& Info, uint32_t FrameIndex)
-		{
-			return  _Api->RenderBegin(Info, FrameIndex);
-		}
-
-		void BeginRenderPass(const RenderPassInfo& Pass)
-		{
-			_Api->BeginRenderPass(Pass);
-		}
-
-		void EndRenderPass()
-		{
-			_Api->EndRenderPass();
-		}
-
-		void RenderEnd() {
-			_Api->RenderEnd();
-		}
-
-		inline void BindGraphicsPipeline(uint32_t PipelineHandle) { _Api->BindGraphicsPipeline(PipelineHandle); }
-		inline void BindVertexBuffers(uint32_t* BufferHandles, uint32_t Count) { _Api->BindVertexBuffers(BufferHandles, Count); }
-		inline void BindIndexBuffer(uint32_t IBHandle, IndexBufferType Type) {
-			_Api->BindIndexBuffer(IBHandle, Type);
-		}
-
-		inline void SetViewPortSize(int Width, int Height) { _Api->SetViewPortSize(Width, Height); }
-		inline void SetScissorSize(int Width, int Height) { _Api->SetScissorSize(Width, Height); }
-
-		inline  void SetViewPortSize(bool UseActiveRenderPassArea) {
-			_Api->SetViewPortSize(UseActiveRenderPassArea);
-		}
-
-		inline void SetScissorSize(bool UseActiveRenderPassArea) {
-			_Api->SetScissorSize(UseActiveRenderPassArea);
-		}
-
 		inline  void FrameBufferResize(int Width, int Height) { _Api->FrameBufferResize(Width, Height); };
 
-		inline void DrawArrays(uint32_t Count) { _Api->DrawArrays(Count); }
-		inline void DrawIndexed(uint32_t Count) { _Api->DrawIndexed(Count); }
-		inline void SendPushConstant(int Type, void* Data, uint32_t Size
-			, uint32_t Offset = 0) {
-			_Api->SendPushConstant(Type, Data, Size, Offset);
-		}
-		inline void UpdateGlobalShaderData(const GlobalShaderData& Data)
-		{
-			_Api->UpdateGlobalShaderData(Data);
-		}
-		inline void UpdateSceneShaderData(const SceneShaderData& Data)
-		{
-			_Api->UpdateSceneShaderData(Data);
+		void Clear();
+		void BeginFrame();
+		// Pushes all Graphics CommandBuffers to be executed and clears all graphics Command Buffer
+		void EndFrame();
+
+		uint32_t CreateCommandBuffer() {
+			_CommandBuffers.push_back(GraphicsCommandBuffer());
+			return _CommandBuffers.size();
 		}
 
-		inline void UpdateMaterialSSBO(const BackBone::AssetHandle<Material>& Mat)
-		{
-			_Api->UpdateMaterialSSBO(Mat);
-		}
-		inline void UpdateObjectSSBO(const glm::mat4& TransformationMat, BackBone::Entity EntityID) {
-			_Api->UpdateObjectSSBO(TransformationMat, EntityID);
+		void SetActiveCommandBuffer(uint32_t CmdBufferID) {
+			_ActiveCommandBufferIndex = CmdBufferID;
+			_ActiveCommandBuffer = &_CommandBuffers[_ActiveCommandBufferIndex];
 		}
 
-		inline void SubmitCommandBuffer(const CommandBufferAllocInfo& Info, const Fence& SubmitFence)
-		{
-			_Api->SubmitCommandBuffer(Info, SubmitFence);
+		void SetActivePipelineState(const PipelineStateInfo& State);
+		void SetActiveCompiledRenderPass(const CompiledPass& Pass);
+
+		inline void BindVertexBuffer(uint32_t VertexBufferID) {
+			_ActiveCommandBuffer->_CurrentInfo.RenderState.VertexBufferID = VertexBufferID; 
+		}
+		
+		inline void UnBindVertexBuffer() { 
+			_ActiveCommandBuffer->_CurrentInfo.RenderState.VertexBufferID = UINT32_MAX; 
+		}
+		
+		inline void BindIndexBuffer(uint32_t IndexBufferID) { 
+			_ActiveCommandBuffer->_CurrentInfo.RenderState.IndexBufferID = IndexBufferID;
+		}
+		
+		inline void UnBindIndexBuffer() {
+			_ActiveCommandBuffer->_CurrentInfo.RenderState.IndexBufferID = UINT32_MAX;
 		}
 
-		inline SparseSet<uint32_t>& GetMap(BindlessSetTypes Type) {
-			return _Api->GetMap(Type);
+		inline void UseShaderProgram(uint32_t ProgramID) {
+			_ActiveCommandBuffer->_CurrentInfo.RenderState.ShaderProgramID = ProgramID;
 		}
+
+		inline void UseMaterial(uint32_t RawMaterialID) { 
+			_ActiveCommandBuffer->_CurrentInfo.RenderState.MaterialID = RawMaterialID;
+		}
+
+		void Draw(uint32_t VertexCount, uint32_t InstanceCount, uint32_t FirstVertex, uint32_t  FirstInstance);
+
+		void PushInlineUniformData(uint64_t Stage, void* Data, size_t Size, size_t Offset = 0);
+
+		void PushEmptyInlineUniformData() { 
+			_ActiveCommandBuffer->_CurrentInfo.InlineUniformData.Block = nullptr;
+		}
+
+		void UpdateGlobalShaderData(const GlobalShaderData& Data) { _Api->UpdateGlobalShaderData(Data); }
+		void UpdateSceneShaderData(const SceneShaderData& Data) { _Api->UpdateSceneShaderData(Data); }
 
 		const char* GetName() const { return _Api->GetName(); }
 		GraphicsBackendType GetType() const { return _Api->GetType(); }
+
+		// --- Rasterization ---
+		void SetCullMode(CullMode value)
+		{
+			_ActiveCommandBuffer->_CurrentInfo.ShaderCullMode = value;
+		}
+
+		void SetPolygonMode(PolygonMode value)
+		{
+			_ActiveCommandBuffer->_CurrentInfo.ShaderFillMode = value;
+		}
+
+		void SetFrontFace(FrontFaceMode value)
+		{
+			_ActiveCommandBuffer->_CurrentInfo.FrontFace = value;
+		}
+
+		void SetLineWidth(float value)
+		{
+			_ActiveCommandBuffer->_CurrentInfo.LineWidth = value;
+		}
+
+		void SetRasterizerDiscard(bool value)
+		{
+			_ActiveCommandBuffer->_CurrentInfo.RasterizerDiscardEnable = value;
+		}
+
+		// --- Depth Bias ---
+		void SetDepthBiasEnable(bool value)
+		{
+			_ActiveCommandBuffer->_CurrentInfo.DepthBiasEnable = value;
+		}
+
+		void SetDepthBiasConstantFactor(float value)
+		{
+			_ActiveCommandBuffer->_CurrentInfo.DepthBiasConstantFactor = value;
+		}
+
+		void SetDepthBiasClamp(float value)
+		{
+			_ActiveCommandBuffer->_CurrentInfo.DepthBiasClamp = value;
+		}
+
+		void SetDepthBiasSlopeFactor(float value)
+		{
+			_ActiveCommandBuffer->_CurrentInfo.DepthBiasSlopeFactor = value;
+		}
+
+		void PushShaderBuffer(const BackBone::AssetHandle<Material>& Mat,
+			const Chilli::BackBone::AssetHandle<Chilli::Buffer>& Buffer,
+			const char* Name, size_t Size, size_t Offset);
+
+		void PushShaderTexture(const BackBone::AssetHandle<Material>& Mat,
+			const Chilli::BackBone::AssetHandle<Chilli::Texture>& Tex,
+			const char* Name);
+
+		void PushShaderSampler(const BackBone::AssetHandle<Material>& Mat,
+			const Chilli::BackBone::AssetHandle<Chilli::Sampler>& Tex,
+			const char* Name);
+
+		template<typename T>
+		void PushShaderBuffer(const BackBone::AssetHandle<Material>& Mat,
+			const Chilli::BackBone::AssetHandle<Chilli::Buffer>& Buffer,
+			const char* Name, size_t Offset)
+		{
+			PushShaderBuffer(Mat, Buffer, Name, sizeof(T), Offset);
+		}
+
+		uint32_t GetCurrentFrameIndex() { return _Api->GetCurrentFrameIndex(); }
+
+		uint32_t GetTextureShaderIndex(uint32_t RawTextureHandle) { return _Api->GetTextureShaderIndex(RawTextureHandle); }
+		uint32_t GetSamplerShaderIndex(uint32_t RawSamplerHandle) { return _Api->GetSamplerShaderIndex(RawSamplerHandle); }
+
+		void UpdateMaterialShaderData(uint32_t MaterialHandle, const MaterialShaderData& Data) {
+			_Api->UpdateMaterialShaderData(MaterialHandle, Data);
+		}
+
+		void UpdateMaterialShaderData(BackBone::AssetHandle<Material> MaterialHandle, const MaterialShaderData& Data) {
+			_Api->UpdateMaterialShaderData(MaterialHandle.ValPtr->RawMaterialHandle, Data);
+		}
+
+		uint32_t GetMaterialShaderIndex(uint32_t RawMaterialHandle) {
+			return _Api->GetMaterialShaderIndex(RawMaterialHandle);
+		}
+
 	private:
 		std::shared_ptr<GraphicsBackendApi> _Api;
-	};
+		
+		std::vector< GraphicsCommandBuffer> _CommandBuffers;
+		uint32_t _ActiveCommandBufferIndex = UINT32_MAX;
+		GraphicsCommandBuffer* _ActiveCommandBuffer;
 
+		// Separate data storage (also contiguous)
+		FrameAllocator _InlineUniformDataAllocator;
+
+		MemoryArena _RenderPerFrameArena;
+		uint32_t _FrameIndex = 0;
+		uint32_t _MaxFramesInFlight = 0;
+	};
 }
