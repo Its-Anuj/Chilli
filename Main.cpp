@@ -130,6 +130,14 @@ void OnGamePlay(Chilli::BackBone::SystemContext& Ctxt)
 		PlayerTranform->Position.y += 0.1f * Ts;
 	if (InputManager->IsKeyDown(Chilli::Input_key_S))
 		PlayerTranform->Position.y -= 0.1f * Ts;
+
+	auto RenderService = Command.GetService<Chilli::Renderer>();
+	RenderService->UpdateMaterialTextureData(GameData->Material.ValPtr->RawMaterialHandle,
+		GameData->GrayTexture.ValPtr->RawTextureHandle,
+		"Texture", Chilli::ResourceState::ShaderRead);
+	RenderService->UpdateMaterialSamplerData(GameData->Material.ValPtr->RawMaterialHandle,
+		GameData->Sampler.ValPtr->SamplerHandle,
+		"Sampler");
 }
 
 void OnGameShutDown(Chilli::BackBone::SystemContext& Ctxt)

@@ -8,6 +8,6 @@ layout(location = 1) in vec2 InTexCoords;
 layout(location = 0) out vec2 fragUV;
 
 void main() {
-    gl_Position = vec4(InPosition, 1.0);
+    gl_Position = vec4((GlobalUBO.ResolutionTime.y/GlobalUBO.ResolutionTime.x) * InPosition, 1.0);
     fragUV = InTexCoords;
 }

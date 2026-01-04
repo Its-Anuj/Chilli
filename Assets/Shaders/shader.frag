@@ -5,10 +5,12 @@ layout(location = 0) in vec2 fragUV;
 
 layout(location = 0) out vec4 outColor;
 
+layout(set = 4, binding = 0) uniform texture2D Texture;
+layout(set = 4, binding = 1) uniform sampler Sampler;
+
 void main()
 {
-    Material ActiveMat = Materials[DrawPushData.MaterialIndex];
-    vec4 texColor = texture(sampler2D(Textures[ActiveMat.AlbedoTextureIndex], Samplers[ActiveMat.AlbedoSamplerIndex]), fragUV);
+    vec4 TextureColor = texture(sampler2D(Textures[0], Sampler), fragUV);
 
-    outColor = texColor;
+    outColor = TextureColor ;
 }

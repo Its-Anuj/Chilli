@@ -3,6 +3,7 @@
 #include "BackBone.h"
 #include "Image.h"
 #include "Sampler.h"
+#include "RenderCore.h"
 
 using ChBool8 = uint8_t;
 using ChBool16 = uint16_t;
@@ -174,7 +175,7 @@ namespace Chilli
 		SCENE_BUFFER_USAGE = TEX_SAMPLERS,
 		MATERIAl = 2,
 		OBJECT_MAP_USAGE = MATERIAl,
- 		PER_OBJECT = 3,
+		PER_OBJECT = 3,
 		MAP_USAGE_COUNT = PER_OBJECT,
 		COUNT_NON_USER,
 		USER_0 = COUNT_NON_USER,
@@ -430,7 +431,7 @@ namespace Chilli
 	{
 		ShaderObjectTypes Type;
 		uint32_t Offset = 0;
-		std::string Name; // Changed to std::string for safety, or keep const char* if managing memory carefully
+		char Name[SHADER_UNIFORM_BINDING_NAME_SIZE] = { 0 };
 		uint32_t Location = 0; // 'Binding' usually refers to the Buffer index, 'Location' to the shader input index
 
 		// Helper to calculate size based on type
@@ -470,7 +471,7 @@ namespace Chilli
 		/// added to the global stride, effectively "skipping" these bytes in the vertex 
 		/// buffer and adding them as an offset to the next attribute.
 		/// </param>
-		void AddAttribute(ShaderObjectTypes type, const std::string& name, uint32_t location, bool Hide = false)
+		void AddAttribute(ShaderObjectTypes type, const char* name, uint32_t location, bool Hide = false)
 		{
 			if (Bindings.empty()) BeginBinding(0);
 
@@ -478,8 +479,9 @@ namespace Chilli
 
 			VertexInputShaderAttribute attrib;
 			attrib.Type = type;
-			attrib.Name = name;
 			attrib.Location = location;
+
+			strncpy(attrib.Name, name, SHADER_UNIFORM_BINDING_NAME_SIZE);
 
 			// Auto-calculate offset based on current stride
 			attrib.Offset = currentBinding.Stride;
@@ -529,9 +531,8 @@ namespace Chilli
 
 		// --- 4. Blending/Color Write ---
 		// If blend equations are dynamic (rare, but possible)
-		std::vector<ColorBlendAttachmentState> ColorBlendAttachments;
-
-		VertexInputShaderLayout VertexInputLayout;
+		uint32_t ColorBlendAttachmentsCount = 0;
+		ColorBlendAttachmentState ColorBlendAttachments[CH_MAX_COLOR_ATTACHMENT_COUNT];
 	};
 
 	class PipelineBuilder {
@@ -577,9 +578,6 @@ namespace Chilli
 			builder._state.SampleMask = 0xFFFFFFFF;
 			builder._state.AlphaToCoverageEnable = false;
 
-
-			// The struct defaults cover most of it, we just add the default attachment
-			builder._state.ColorBlendAttachments.push_back(ColorBlendAttachmentState::OpaquePass());
 			return builder;
 		}
 
@@ -634,17 +632,13 @@ namespace Chilli
 
 		// --- Blending & Layout ---
 		PipelineBuilder& AddColorBlend(const ColorBlendAttachmentState& blend) {
-			_state.ColorBlendAttachments.push_back(blend);
+			_state.ColorBlendAttachments[_state.ColorBlendAttachmentsCount] = (blend);
+			_state.ColorBlendAttachmentsCount++;
 			return *this;
 		}
 
 		PipelineBuilder& ClearColorBlends() {
-			_state.ColorBlendAttachments.clear();
-			return *this;
-		}
-
-		PipelineBuilder& SetVertexLayout(const VertexInputShaderLayout& layout) {
-			_state.VertexInputLayout = layout;
+			_state.ColorBlendAttachmentsCount = 0;
 			return *this;
 		}
 

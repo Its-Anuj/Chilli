@@ -18,7 +18,7 @@ namespace Chilli
 
 		VkImageLayout GetImageLayout() const { return _Layout; }
 		void SetImageLayout(VkImageLayout Layout) { _Layout = Layout; }
-
+		void SetResourceState(ResourceState State) { _Spec.State = State; }
 	private:
 		VkImage _Image = VK_NULL_HANDLE;
 		VmaAllocation _Allocation;

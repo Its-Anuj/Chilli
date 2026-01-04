@@ -120,6 +120,25 @@ namespace Chilli
 		auto RenderCommandService = Command.GetService<RenderCommand>();
 		auto RenderService = Command.GetService<Renderer>();
 
+		auto DefferedResource = Command.GetResource< DefferedRenderingResource>();
+
+		auto ActiveMaterial = DefferedResource->ScreenMaterial.ValPtr;
+		auto ActiveShader = DefferedResource->ScreenShaderProgram;
+
+		RenderService->BindShaderProgram(DefferedResource->ScreenShaderProgram.ValPtr->RawProgramHandle);
+		RenderService->BindMaterailData(DefferedResource->ScreenMaterial.ValPtr->RawMaterialHandle);
+
+		DrawPushShaderInlineUniformData PushData;
+		PushData.ObjectIndex = RenderService->GetTextureShaderIndex(ActiveMaterial->AlbedoTextureHandle.ValPtr->RawTextureHandle);
+		PushData.MaterialIndex = RenderService->GetSamplerShaderIndex(ActiveMaterial->AlbedoSamplerHandle.ValPtr->SamplerHandle);
+
+		RenderService->PushInlineUniformData(ActiveShader.ValPtr->RawProgramHandle,
+			SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, &PushData, sizeof(PushData), 0);
+
+		RenderService->BindVertexBuffer({ DefferedResource->ScreenRenderMesh.ValPtr->VBHandle.ValPtr->RawBufferHandle });
+		RenderService->BindIndexBuffer(DefferedResource->ScreenRenderMesh.ValPtr->IBHandle.ValPtr->RawBufferHandle, IndexBufferType::UINT16_T);
+
+		RenderService->DrawIndexed(DefferedResource->ScreenRenderMesh.ValPtr->IndexCount, 1, 0, 0, 0);
 	}
 
 	void OnRenderExtensionGeometryPassRender(BackBone::SystemContext& Ctxt, RenderPassInfo& Pass)
@@ -130,41 +149,24 @@ namespace Chilli
 
 		for (auto [Transform, MeshComp] : BackBone::Query<TransformComponent, MeshComponent>(*Ctxt.Registry))
 		{
-			auto Mesh = MeshComp->MeshHandle.ValPtr;
-			RenderService->UseShaderProgram(MeshComp->MaterialHandle.ValPtr->ShaderProgramId.ValPtr->RawProgramHandle);
-
-			RenderService->BindVertexBuffer(Mesh->VBHandle.ValPtr->RawBufferHandle);
-			if (Mesh->IBHandle.ValPtr == nullptr)
-				RenderService->UnBindIndexBuffer();
-			else
-				RenderService->BindIndexBuffer(Mesh->IBHandle.ValPtr->RawBufferHandle);
-
-			RenderService->UseMaterial(MeshComp->MaterialHandle.ValPtr->RawMaterialHandle);
-
-			uint32_t ElementCount = 0;
-			ElementCount = Mesh->VertexCount;
-			if (Mesh->IBHandle.ValPtr != nullptr)
-				ElementCount = Mesh->IndexCount;
-
 			auto ActiveMaterial = MeshComp->MaterialHandle.ValPtr;
+			auto ActiveShader = MeshComp->MaterialHandle.ValPtr->ShaderProgramId;
+			auto ActiveMesh = MeshComp->MeshHandle.ValPtr;
 
-			struct PushConstant {
-				int ObjectIndex;
-				int MaterialIndex;
-			} DrawPushData;
+			RenderService->BindShaderProgram(ActiveShader.ValPtr->RawProgramHandle);
+			RenderService->BindMaterailData(MeshComp->MaterialHandle.ValPtr->RawMaterialHandle);
 
-			DrawPushData.MaterialIndex = RenderService->GetMaterialShaderIndex(ActiveMaterial->RawMaterialHandle);
+			RenderService->BindVertexBuffer({ ActiveMesh->VBHandle.ValPtr->RawBufferHandle });
+			RenderService->BindIndexBuffer(ActiveMesh->IBHandle.ValPtr->RawBufferHandle, IndexBufferType::UINT16_T);
 
-			MaterialShaderData MaterialData;
-			MaterialData.AlbedoTextureIndex = RenderService->GetTextureShaderIndex(ActiveMaterial->AlbedoTextureHandle.ValPtr->RawTextureHandle);
-			MaterialData.AlbedoSamplerIndex = RenderService->GetSamplerShaderIndex(ActiveMaterial->AlbedoSamplerHandle.ValPtr->SamplerHandle);
+			DrawPushShaderInlineUniformData PushData;
+			PushData.ObjectIndex = RenderService->GetTextureShaderIndex(ActiveMaterial->AlbedoTextureHandle.ValPtr->RawTextureHandle);
+			PushData.MaterialIndex = RenderService->GetSamplerShaderIndex(ActiveMaterial->AlbedoSamplerHandle.ValPtr->SamplerHandle);
 
-			RenderService->UpdateMaterialShaderData(MeshComp->MaterialHandle, MaterialData);
+			RenderService->PushInlineUniformData(ActiveShader.ValPtr->RawProgramHandle,
+				SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, &PushData, sizeof(PushData), 0);
 
-			RenderService->PushInlineUniformData(SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, &DrawPushData,
-				sizeof(DrawPushData), 0);
-
-			RenderService->Draw(ElementCount, 1, 0, 0);
+			RenderService->DrawIndexed(ActiveMesh->IndexCount, 1, 0, 0, 0);
 		}
 	}
 
@@ -174,10 +176,12 @@ namespace Chilli
 		auto RenderService = Command.GetService<Renderer>();
 
 		RenderService->BeginFrame();
+
 		GlobalShaderData GlobalData;
 		GlobalData.ResolutionTime = { float(Command.GetActiveWindow()->GetWidth()), float(Command.GetActiveWindow()->GetHeight()),
 		GetWindowTime(), 0.0f };
-		RenderService->UpdateGlobalShaderData(GlobalData);
+
+		RenderService->PushUpdateGlobalShaderData(GlobalData);
 	}
 
 	void OnRenderExtensionRender(BackBone::SystemContext& Ctxt)
@@ -189,9 +193,17 @@ namespace Chilli
 
 		for (auto& Pass : *RenderGraph)
 		{
-			RenderService->SetActiveCompiledRenderPass(Pass.Pass);
-			RenderService->SetActivePipelineState(Pass.Pass.Info.InitialPipelineState);
+			for (auto& Barrier : Pass.Pass.PrePassBarriers)
+				RenderService->PushPipelienBarrier(Barrier, RenderStreamTypes::GRAPHICS);
+			RenderService->BeginRenderPass(Pass.Pass.Info);
+			RenderService->SetFullPipelineState(Pass.Info);
+			RenderService->SetVertexInputLayout(Pass.Layout);
+
 			Pass.RenderFn(Ctxt, Pass.Pass.Info);
+
+			RenderService->EndRenderPass();
+			for (auto& Barrier : Pass.Pass.PostPassBarriers)
+				RenderService->PushPipelienBarrier(Barrier, RenderStreamTypes::GRAPHICS);
 		}
 	}
 
@@ -215,86 +227,55 @@ namespace Chilli
 
 		auto ActiveWindow = Command.GetActiveWindow();
 
-		// === Color Blend State (Single Opaque Attachment) ===
-		RenderPassCompiler RenderPasses;
+		RenderPassCompiler Compiler;
+		uint32_t GeometryPassIndex = 0;
+		uint32_t ScreenPassIndex = 0;
+		uint32_t PresentPassIndex = 0;
 
-		uint32_t GeometryPassIndex;
-		uint32_t ScreenPassIndex;
-
-		// Gemoetry Pass
 		{
-			ImageSpec GeometryColorImageSpec;
-			GeometryColorImageSpec.Format = ImageFormat::RGBA8;
-			GeometryColorImageSpec.MipLevel = 1;
-			GeometryColorImageSpec.Resolution = { ActiveWindow->GetWidth(), ActiveWindow->GetHeight() , 1 };
-			GeometryColorImageSpec.Type = ImageType::IMAGE_TYPE_2D;
-			GeometryColorImageSpec.Usage = IMAGE_USAGE_SAMPLED_IMAGE | IMAGE_USAGE_COLOR_ATTACHMENT;
-			DefferedResource->GeometryColorImage = Command.AllocateImage(GeometryColorImageSpec);
+			ImageSpec Spec;
+			Spec.Format = ImageFormat::RGBA8;
+			Spec.ImageData = nullptr;
+			Spec.MipLevel = 1;
+			Spec.Resolution.Width = 800;
+			Spec.Resolution.Height = 600;
+			Spec.Resolution.Depth = 1;
+			Spec.Type = ImageType::IMAGE_TYPE_2D;
+			Spec.Usage = IMAGE_USAGE_COLOR_ATTACHMENT | IMAGE_USAGE_SAMPLED_IMAGE;
+			Spec.State = ResourceState::ShaderRead;
+			DefferedResource->GeometryColorImage = Command.AllocateImage(Spec);
 
-			TextureSpec GeometryColorTextureSpec;
-			GeometryColorTextureSpec.Format = GeometryColorImageSpec.Format;
-			DefferedResource->GeometryColorTexture = Command.CreateTexture(DefferedResource->GeometryColorImage, GeometryColorTextureSpec);
+			TextureSpec TextureSpec;
+			TextureSpec.Format = Spec.Format;
+			DefferedResource->GeometryColorTexture = Command.CreateTexture(DefferedResource->GeometryColorImage, TextureSpec);
 
-			RenderPassBuilder GeometryPassBuilder("GeometryPass");
+			ColorAttachment Color;
+			Color.ColorTexture = DefferedResource->GeometryColorTexture.ValPtr->RawTextureHandle;
+			Color.LoadOp = AttachmentLoadOp::CLEAR;
+			Color.StoreOp = AttachmentStoreOp::STORE;
+			Color.UseSwapChainImage = false;
+			Color.ClearColor = { 0.2f, 0.8f, 0.2f, 1.0f };
 
-			ColorAttachment GeometryColorAttachment;
-			GeometryColorAttachment.ClearColor = { 0.3f, 0.4f, 0.6f, 1.0f };
-			GeometryColorAttachment.LoadOp = AttachmentLoadOp::CLEAR;
-			GeometryColorAttachment.StoreOp = AttachmentStoreOp::STORE;
-			GeometryColorAttachment.UseSwapChainImage = false;
-			GeometryColorAttachment.ColorTexture = DefferedResource->GeometryColorTexture.ValPtr->RawTextureHandle;
+			RenderPassBuilder GeometryPass("GeometryPass");
+			GeometryPass.AddImageBarrier(true, DefferedResource->GeometryColorImage.ValPtr->RawImageHandle, 
+				ResourceState::ShaderRead, ResourceState::RenderTarget, false);
+			GeometryPass.AddImageBarrier(false, DefferedResource->GeometryColorImage.ValPtr->RawImageHandle,
+				ResourceState::RenderTarget, ResourceState::ShaderRead, false);
+			GeometryPass.AddColor(Color);
+			GeometryPass.SetArea(800, 600);
 
-			// The ColorBlendAttachmentState for opaque rendering (no blending)
-			ColorBlendAttachmentState opaqueBlend = ColorBlendAttachmentState::OpaquePass();
-
-			VertexInputShaderLayout SceneVertexLayout;
-			SceneVertexLayout.BeginBinding(0);
-			SceneVertexLayout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
-			SceneVertexLayout.AddAttribute(ShaderObjectTypes::FLOAT2, "InTexCoords", 1);
-
-			GeometryPassIndex = RenderPasses.PushPass(
-				GeometryPassBuilder
-				.AddColor(GeometryColorAttachment)
-				.SetArea(ActiveWindow->GetWidth(), ActiveWindow->GetHeight())
-				.SetPipeline(PipelineBuilder::Default()
-					.SetVertexLayout(SceneVertexLayout)
-					.AddColorBlend(opaqueBlend)
-					.Build())
-				.Build()
-			);
+			GeometryPassIndex = Compiler.PushPass(GeometryPass.Build());
 		}
 
 		{
-			// Create Shaders
-			auto ScreenVertexShader = Command.CreateShaderModule("Assets/Shaders/screen_vert.spv",
-				Chilli::ShaderStageType::SHADER_STAGE_VERTEX);
-			auto ScreenFragShader = Command.CreateShaderModule("Assets/Shaders/screen_frag.spv",
-				Chilli::ShaderStageType::SHADER_STAGE_FRAGMENT);
-
-			DefferedResource->ScreenShaderProgram = Command.CreateShaderProgram();
-			Command.AttachShaderModule(DefferedResource->ScreenShaderProgram, ScreenVertexShader);
-			Command.AttachShaderModule(DefferedResource->ScreenShaderProgram, ScreenFragShader);
-			Command.LinkShaderProgram(DefferedResource->ScreenShaderProgram);
-
-			Chilli::SamplerSpec SamplerSpec;
-			SamplerSpec.Filter = Chilli::SamplerFilter::NEAREST;
-			SamplerSpec.Mode = Chilli::SamplerMode::REPEAT;
-			auto MaterialSampler = Command.CreateSampler(SamplerSpec);
-
-			Chilli::Material Material;
-			Material.ShaderProgramId = DefferedResource->ScreenShaderProgram;
-			Material.AlbedoTextureHandle = DefferedResource->GeometryColorTexture;
-			Material.AlbedoSamplerHandle = MaterialSampler;
-			DefferedResource->ScreenMaterial = Command.CreateMaterial(Material);
-
 			Chilli::MeshCreateInfo SquareInfo{};
 
 			std::vector<Chilli::Vertex> SquareVertices = {
 				// Position              // UV
-				{ { -0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f } }, // Bottom-left
-				{ {  0.5f, -0.5f, 0.0f }, { 1.0f, 1.0f } }, // Bottom-right
-				{ {  0.5f,  0.5f, 0.0f }, { 1.0f, 0.0f } }, // Top-right
-				{ { -0.5f,  0.5f, 0.0f }, { 0.0f, 0.0f } }  // Top-left
+				{ { -1.0f, -1.0f, 0.0f }, { 0.0f, 1.0f } }, // Bottom-left
+				{ {  1.0f, -1.0f, 0.0f }, { 1.0f, 1.0f } }, // Bottom-right
+				{ {  1.0f,  1.0f, 0.0f }, { 1.0f, 0.0f } }, // Top-right
+				{ { -1.0f,  1.0f, 0.0f }, { 0.0f, 0.0f } }  // Top-left
 			};
 
 			std::vector<uint32_t> SquareIndices = {
@@ -310,80 +291,110 @@ namespace Chilli
 			SquareInfo.IndiciesSize = sizeof(uint32_t) * SquareIndices.size();
 			SquareInfo.IndexType = Chilli::IndexBufferType::UINT32_T;
 			SquareInfo.State = Chilli::BufferState::STATIC_DRAW;
-			auto SquareMesh = Command.CreateMesh(SquareInfo);
+			DefferedResource->ScreenRenderMesh = Command.CreateMesh(SquareInfo);
 
-			DefferedResource->ScreenRenderMesh = SquareMesh;
+			// Create Shaders
+			auto GeometryPassVertexShader = Command.CreateShaderModule("Assets/Shaders/screen_vert.spv",
+				Chilli::ShaderStageType::SHADER_STAGE_VERTEX);
+			auto GeometryPassFragShader = Command.CreateShaderModule("Assets/Shaders/screen_frag.spv",
+				Chilli::ShaderStageType::SHADER_STAGE_FRAGMENT);
 
-			DefferedResource->SceneEntity = Command.CreateEntity();
-			Command.AddComponent<Chilli::SceneRenderSurfaceComponent>(DefferedResource->SceneEntity,
-				Chilli::SceneRenderSurfaceComponent{
-					.ScreenMeshHandle = DefferedResource->ScreenRenderMesh,
-					.ScreenMaterialHandle = DefferedResource->ScreenMaterial
-				});
+			auto GeometryShaderProgram = Command.CreateShaderProgram();
+			Command.AttachShaderModule(GeometryShaderProgram, GeometryPassVertexShader);
+			Command.AttachShaderModule(GeometryShaderProgram, GeometryPassFragShader);
+			Command.LinkShaderProgram(GeometryShaderProgram);
+			DefferedResource->ScreenShaderProgram = GeometryShaderProgram;
 
-			// The ColorBlendAttachmentState for opaque rendering (no blending)
-			ColorBlendAttachmentState opaqueBlend = ColorBlendAttachmentState::OpaquePass();
+			Chilli::SamplerSpec SamplerSpec;
+			SamplerSpec.Filter = Chilli::SamplerFilter::NEAREST;
+			SamplerSpec.Mode = Chilli::SamplerMode::REPEAT;
+			auto Sampler = Command.CreateSampler(SamplerSpec);
 
-			VertexInputShaderLayout SceneVertexLayout;
-			SceneVertexLayout.BeginBinding(0);
-			SceneVertexLayout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
-			SceneVertexLayout.AddAttribute(ShaderObjectTypes::FLOAT2, "InTexCoords", 1);
+			Chilli::Material Material;
+			Material.ShaderProgramId = GeometryShaderProgram;
+			Material.AlbedoTextureHandle = DefferedResource->GeometryColorTexture;
+			Material.AlbedoSamplerHandle = Sampler;
+			DefferedResource->ScreenMaterial = Command.CreateMaterial(Material);
 
-			RenderPassBuilder ScreenPassBuilder("ScreenPass");
+			RenderPassBuilder ScreenPass("ScreenPass");
+			ScreenPass.AddSwapChain({ 0.2f, 0.2f, 0.2f, 1.0f });
+			ScreenPass.AddImageBarrier(true, UINT32_MAX, ResourceState::Present, ResourceState::RenderTarget, true);
+			ScreenPass.SetArea(800, 600);
 
-			ScreenPassIndex = RenderPasses.PushPass(
-				ScreenPassBuilder
-				.AddSwapChain({ 0.3f, 0.4f, 0.6f, 1.0f })
-				.SetArea(ActiveWindow->GetWidth(), ActiveWindow->GetHeight())
-				.SetPipeline(PipelineBuilder::Default()
-					.SetVertexLayout(SceneVertexLayout)
-					.AddColorBlend(opaqueBlend)
-					.Build())
-				.AddPipelineBarrier(DefferedResource->GeometryColorTexture.ValPtr->RawTextureHandle, ResourceState::RenderTarget,
-					ResourceState::ShaderRead)
-				.SetSwapChainPipelineBarrier(ResourceState::RenderTarget)
-				.Build()
-			);
+
+			auto RenderService = Command.GetService<Chilli::Renderer>();
+			RenderService->UpdateMaterialTextureData(DefferedResource->ScreenMaterial.ValPtr->RawMaterialHandle,
+				DefferedResource->GeometryColorTexture.ValPtr->RawTextureHandle,
+				"ScreenTexture", Chilli::ResourceState::ShaderRead);
+			RenderService->UpdateMaterialSamplerData(DefferedResource->ScreenMaterial.ValPtr->RawMaterialHandle,
+				Sampler.ValPtr->SamplerHandle,
+				"ScreenSampler");
+
+			ScreenPassIndex = Compiler.PushPass(ScreenPass.Build());
 		}
-		RenderPassBuilder PresentPassBuilder("PresentPass");
 
-		ColorAttachment PresentColorAttachment;
-		PresentColorAttachment.ClearColor = { 0.3f, 0.4f, 0.6f, 1.0f };
-		PresentColorAttachment.LoadOp = AttachmentLoadOp::LOAD;
-		PresentColorAttachment.StoreOp = AttachmentStoreOp::STORE;
-		PresentColorAttachment.UseSwapChainImage = true;
+		{
+			ColorAttachment Color;
+			Color.LoadOp = AttachmentLoadOp::LOAD;
+			Color.StoreOp = AttachmentStoreOp::STORE;
+			Color.UseSwapChainImage = true;
 
-		auto PresentPassIndex = RenderPasses.PushPass(
-			PresentPassBuilder
-			.AddColor(PresentColorAttachment)
-			.SetArea(ActiveWindow->GetWidth(), ActiveWindow->GetHeight())
-			.SetSwapChainPipelineBarrier(ResourceState::Present)
-			.Build()
-		);
+			RenderPassBuilder PresentPass("PresentPass");
+			PresentPass.AddColor(Color);
+			PresentPass.AddPostPipelineBarrier(UINT32_MAX, ResourceState::RenderTarget, ResourceState::Present,
+				false, true);
+			PresentPass.SetArea(800, 600);
 
-		auto RenderFramePasses = RenderPasses.Compile();
+			PresentPassIndex = Compiler.PushPass(PresentPass.Build());
+		}
+
+		auto CompiledPasses = Compiler.Compile();
+
+		PipelineBuilder ScreenPipelineBuilder;
+		PipelineBuilder PresentPipelineBuilder;
+
+		VertexInputShaderLayout GeometryLayout;
+		GeometryLayout.BeginBinding(0);
+		GeometryLayout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
+		GeometryLayout.AddAttribute(ShaderObjectTypes::FLOAT2, "InTexCoords", 1);
 
 		RenderGraphPass GeometryGraphPass;
 		GeometryGraphPass.DebugName = "GeometryPass";
+		GeometryGraphPass.Pass = CompiledPasses[GeometryPassIndex];
+		GeometryGraphPass.RenderFn = OnRenderExtensionGeometryPassRender;
+		GeometryGraphPass.Info = ScreenPipelineBuilder.Default()
+			.AddColorBlend(ColorBlendAttachmentState::OpaquePass())
+			.Build();
+		GeometryGraphPass.Layout = GeometryLayout;
 		GeometryGraphPass.SortOrder = 0;
-		//GeometryGraphPass.Pass = RenderFramePasses[GeometryPassIndex];
-		//GeometryGraphPass.RenderFn = OnRenderExtensionGeometryPassRender;
+
+		VertexInputShaderLayout ScreenLayout;
+		ScreenLayout.BeginBinding(0);
+		ScreenLayout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
+		ScreenLayout.AddAttribute(ShaderObjectTypes::FLOAT2, "InTexCoords", 1);
 
 		RenderGraphPass ScreenGraphPass;
 		ScreenGraphPass.DebugName = "ScreenPass";
-		ScreenGraphPass.SortOrder = 1;
-		ScreenGraphPass.Pass = RenderFramePasses[ScreenPassIndex];
+		ScreenGraphPass.Pass = CompiledPasses[ScreenPassIndex];
 		ScreenGraphPass.RenderFn = OnRenderExtensionScreenPassRender;
+		ScreenGraphPass.Info = ScreenPipelineBuilder.Default()
+			.AddColorBlend(ColorBlendAttachmentState::OpaquePass())
+			.Build();
+		ScreenGraphPass.Layout = ScreenLayout;
+		ScreenGraphPass.SortOrder = 1;
 
 		RenderGraphPass PresentGraphPass;
 		PresentGraphPass.DebugName = "PresentPass";
-		PresentGraphPass.SortOrder = 2;
-		PresentGraphPass.Pass = RenderFramePasses[PresentPassIndex];
+		PresentGraphPass.Pass = CompiledPasses[PresentPassIndex];
 		PresentGraphPass.RenderFn = [](BackBone::SystemContext& Ctxt, RenderPassInfo& Pass) {};
+		PresentGraphPass.Info = PresentPipelineBuilder.Default()
+			.AddColorBlend(ColorBlendAttachmentState::OpaquePass())
+			.Build();
+		PresentGraphPass.SortOrder = 2;
 
-		//RenderGraph->Passes.push_back(GeometryGraphPass);
-		RenderGraph->Passes.push_back(ScreenGraphPass);
-		RenderGraph->Passes.push_back(PresentGraphPass);
+		RenderGraph->PushGraphPass(GeometryGraphPass);
+		RenderGraph->PushGraphPass(ScreenGraphPass);
+		RenderGraph->PushGraphPass(PresentGraphPass);
 	}
 
 	void RenderExtension::Build(BackBone::App& App)
@@ -777,6 +788,7 @@ namespace Chilli
 		ImageSpec.Type = Type;
 		ImageSpec.MipLevel = MipLevel;
 		ImageSpec.YFlip = YFlip;
+		ImageSpec.State = ResourceState::ShaderRead;
 		auto Image = this->AllocateImage(ImageSpec);
 
 		this->MapImageData(Image, (void*)ImageData.ValPtr->Pixels, ImageData.ValPtr->Resolution.x,

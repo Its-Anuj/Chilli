@@ -303,17 +303,17 @@ namespace Chilli
 		default:                                 return VK_COMPARE_OP_ALWAYS; // safe fallback
 		}
 	}
-
-	inline VkBufferUsageFlags BufferTypesToVk(uint32_t Type)
-	{
-		VkBufferUsageFlags Flag = 0;
-		if (Type & BUFFER_TYPE_INDEX) Flag |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-		if (Type & BUFFER_TYPE_VERTEX) Flag |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-		if (Type & BUFFER_TYPE_STORAGE) Flag |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-		if (Type & BUFFER_TYPE_TRANSFER_DST) Flag |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-		if (Type & BUFFER_TYPE_TRANSFER_SRC) Flag |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-		if (Type & BUFFER_TYPE_UNIFORM) Flag |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-		return Flag;
+	
+	// Ensure this function looks exactly like this:
+	inline VkBufferUsageFlags BufferTypesToVk(uint32_t type) {
+		VkBufferUsageFlags flags = 0;
+		if (type & BUFFER_TYPE_VERTEX)   flags |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+		if (type & BUFFER_TYPE_INDEX)    flags |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+		if (type & BUFFER_TYPE_UNIFORM)  flags |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+		if (type & BUFFER_TYPE_STORAGE)  flags |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+		if (type & BUFFER_TYPE_TRANSFER_SRC) flags |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+		if (type & BUFFER_TYPE_TRANSFER_DST) flags |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		return flags;
 	}
 
 	inline VkAttachmentLoadOp LoadOpToVk(AttachmentLoadOp Mode)
@@ -541,5 +541,4 @@ namespace Chilli
 					 VK_IMAGE_LAYOUT_UNDEFINED };
 		}
 	}
-
 }

@@ -68,17 +68,30 @@ namespace Chilli
 		_AllocationInfo = AllocInfo;
 
 		VkImageAspectFlags Aspect = FormatToVkAspectMask(Spec.Format);
-		// Resolve the correct initial transition target
-		VkImageLayout targetLayout = VK_IMAGE_LAYOUT_GENERAL; // Safe fallback
-		if (Spec.Usage & IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT)
-			targetLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-		else if (Spec.Usage & IMAGE_USAGE_COLOR_ATTACHMENT)
-			targetLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		else if (Spec.Usage & IMAGE_USAGE_SAMPLED_IMAGE)
-			targetLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		// Transition Image Layout
-		Uploader->TransitionImageLayout(_Image, VK_IMAGE_LAYOUT_UNDEFINED, targetLayout, Aspect);
-		this->SetImageLayout(targetLayout);
+
+		if (Spec.State != ResourceState::Undefined)
+		{
+			if (ValidateImageState(Spec.Usage, Spec.State) == false)
+				VULKAN_ERROR("The image must be created with usage that is allowed by state");
+			// Get Vulkan mapping for requested state
+			VulkanStateMapping TargetState = GetVulkanState(Spec.State);
+
+			VkImageLayout targetLayout = TargetState.layout;
+
+			// Only transition if layout actually changes
+			if (_Layout != targetLayout)
+			{
+				Uploader->TransitionImageLayout(
+					_Image,
+					_Layout,
+					targetLayout,
+					Aspect
+				);
+
+				// Track new layout internally
+				SetImageLayout(targetLayout);
+			}
+		}
 	}
 
 	void VulkanImage::Destroy(VmaAllocator Allocator)
@@ -141,7 +154,7 @@ namespace Chilli
 
 	void VulkanTexture::Destroy(VkDevice Device)
 	{
-		vkDestroyImageView(Device, _ImageView, nullptr);	
+		vkDestroyImageView(Device, _ImageView, nullptr);
 	}
 
 	std::tuple<VkImage, VmaAllocation, VmaAllocationInfo> CreateVulkanImage(VmaAllocator Allocator, const CreateVulkanImageSpec& Spec)
@@ -267,20 +280,38 @@ namespace Chilli
 		region.imageSubresource = { aspect, 0, 0, 1 }; // mip 0, layer 0, 1 layer
 		region.imageExtent = { (uint32_t)Width, (uint32_t)Height, 1 };
 
-		_Spec.Uploader->CopyBufferToImage(_Spec.GetBuffer(_StagingBuffer), Image->GetHandle(), region);
+		// Fix the range! (Crucial to stop validation errors)
+		VkImageSubresourceRange Range{};
+		Range.aspectMask = aspect;
+		Range.baseMipLevel = 0;
+		Range.levelCount = 1; // Or VK_REMAINING_MIP_LEVELS
+		Range.baseArrayLayer = 0;
+		Range.layerCount = 1; // Or VK_REMAINING_ARRAY_LAYERS
 
-		// Instead of transitioning back to OldLayout (which might be UNDEFINED), 
-		// transition to the "Ideal" usable state.
+		// Use Sync2 Types
 		VkImageLayout finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		VkAccessFlags2 DstAccess = VK_ACCESS_2_SHADER_READ_BIT;
+		VkPipelineStageFlags2 DstStage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
 
-		// If it's a Depth Buffer or Storage Image, pick the right final state
-		if (Image->GetSpec().Usage & IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT)
+		if (Image->GetSpec().Usage & IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT) {
 			finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-		else if (Image->GetSpec().Usage & IMAGE_USAGE_STORAGE_IMAGE)
+			DstAccess = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			DstStage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+		}
+		else if (Image->GetSpec().Usage & IMAGE_USAGE_COLOR_ATTACHMENT) {
+			finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			DstAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+			DstStage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+		}
+		else if (Image->GetSpec().Usage & IMAGE_USAGE_STORAGE_IMAGE) {
 			finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+			DstAccess = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+			DstStage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+		}
 
-		_Spec.Uploader->TransitionImageLayout(Image->GetHandle(), Image->GetImageLayout(),
-			finalLayout, aspect);
+		_Spec.Uploader->CopyBufferToImage(_Spec.GetBuffer(_StagingBuffer), Image->GetHandle(), region,
+			Image->GetImageLayout(), finalLayout, Range, DstAccess, DstStage);
+
 		Image->SetImageLayout(finalLayout);
 	}
 

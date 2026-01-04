@@ -1,5 +1,7 @@
 #pragma once
 
+#include "RenderCore.h"
+
 namespace Chilli
 {
 	enum class ImageType
@@ -50,6 +52,7 @@ namespace Chilli
 		bool YFlip = false;
 		uint32_t Usage = ImageUsage::IMAGE_USAGE_SAMPLED_IMAGE;
 		uint32_t MipLevel = 1;
+		ResourceState State = ResourceState::Undefined;
 	};
 
 	struct Image
@@ -57,4 +60,44 @@ namespace Chilli
 		uint32_t RawImageHandle = UINT32_MAX;
 		ImageSpec Spec;
 	};
+
+	inline bool ValidateImageState(
+		uint32_t usage,
+		ResourceState state
+	)
+	{
+		switch (state)
+		{
+		case ResourceState::Undefined:
+			return true;
+
+		case ResourceState::ShaderRead:
+			// Sampled in graphics / fragment
+			return (usage & IMAGE_USAGE_SAMPLED_IMAGE) != 0;
+
+		case ResourceState::RenderTarget:
+			return (usage & IMAGE_USAGE_COLOR_ATTACHMENT) != 0;
+
+		case ResourceState::DepthWrite:
+			return (usage & IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT) != 0;
+
+		case ResourceState::ComputeRead:
+		case ResourceState::ComputeWrite:
+			// Compute requires storage image
+			return (usage & IMAGE_USAGE_STORAGE_IMAGE) != 0;
+
+		case ResourceState::CopySrc:
+			return (usage & IMAGE_USAGE_TRANSFER_SRC) != 0;
+
+		case ResourceState::CopyDst:
+			return (usage & IMAGE_USAGE_TRANSFER_DST) != 0;
+
+		case ResourceState::Present:
+			return (usage & IMAGE_USAGE_PRESENT_IMAGE) != 0;
+
+		default:
+			return false;
+		}
+	}
+
 }

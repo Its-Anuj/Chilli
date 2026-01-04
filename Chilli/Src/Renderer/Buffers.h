@@ -46,6 +46,7 @@ namespace Chilli
 	};
 
 #define CH_BUFFER_MAX_DEBUG_NAME_SIZE 32
+#define CH_BUFFER_WHOLE_SIZE UINT32_MAX
 
 	struct Buffer
 	{

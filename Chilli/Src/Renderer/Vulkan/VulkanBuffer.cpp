@@ -162,9 +162,51 @@ namespace Chilli
 			copy.Size = chunk;
 
 			auto StagingBuffer = _Buffers.Get(stagingHandle)->Buffer;
-			_Uploader->CopyBufferToBuffer(StagingBuffer, Buffer->Buffer, copy);
 
-				srcOffset += chunk;
+			// Use Sync2 Types
+			VkAccessFlags2 DstAccess = VK_ACCESS_2_NONE;
+			VkPipelineStageFlags2 DstStage = VK_PIPELINE_STAGE_2_NONE;
+
+			const uint32_t type = Buffer->CreateInfo.Type;
+
+			// Vertex buffer
+			if (type & BUFFER_TYPE_VERTEX) {
+				DstAccess |= VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
+				DstStage |= VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
+			}
+
+			// Index buffer
+			if (type & BUFFER_TYPE_INDEX) {
+				DstAccess |= VK_ACCESS_2_INDEX_READ_BIT;
+				DstStage |= VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
+			}
+
+			// Uniform buffer
+			if (type & BUFFER_TYPE_UNIFORM) {
+				DstAccess |= VK_ACCESS_2_UNIFORM_READ_BIT;
+				DstStage |= VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+			}
+
+			// Storage buffer
+			if (type & BUFFER_TYPE_STORAGE) {
+				DstAccess |= VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+				DstStage |= VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+			}
+
+			// Transfer source
+			if (type & BUFFER_TYPE_TRANSFER_SRC) {
+				DstAccess |= VK_ACCESS_2_TRANSFER_READ_BIT;
+				DstStage |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+			}
+
+			// Fallback
+			if (DstAccess == VK_ACCESS_2_NONE || DstStage == VK_PIPELINE_STAGE_2_NONE) {
+				DstAccess = VK_ACCESS_2_MEMORY_READ_BIT;
+				DstStage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+			}
+
+			_Uploader->CopyBufferToBuffer(StagingBuffer, Buffer->Buffer, copy, DstAccess, DstStage);
+			srcOffset += chunk;
 			remaining -= chunk;
 		}
 	}

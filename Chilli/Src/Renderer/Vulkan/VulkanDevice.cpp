@@ -38,22 +38,80 @@ namespace Chilli
 		QueueProps.resize(queufamiliescount);
 		vkGetPhysicalDeviceQueueFamilyProperties(device, &queufamiliescount, QueueProps.data());
 
-		int i = 0;
-		for (auto& props : QueueProps)
+		QueueFamilyIndicies indices{};
+
+		auto has = [&](uint32_t i, VkQueueFlags f) {
+			return (QueueProps[i].queueFlags & f) == f;
+			};
+
+		const uint32_t familyCount = static_cast<uint32_t>(QueueProps.size());
+
+		for (uint32_t i = 0; i < familyCount; ++i)
 		{
-			if (props.queueFlags & VK_QUEUE_COMPUTE_BIT)
-				info.QueueIndicies.Queues[int(QueueFamilies::COMPUTE)] = i;
-			if (props.queueFlags & VK_QUEUE_TRANSFER_BIT)
-				info.QueueIndicies.Queues[int(QueueFamilies::TRANSFER)] = i;
-			if (props.queueFlags & VK_QUEUE_GRAPHICS_BIT)
-				info.QueueIndicies.Queues[int(QueueFamilies::GRAPHICS)] = i;
+			const auto& props = QueueProps[i];
 
-			VkBool32 presentSupport;
+			// --- Graphics ---
+			if (has(i, VK_QUEUE_GRAPHICS_BIT))
+			{
+				if (!indices.Queues[int(QueueFamilies::GRAPHICS)])
+					indices.Queues[int(QueueFamilies::GRAPHICS)] = i;
+			}
+
+			// --- Compute (prefer no graphics) ---
+			if (has(i, VK_QUEUE_COMPUTE_BIT))
+			{
+				auto& cur = indices.Queues[int(QueueFamilies::COMPUTE)];
+				if (!cur ||
+					!has(*cur, VK_QUEUE_COMPUTE_BIT) ||
+					(has(*cur, VK_QUEUE_GRAPHICS_BIT) && !has(i, VK_QUEUE_GRAPHICS_BIT)))
+				{
+					cur = i;
+				}
+			}
+
+			// --- Transfer (prefer no graphics & no compute) ---
+			if (has(i, VK_QUEUE_TRANSFER_BIT))
+			{
+				auto& cur = indices.Queues[int(QueueFamilies::TRANSFER)];
+				if (!cur ||
+					!has(*cur, VK_QUEUE_TRANSFER_BIT) ||
+					((has(*cur, VK_QUEUE_GRAPHICS_BIT) || has(*cur, VK_QUEUE_COMPUTE_BIT)) &&
+						(!has(i, VK_QUEUE_GRAPHICS_BIT) && !has(i, VK_QUEUE_COMPUTE_BIT))))
+				{
+					cur = i;
+				}
+			}
+
+			// --- Present ---
+			VkBool32 presentSupport = VK_FALSE;
 			vkGetPhysicalDeviceSurfaceSupportKHR(device, i, SurfaceKHR, &presentSupport);
-
 			if (presentSupport)
-				info.QueueIndicies.Queues[int(QueueFamilies::PRESENT)] = i;
-			i++;
+			{
+				if (!indices.Queues[int(QueueFamilies::PRESENT)])
+					indices.Queues[int(QueueFamilies::PRESENT)] = i;
+			}
+		}
+
+		auto& gfx = indices.Queues[int(QueueFamilies::GRAPHICS)];
+
+		if (!indices.Queues[int(QueueFamilies::COMPUTE)])
+			indices.Queues[int(QueueFamilies::COMPUTE)] = gfx;
+
+		if (!indices.Queues[int(QueueFamilies::TRANSFER)])
+			indices.Queues[int(QueueFamilies::TRANSFER)] = gfx;
+
+		if (!indices.Queues[int(QueueFamilies::PRESENT)])
+			indices.Queues[int(QueueFamilies::PRESENT)] = gfx;
+
+		info.QueueIndicies = indices;
+
+		for (uint32_t i = 0; i < QueueProps.size(); ++i) {
+			auto f = QueueProps[i].queueFlags;
+			std::cout << "Family " << i << ": "
+				<< ((f & VK_QUEUE_GRAPHICS_BIT) ? "G " : "")
+				<< ((f & VK_QUEUE_COMPUTE_BIT) ? "C " : "")
+				<< ((f & VK_QUEUE_TRANSFER_BIT) ? "T " : "")
+				<< std::endl;
 		}
 	}
 

@@ -84,13 +84,14 @@ namespace Chilli
 		_CreatePhysicalDevice(DeviceExtensions);
 		_CreateLogicalDevice(DeviceExtensions);
 
+		_CommandManager.Init(_Data.Device);
+
+		_CreateVulkanDataUploader();
+
 		_CreateSwapChainKHR();
 		_CreateVMAAllocator();
 		LoadExtendedDynamicStateFunctions(_Data.Device.GetHandle());
 
-		_CommandManager.Init(_Data.Device);
-
-		_CreateVulkanDataUploader();
 		_CreateVulkanImageDataManager();
 
 		_BufferManager.Init(_Data.Device, _Data.Allocator, &_Uploader, 1e6);
@@ -143,23 +144,20 @@ namespace Chilli
 	void VulkanGraphicsBackend::BeginFrame(uint32_t Index)
 	{
 		_FrameResource.CurrentFrameIndex = Index;
-		_DescriptorSetsData.WritingBufferInfos.clear();
-		_DescriptorSetsData.WritingImageInfos.clear();
-		_DescriptorSetsData.WritingSets.clear();
+		_FrameResource.WritingBufferInfos.clear();
+		_FrameResource.WritingImageInfos.clear();
+		_FrameResource.WritingSets.clear();
 	}
 
-	void VulkanGraphicsBackend::EndFrame(const std::vector<GraphicsCommandBuffer>& CmdBuffers)
+	VkCommandBuffer VulkanGraphicsBackend::_BeginFrame(const BeginFrameCmdPayload& Payload)
 	{
-		if (_Spec.ViewPortResized) {
-			_ReCreateSwapChainKHR();
-			return;
-		}
-		auto device = _Data.Device.GetHandle();
-
 		// Create a Sorted Vector of render passe so like of only specific to rneder pass 0 then 1 etc 
 		// Acqire Image
-		vkWaitForFences(device, 1, &_FrameResource.InFlightFences[_FrameResource.CurrentFrameIndex], VK_TRUE, UINT64_MAX);
+		vkWaitForFences(_Data.Device.GetHandle(), 1, &_FrameResource.InFlightFences[_FrameResource.CurrentFrameIndex], VK_TRUE, UINT64_MAX);
+
+		_FrameResource.CurrentFrameIndex = Payload.FrameIndex;
 		vkResetFences(_Data.Device.GetHandle(), 1, &_FrameResource.InFlightFences[_FrameResource.CurrentFrameIndex]);
+
 		VkResult result = vkAcquireNextImageKHR(_Data.Device.GetHandle(), _Data.SwapChainKHR.GetHandle(), UINT64_MAX,
 			_FrameResource.ImageAvailableSemaphores[_FrameResource.CurrentFrameIndex], VK_NULL_HANDLE,
 			&_FrameResource.CurrentImageIndex);
@@ -167,7 +165,7 @@ namespace Chilli
 		if (result == VK_ERROR_OUT_OF_DATE_KHR) {
 			_Spec.ViewPortResized = true;
 			_ReCreateSwapChainKHR();
-			return;
+			return VK_NULL_HANDLE;
 		}
 		else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
 			throw std::runtime_error("failed to acquire swap chain image!");
@@ -177,195 +175,401 @@ namespace Chilli
 		{
 			std::cout << "ERROR: AcquireNextImage failed: " << result << "\n";
 		}
+		auto CmdBuffer = _CommandManager.Get(_FrameResource.CommandBuffers[Payload.FrameIndex].CommandBufferHandle);
 
-		auto ActiveCommandBuffer = _CommandManager.Get(_FrameResource.CommandBuffers[_FrameResource.CurrentFrameIndex].CommandBufferHandle);
-		_ActiveCommandBuffer = ActiveCommandBuffer;
-
-		vkResetCommandBuffer(ActiveCommandBuffer, 0);
+		vkResetCommandBuffer(CmdBuffer, 0);
 
 		VkCommandBufferBeginInfo beginInfo{};
 		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 		beginInfo.flags = 0;
-		vkBeginCommandBuffer(ActiveCommandBuffer, &beginInfo);
+		vkBeginCommandBuffer(CmdBuffer, &beginInfo);
+		return CmdBuffer;
+	}
 
-		for (auto& CommandBuffer : CmdBuffers)
+	void VulkanGraphicsBackend::_EndFrame(const EndFrameCmdPayload& Payload, VkCommandBuffer CmdBuffer)
+	{
+		vkEndCommandBuffer(CmdBuffer);
+	}
+
+	void VulkanGraphicsBackend::_BeginRenderPass(const BeginRenderPassCmdPayload& PassPayload, VkCommandBuffer CmdBuffer)
+	{
+		auto& Payload = PassPayload.Pass;
+
+		VkRenderingInfo RenderingInfo{};
+
+		RenderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+		RenderingInfo.layerCount = 1;
+
+		RenderingInfo.renderArea.extent.width = Payload.RenderArea.x;
+		RenderingInfo.renderArea.extent.height = Payload.RenderArea.y;
+
+		static std::vector<VkRenderingAttachmentInfo> ColorAttachments;
+		ColorAttachments.clear();
+		ColorAttachments.reserve(CH_MAX_COLOR_ATTACHMENT_COUNT);
+
+		for (int i = 0; i < Payload.ColorAttachmentCount; i++)
 		{
-			const std::vector<RenderCommandInfo>& RenderCommandInfos = CommandBuffer._RenderCommandInfos;
-			const std::vector<CompiledPass>& RenderPasses = CommandBuffer._RenderPasses;
-			const std::vector<PipelineStateInfo>& PipelineStates = CommandBuffer._PipelineStates;
-			const std::vector< RenderShaderDataUpdateInfo>& ShaderUpdateInfoss = CommandBuffer._ShaderUpdateInfos;
+			auto& ActiveColorAttachmentInfo = Payload.ColorAttachments[i];
 
-			FillDescriptorSetInfos(ShaderUpdateInfoss);
-			// This is the function that must be called after the loop completes
-			vkUpdateDescriptorSets(
-				device,
-				static_cast<uint32_t>(_DescriptorSetsData.WritingSets.size()),
-				_DescriptorSetsData.WritingSets.data(),
-				0,
-				nullptr // No copies are being performed here
-			);
-			uint32_t CurrentPassId = 0;
-			_ActivePipelineState = PipelineStateInfo();
+			VkRenderingAttachmentInfo colorAttachment{};
+			colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+			colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; //  Now correct
+			colorAttachment.storeOp = StoreOpToVk(ActiveColorAttachmentInfo.StoreOp);
+			colorAttachment.loadOp = LoadOpToVk(ActiveColorAttachmentInfo.LoadOp);
+			colorAttachment.clearValue = { {ActiveColorAttachmentInfo.ClearColor.x,
+				ActiveColorAttachmentInfo.ClearColor.y, ActiveColorAttachmentInfo.ClearColor.z,
+				ActiveColorAttachmentInfo.ClearColor.w} };
 
-			for (auto& RenderPass : RenderPasses)
+			// Render To SwapChain Image
+			if (ActiveColorAttachmentInfo.UseSwapChainImage)
 			{
-				_PreparePassBarriers(ActiveCommandBuffer, RenderPass.PrePassBarriers);
-				_BeginDynamicRendering(ActiveCommandBuffer, RenderPass.Info);
-				_SetViewPortSize(ActiveCommandBuffer, RenderPass.Info.RenderArea.x, RenderPass.Info.RenderArea.y);
-				_SetScissorSize(ActiveCommandBuffer, RenderPass.Info.RenderArea.x, RenderPass.Info.RenderArea.y);
-
-				int ActivePipelineStateID = UINT32_MAX;
-				int ActiveShaderProgram = UINT32_MAX;
-				int ActiveVertexBufferID = UINT32_MAX;
-				int ActiveIndexBufferID = UINT32_MAX;
-				int ActiveMaterialID = UINT32_MAX;
-
-				for (auto& RenderDrawInfo : RenderCommandInfos)
-				{
-					// If this draw command doesn't belong to this pass, skip it
-					if (RenderDrawInfo.RenderState.RenderPassIndex != CurrentPassId)
-						continue; // <--- Jumps to the next RenderDrawInfo
-
-					if (ActivePipelineStateID != RenderDrawInfo.RenderState.PipelineStateID)
-					{
-						SetActiveGraphicsPipelineState(ActiveCommandBuffer, PipelineStates[RenderDrawInfo.RenderState.PipelineStateID]);
-						ActivePipelineStateID = RenderDrawInfo.RenderState.PipelineStateID;
-					}
-					if (ActiveShaderProgram != RenderDrawInfo.RenderState.ShaderProgramID)
-					{
-						auto ActiveShaderInfo = _ShaderManager.GetProgramInfo(RenderDrawInfo.RenderState.ShaderProgramID);
-
-						for (const auto& reflectedInput : ActiveShaderInfo.VertexInputs) {
-							bool found = false;
-							for (const auto& binding : _ActivePipelineState.VertexInputLayout.Bindings) {
-								for (const auto& attr : binding.Attribs) {
-									if (attr.Location == reflectedInput.Location) {
-										// Validate Format Size
-										if (ShaderTypeToSize(attr.Type) != ShaderTypeToSize(reflectedInput.Format)) {
-											VULKAN_ERROR("Attribute at Location " << attr.Location << " size mismatch!");
-										}
-										found = true;
-										break;
-									}
-								}
-							}
-							if (!found) VULKAN_ERROR("Shader expects input at Location " << reflectedInput.Location << " but none provided!");
-						}
-
-						_ShaderManager.BindShaderProgram(ActiveCommandBuffer, RenderDrawInfo.RenderState.ShaderProgramID);
-						_ShaderManager.BindBindlessSets(ActiveCommandBuffer, RenderDrawInfo.RenderState.ShaderProgramID,
-							_FrameResource.CurrentFrameIndex, _BindlessManager);
-
-						ActiveShaderProgram = RenderDrawInfo.RenderState.ShaderProgramID;
-					}
-
-					if (ActiveMaterialID != RenderDrawInfo.RenderState.MaterialID)
-					{
-						auto ActiveMaterial = _MaterialManager.Get(RenderDrawInfo.RenderState.MaterialID);
-						if (ActiveMaterial->ProgramID != ActiveShaderProgram)
-							VULKAN_ERROR("Given Material Should be valid with bounded Shader!");
-						_ShaderManager.BindUserSets(ActiveCommandBuffer, ActiveShaderProgram,
-							ActiveMaterial->Sets[_FrameResource.CurrentFrameIndex]);
-						ActiveMaterialID = RenderDrawInfo.RenderState.MaterialID;
-					}
-
-					if (_ActivePipelineState.ShaderCullMode != RenderDrawInfo.ShaderCullMode)
-						SetCullMode(ActiveCommandBuffer, RenderDrawInfo.ShaderCullMode);
-
-					if (_ActivePipelineState.ShaderFillMode != RenderDrawInfo.ShaderFillMode)
-						SetPolygonMode(ActiveCommandBuffer, RenderDrawInfo.ShaderFillMode);
-
-					if (_ActivePipelineState.FrontFace != RenderDrawInfo.FrontFace)
-						SetFrontFace(ActiveCommandBuffer, RenderDrawInfo.FrontFace);
-
-					if (_ActivePipelineState.LineWidth != RenderDrawInfo.LineWidth)
-						SetLineWidth(ActiveCommandBuffer, RenderDrawInfo.LineWidth);
-
-					if (_ActivePipelineState.RasterizerDiscardEnable != RenderDrawInfo.RasterizerDiscardEnable)
-						SetRasterizerDiscardEnable(ActiveCommandBuffer, RenderDrawInfo.RasterizerDiscardEnable);
-
-					if (_ActivePipelineState.DepthBiasEnable != RenderDrawInfo.DepthBiasEnable)
-						SetDepthBiasEnable(ActiveCommandBuffer, RenderDrawInfo.DepthBiasEnable);
-
-					if (_ActivePipelineState.DepthBiasConstantFactor != RenderDrawInfo.DepthBiasConstantFactor ||
-						_ActivePipelineState.DepthBiasClamp != RenderDrawInfo.DepthBiasClamp ||
-						_ActivePipelineState.DepthBiasSlopeFactor != RenderDrawInfo.DepthBiasSlopeFactor)
-						SetDepthBias(
-							ActiveCommandBuffer,
-							RenderDrawInfo.DepthBiasConstantFactor,
-							RenderDrawInfo.DepthBiasClamp,
-							RenderDrawInfo.DepthBiasSlopeFactor
-						);
-
-					if (RenderDrawInfo.InlineUniformData.Block != nullptr)
-					{
-						_ShaderManager.PushConstants(ActiveCommandBuffer, ActiveShaderProgram,
-							RenderDrawInfo.InlineUniformData.Stages,
-							RenderDrawInfo.InlineUniformData.Block
-							, MAX_INLINE_UNIFORM_DATA_SIZE,
-							0);
-					}
-
-					bool DrawIndexed = false;
-
-					if (RenderDrawInfo.RenderState.VertexBufferID != UINT32_MAX)
-						if (ActiveVertexBufferID != RenderDrawInfo.RenderState.VertexBufferID)
-						{
-							// 🆕 Bind vertex buffer
-							VkBuffer vertexBuffers[] = {
-								_BufferManager.Get(RenderDrawInfo.RenderState.VertexBufferID)->Buffer };
-							VkDeviceSize offsets[] = { 0 };
-							vkCmdBindVertexBuffers(ActiveCommandBuffer, 0, 1, vertexBuffers, offsets);
-							ActiveVertexBufferID = RenderDrawInfo.RenderState.VertexBufferID;
-						}
-
-					if (RenderDrawInfo.RenderState.IndexBufferID != UINT32_MAX)
-					{
-						if (ActiveIndexBufferID != RenderDrawInfo.RenderState.IndexBufferID)
-						{
-							vkCmdBindIndexBuffer(ActiveCommandBuffer,
-								_BufferManager.Get(RenderDrawInfo.RenderState.IndexBufferID)->Buffer,
-								0,
-								VK_INDEX_TYPE_UINT32
-							);
-							ActiveIndexBufferID = RenderDrawInfo.RenderState.IndexBufferID;
-							DrawIndexed = true;
-						}
-					}
-					else if (ActiveIndexBufferID != UINT32_MAX)
-					{
-						vkCmdBindIndexBuffer(ActiveCommandBuffer,
-							VK_NULL_HANDLE,
-							0,
-							VK_INDEX_TYPE_UINT32
-						);
-						ActiveIndexBufferID = UINT32_MAX;
-						DrawIndexed = false;
-					}
-
-					if (!DrawIndexed && RenderDrawInfo.Type == CommandType::Draw)
-						vkCmdDraw(ActiveCommandBuffer,
-							RenderDrawInfo.ElementCount,
-							RenderDrawInfo.InstanceCount,
-							RenderDrawInfo.FirstElement,
-							RenderDrawInfo.FirstInstance
-						);
-					else if (DrawIndexed && RenderDrawInfo.Type == CommandType::Draw)
-						vkCmdDrawIndexed(ActiveCommandBuffer,
-							RenderDrawInfo.ElementCount,
-							RenderDrawInfo.InstanceCount,
-							RenderDrawInfo.FirstElement,
-							0,
-							RenderDrawInfo.FirstInstance
-						);
-				}
-
-				vkCmdEndRendering(ActiveCommandBuffer);
-				CurrentPassId++;
+				RenderingInfo.renderArea.extent = {
+					min((uint32_t)Payload.RenderArea.x, _Data.SwapChainKHR.GetExtent().width),
+					min((uint32_t)Payload.RenderArea.y, _Data.SwapChainKHR.GetExtent().height)
+				};
+				colorAttachment.imageView = _Data.SwapChainKHR.GetImageViews()[_FrameResource.CurrentImageIndex];
 			}
+			else
+			{
+				colorAttachment.imageView = _ImageDataManager.GetTexture(ActiveColorAttachmentInfo.ColorTexture)->GetHandle();
+			}
+
+			ColorAttachments.push_back(colorAttachment);
 		}
 
-		vkEndCommandBuffer(ActiveCommandBuffer);
+		RenderingInfo.pDepthAttachment = nullptr;
+
+		RenderingInfo.colorAttachmentCount = static_cast<uint32_t>(ColorAttachments.size());
+		RenderingInfo.pColorAttachments = ColorAttachments.data();
+
+		vkCmdBeginRendering(CmdBuffer, &RenderingInfo);
+		_SetViewPortSize(CmdBuffer, Payload.RenderArea.x, Payload.RenderArea.y);
+		_SetScissorSize(CmdBuffer, Payload.RenderArea.x, Payload.RenderArea.y);
+	}
+
+	void VulkanGraphicsBackend::_EndRenderPass(const EndRenderPassCmdPayload& Payload, VkCommandBuffer CmdBuffer)
+	{
+		vkCmdEndRendering(CmdBuffer);
+	}
+
+	VkCommandBuffer VulkanGraphicsBackend::_TranslateGraphicsCommandBuffer(const GraphicsCommandBuffer& CmdBuffer)
+	{
+		int Offset = 0;
+		auto Dst = CmdBuffer.Data();
+
+		VkCommandBuffer ActiveCommandBuffer = VK_NULL_HANDLE;
+
+		while (Offset < CmdBuffer.Size())
+		{
+			RenderCommandHeader Header;
+			std::memcpy(&Header, Dst, sizeof(Header));
+
+			Dst += sizeof(Header);
+			Offset += sizeof(Header);
+
+			size_t PayloadSize = Header.Size;
+
+			if (Offset + PayloadSize > CmdBuffer.Size())
+				break;
+
+			switch (Header.Code)
+			{
+			case RenderOpCode::BEGIN_FRAME:
+			{
+				_FrameResource.WritingBufferInfos.clear();
+				_FrameResource.WritingImageInfos.clear();
+				_FrameResource.WritingSets.clear();
+
+				_UpdateAllMaterialUpdateData();
+
+				// This is the function that must be called after the loop completes
+				vkUpdateDescriptorSets(
+					_Data.Device.GetHandle(),
+					static_cast<uint32_t>(_FrameResource.WritingSets.size()),
+					_FrameResource.WritingSets.data(),
+					0,
+					nullptr // No copies are being performed here
+				);
+
+				auto Payload = (BeginFrameCmdPayload*)(Dst);
+				ActiveCommandBuffer = _BeginFrame(*Payload);
+				break;
+			}
+			case RenderOpCode::UPDATE_GLOBAL_SHADER_DATA:
+			{
+				auto Payload = (PushUpdateGlobalShaderDataCmdPayload*)(Dst);
+				_BindlessManager.UpdateGlobalShaderData(Payload->Data);
+				break;
+			}
+			case RenderOpCode::UPDATE_SCENE_SHADER_DATA:
+			{
+				auto Payload = (PushUpdateSceneShaderDataCmdPayload*)(Dst);
+				_BindlessManager.UpdateSceneShaderData(Payload->Data);
+				break;
+			}
+			case RenderOpCode::END_FRAME:
+			{
+				auto Payload = (EndFrameCmdPayload*)(Dst);
+				_EndFrame(*Payload, ActiveCommandBuffer);
+				break;
+			}
+			case RenderOpCode::BEGIN_RENDER_PASS:
+			{
+				auto Payload = (BeginRenderPassCmdPayload*)(Dst);
+				_BeginRenderPass(*Payload, ActiveCommandBuffer);
+				break;
+			}
+			case RenderOpCode::END_RENDER_PASS:
+			{
+				auto Payload = (EndRenderPassCmdPayload*)(Dst);
+				_EndRenderPass(*Payload, ActiveCommandBuffer);
+				break;
+			}
+			case RenderOpCode::PIPELINE_BARRIER:
+			{
+				auto Payload = (PipelineBarrierCmdPayload*)(Dst);
+				PipelineBarrier* BarrierPtr = (PipelineBarrier*)(Dst + sizeof(PipelineBarrierCmdPayload));
+				_ExecutePipelineBarriers(BarrierPtr, Payload->BarriersCount, ActiveCommandBuffer);
+				break;
+			}
+			case RenderOpCode::PATCH_DYNAMIC_STATE:
+			{
+				const auto* Payload =
+					reinterpret_cast<const SetDynamicPipleineStateCmdPayload*>(Dst);
+
+				// ─────────────────────────────────────────────
+				// Primitive topology
+				// ─────────────────────────────────────────────
+				if (Payload->TopologyMode != InputTopologyMode::None)
+				{
+					SetPrimitiveTopology(ActiveCommandBuffer, Payload->TopologyMode);
+
+					// If your topology implies primitive restart
+					// (optional – depends on your engine design)
+					const ChBool8 restart =
+						(Payload->TopologyMode == InputTopologyMode::Triangle_Strip ||
+							Payload->TopologyMode == InputTopologyMode::Triangle_List)
+						? CH_TRUE
+						: CH_FALSE;
+
+					SetPrimitiveRestartEnable(ActiveCommandBuffer, restart);
+				}
+
+				// ─────────────────────────────────────────────
+				// Rasterization
+				// ─────────────────────────────────────────────
+				if (Payload->ShaderCullMode != CullMode::None)
+					SetCullMode(ActiveCommandBuffer, Payload->ShaderCullMode);
+
+				if (Payload->FrontFace != FrontFaceMode::None)
+					SetFrontFace(ActiveCommandBuffer, Payload->FrontFace);
+
+				if (Payload->ShaderFillMode != PolygonMode::None)
+					SetPolygonMode(ActiveCommandBuffer, Payload->ShaderFillMode);
+
+				if (Payload->LineWidth != SetDynamicPipleineStateCmdPayload::UNCHANGE_FLOAT_VALUE)
+					SetLineWidth(ActiveCommandBuffer, Payload->LineWidth);
+
+				if (Payload->RasterizerDiscardEnable != CH_NONE)
+					SetRasterizerDiscardEnable(ActiveCommandBuffer,
+						Payload->RasterizerDiscardEnable);
+
+				// ─────────────────────────────────────────────
+				// Depth bias
+				// ─────────────────────────────────────────────
+				if (Payload->DepthBiasEnable != CH_NONE)
+					SetDepthBiasEnable(ActiveCommandBuffer, Payload->DepthBiasEnable);
+
+				// Only apply depth bias values if at least one is provided
+				const bool hasDepthBiasValues =
+					Payload->DepthBiasConstantFactor != SetDynamicPipleineStateCmdPayload::UNCHANGE_FLOAT_VALUE ||
+					Payload->DepthBiasClamp != SetDynamicPipleineStateCmdPayload::UNCHANGE_FLOAT_VALUE ||
+					Payload->DepthBiasSlopeFactor != SetDynamicPipleineStateCmdPayload::UNCHANGE_FLOAT_VALUE;
+
+				if (hasDepthBiasValues)
+				{
+					SetDepthBias(
+						ActiveCommandBuffer,
+						Payload->DepthBiasConstantFactor != SetDynamicPipleineStateCmdPayload::UNCHANGE_FLOAT_VALUE
+						? Payload->DepthBiasConstantFactor
+						: 0.0f,
+						Payload->DepthBiasClamp != SetDynamicPipleineStateCmdPayload::UNCHANGE_FLOAT_VALUE
+						? Payload->DepthBiasClamp
+						: 0.0f,
+						Payload->DepthBiasSlopeFactor != SetDynamicPipleineStateCmdPayload::UNCHANGE_FLOAT_VALUE
+						? Payload->DepthBiasSlopeFactor
+						: 0.0f
+					);
+				}
+
+				break;
+			}
+			case RenderOpCode::SET_VERTEX_LAYOUT:
+			{
+				auto Payload = (SetVertexLayoutCmdPayload*)(Dst);
+
+				size_t BindingCount = Payload->BindingCount;
+				size_t AttribCount = Payload->AttribsCount;
+
+				VkVertexInputBindingDescription2EXT* BindingDescriptions = (VkVertexInputBindingDescription2EXT*)alloca(
+					sizeof(VkVertexInputBindingDescription2EXT) * BindingCount
+				);
+
+				VkVertexInputAttributeDescription2EXT* AttribDescriptions = (VkVertexInputAttributeDescription2EXT*)alloca(sizeof(VkVertexInputAttributeDescription2EXT) * AttribCount);
+
+				int ioffset = 0;
+				int DstOffset = sizeof(SetVertexLayoutCmdPayload);
+
+				for (int i = 0; i < BindingCount; i++)
+				{
+					auto ActiveBinding = (SetVertexLayoutBindingCmdPayload*)(Dst + DstOffset);
+					// 1. Define empty descriptions
+					VkVertexInputBindingDescription2EXT bindingDescriptions{};
+					bindingDescriptions.sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT;
+					bindingDescriptions.binding = ActiveBinding->BindingIndex;
+					bindingDescriptions.divisor = 1;
+					bindingDescriptions.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+					bindingDescriptions.stride = ActiveBinding->Stride;
+
+					BindingDescriptions[i] = bindingDescriptions;
+
+					DstOffset += sizeof(SetVertexLayoutBindingCmdPayload);
+
+					for (int x = 0; x < ActiveBinding->AttribsCount; x++)
+					{
+						auto ActiveAttrib = (VertexInputShaderAttribute*)(Dst + DstOffset);
+
+						VkVertexInputAttributeDescription2EXT attributeDescriptions{};
+						attributeDescriptions.sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_ATTRIBUTE_DESCRIPTION_2_EXT;
+						attributeDescriptions.binding = ActiveBinding->BindingIndex;
+						attributeDescriptions.location = ActiveAttrib->Location;
+						attributeDescriptions.format = ShaderObjectTypeToVkFormat(ActiveAttrib->Type);
+						attributeDescriptions.offset = ActiveAttrib->Offset;
+						AttribDescriptions[ioffset] = attributeDescriptions;
+						ioffset++;
+
+						DstOffset += sizeof(VertexInputShaderAttribute);
+					}
+				}
+
+				// 2. Call the dynamic command with zero counts
+				pfn_vkCmdSetVertexInputEXT(
+					ActiveCommandBuffer,
+					BindingCount, // bindingCount must be 0
+					BindingDescriptions,
+					AttribCount, // attributeCount must be 0
+					AttribDescriptions
+				);
+
+				break;
+			}
+			case RenderOpCode::UPDATE_MATERIL_DATA:
+			{
+				auto Payload = (MaterialDataUpdateCmdPayload*)(Dst);
+				_AppendMaterialUpdateData(*Payload);
+				break;
+			}case RenderOpCode::BIND_MATERIAL_DATA:
+			{
+				auto Payload = (BindMaterialDataCmdPayload*)(Dst);
+
+				auto ActiveMaterial = _MaterialManager.Get(Payload->RawMaterialHandle);
+
+				_ShaderManager.BindUserSets(ActiveCommandBuffer, 
+					ActiveMaterial->ProgramID,
+					ActiveMaterial->Sets[_FrameResource.CurrentFrameIndex]); 
+				break;
+			}
+			case RenderOpCode::SET_FULL_PIPELINE_STATE:
+			{
+				auto Payload = (SetFullPipelineStateCmdPayload*)(Dst);
+				SetActiveGraphicsPipelineState(ActiveCommandBuffer, Payload->Info);
+				break;
+			}
+			case RenderOpCode::BIND_SHADER_PROGRAM:
+			{
+				auto Payload = (BindShaderProgramCmdPayload*)(Dst);
+				_ShaderManager.BindShaderProgram(ActiveCommandBuffer, Payload->ShaderProgram);
+				_ShaderManager.BindBindlessSets(ActiveCommandBuffer, Payload->ShaderProgram,
+					_FrameResource.CurrentFrameIndex, _BindlessManager);
+
+				break;
+			}
+			case RenderOpCode::BIND_VERTEX_BUFFERS:
+			{
+				auto Payload = (BindVertexBuffersCmdPayload*)(Dst);
+
+				VkBuffer Handles[100] = { VK_NULL_HANDLE };
+
+				int Offset = sizeof(BindVertexBuffersCmdPayload);
+				int i = 0;
+				while (i < Payload->VertexBufferCount)
+				{
+					uint32_t BufferHandle = *(uint32_t*)(Dst + Offset);
+					Handles[i] = _BufferManager.Get(BufferHandle)->Buffer;
+					Offset += sizeof(uint32_t);
+					i++;
+				}
+
+				VkDeviceSize offsets[] = { 0 };
+				vkCmdBindVertexBuffers(ActiveCommandBuffer, 0, Payload->VertexBufferCount, Handles, offsets);
+
+				break;
+			}
+			case RenderOpCode::PUSH_SHADER_INLINE_UNIFORM_DATA:
+			{
+				auto Payload = (PushShaderInlineUniformDataCmdPayload*)(Dst);
+				
+				void* PushConstantDataPtr = (void*)(Dst + sizeof(PushShaderInlineUniformDataCmdPayload));
+
+				_ShaderManager.PushConstants(ActiveCommandBuffer,
+					Payload->ShaderProgram,
+					Payload->Stage,
+					PushConstantDataPtr,
+					Payload->Size,
+					Payload->Offset);
+
+				break;
+			}
+			case RenderOpCode::BIND_INDEX_BUFFER:
+			{
+				auto Payload = (BindIndexBufferCmdPayload*)(Dst);
+				vkCmdBindIndexBuffer(
+					ActiveCommandBuffer,
+					_BufferManager.Get(Payload->IndexBufferHandle)->Buffer,
+					0,
+					VK_INDEX_TYPE_UINT32);
+				break;
+			}
+			case RenderOpCode::DRAW_INDEXED:
+			{
+				// 1. Cast the payload from the data stream
+				auto Payload = (DrawIndexedCmdPayload*)(Dst);
+
+				// 2. Call the Vulkan command
+				vkCmdDrawIndexed(
+					ActiveCommandBuffer,
+					Payload->ElementCount,
+					Payload->InstanceCount,
+					Payload->FirstElement,
+					Payload->VertexOffset,
+					Payload->FirstInstance
+				);
+				break;
+			}
+			}
+
+			Dst += PayloadSize;
+			Offset += PayloadSize;
+		}
+		return ActiveCommandBuffer;
+	}
+
+	void VulkanGraphicsBackend::EndFrame(const RenderFramePacket& Packet)
+	{
+		_ActivePipelineState = PipelineStateInfo();
+
+		auto VkGraphicsCmdBuffer = _CommandManager.Get(_FrameResource.CommandBuffers[_FrameResource.CurrentFrameIndex].CommandBufferHandle);
+		_TranslateGraphicsCommandBuffer(Packet.Graphics_Stream);
 
 		{
 			VkSubmitInfo submitInfo{};
@@ -377,7 +581,7 @@ namespace Chilli
 			submitInfo.pWaitSemaphores = waitSemaphores;
 			submitInfo.pWaitDstStageMask = waitStages;
 			submitInfo.commandBufferCount = 1;
-			submitInfo.pCommandBuffers = &ActiveCommandBuffer;
+			submitInfo.pCommandBuffers = &VkGraphicsCmdBuffer;
 
 			VkSemaphore signalSemaphores[] = { _FrameResource.RenderFinishedSemaphores[_FrameResource.CurrentFrameIndex] };
 			submitInfo.signalSemaphoreCount = 1;
@@ -413,6 +617,370 @@ namespace Chilli
 		}
 	}
 
+	// ------------------------------------------------------------------------------------------------
+// HELPER: Map your RenderStreamTypes to your physical device Queue Family Indices.
+// You MUST implement this based on how you created your logical device.
+// ------------------------------------------------------------------------------------------------
+	uint32_t VulkanGraphicsBackend::_GetQueueFamilyIndex(RenderStreamTypes stream) {
+		switch (stream) {
+		case RenderStreamTypes::GRAPHICS:
+			return _Data.Device.GetPhysicalDevice()->Info.QueueIndicies.Queues[int(QueueFamilies::GRAPHICS)].value();
+		case RenderStreamTypes::TRANSFER:
+			return _Data.Device.GetPhysicalDevice()->Info.QueueIndicies.Queues[int(QueueFamilies::TRANSFER)].value();
+		case RenderStreamTypes::COMPUTE:
+			return _Data.Device.GetPhysicalDevice()->Info.QueueIndicies.Queues[int(QueueFamilies::COMPUTE)].value();
+		default: return VK_QUEUE_FAMILY_IGNORED;
+		}
+	}
+
+	// ------------------------------------------------------------------------------------------------
+	// HELPER: Resolve ResourceState to Vulkan Access Flags and Layouts
+	// ------------------------------------------------------------------------------------------------
+	std::pair<VkAccessFlags, VkImageLayout> GetAccessAndLayout(ResourceState state) {
+		switch (state) {
+		case ResourceState::Undefined:
+			return { 0, VK_IMAGE_LAYOUT_UNDEFINED };
+		case ResourceState::RenderTarget:
+			return { VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+		case ResourceState::DepthWrite:
+			return { VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+		case ResourceState::ShaderRead:
+			return { VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+		case ResourceState::ComputeRead:
+			return { VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL };
+		case ResourceState::ComputeWrite:
+			return { VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL };
+		case ResourceState::CopySrc:
+			return { VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL };
+		case ResourceState::CopyDst:
+			return { VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL };
+		case ResourceState::Present:
+			return { 0, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR };
+		default:
+			return { 0, VK_IMAGE_LAYOUT_UNDEFINED };
+		}
+	}
+
+	// ------------------------------------------------------------------------------------------------
+	// HELPER: Resolve Pipeline Stages based on State and Stream Type
+	// ------------------------------------------------------------------------------------------------
+	VkPipelineStageFlags GetPipelineStage(ResourceState state, RenderStreamTypes stream) {
+		// 1. Explicit State Mappings
+		switch (state) {
+		case ResourceState::Undefined:    return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+		case ResourceState::RenderTarget: return VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		case ResourceState::DepthWrite:   return VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+		case ResourceState::CopySrc:
+		case ResourceState::CopyDst:      return VK_PIPELINE_STAGE_TRANSFER_BIT;
+		case ResourceState::ComputeRead:
+		case ResourceState::ComputeWrite: return VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+		case ResourceState::Present:      return VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+		default: break;
+		}
+
+		// 2. Fallback based on Stream Context
+		switch (stream) {
+		case RenderStreamTypes::GRAPHICS:
+			if (state == ResourceState::ShaderRead)
+				return VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT;
+			return VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT;
+		case RenderStreamTypes::COMPUTE:
+			return VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+		case RenderStreamTypes::TRANSFER:
+			return VK_PIPELINE_STAGE_TRANSFER_BIT;
+		}
+		return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+	}
+
+	void VulkanGraphicsBackend::_ExecutePipelineBarriers(const PipelineBarrier* barriers, uint32_t count, VkCommandBuffer cmdBuffer)
+	{
+		if (count == 0) return;
+
+		static std::vector<VkImageMemoryBarrier> imageBarriers;
+		static std::vector<VkBufferMemoryBarrier> bufferBarriers;
+
+		// Pre-allocate to avoid resize overhead
+		imageBarriers.clear();
+		bufferBarriers.clear();
+
+		imageBarriers.reserve(count);
+		bufferBarriers.reserve(count);
+
+		VkPipelineStageFlags srcStageMask = 0;
+		VkPipelineStageFlags dstStageMask = 0;
+
+		for (uint32_t i = 0; i < count; ++i) {
+			const PipelineBarrier& bar = barriers[i];
+
+			// --- 1. Resolve Access & Stages ---
+			auto [srcAccess, oldLayout] = GetAccessAndLayout(bar.OldState);
+			auto [dstAccess, newLayout] = GetAccessAndLayout(bar.NewState);
+
+			VkPipelineStageFlags stageSrc = GetPipelineStage(bar.OldState, bar.OldStream);
+			VkPipelineStageFlags stageDst = GetPipelineStage(bar.NewState, bar.NewStream);
+
+			srcStageMask |= stageSrc;
+			dstStageMask |= stageDst;
+
+			// --- 2. Resolve Queue Ownership Transfer ---
+			uint32_t srcQueueFamily = VK_QUEUE_FAMILY_IGNORED;
+			uint32_t dstQueueFamily = VK_QUEUE_FAMILY_IGNORED;
+
+			// Only set families if streams are different (Ownership Transfer)
+			if (bar.OldStream != bar.NewStream) {
+				srcQueueFamily = _GetQueueFamilyIndex(bar.OldStream);
+				dstQueueFamily = _GetQueueFamilyIndex(bar.NewStream);
+			}
+
+			// --- 3. Handle Image Barriers ---
+			VkImage targetImage = VK_NULL_HANDLE;
+			bool isImageBarrier = false;
+
+			// Check SwapChain FIRST as requested
+			if (bar.ImageBarrier.IsSwapChain) {
+				targetImage = _Data.SwapChainKHR.GetImages()[_FrameResource.CurrentFrameIndex];
+				isImageBarrier = true;
+			}
+			// Only check Handle if SwapChain was false
+			else if (bar.ImageBarrier.ImageHandle != UINT32_MAX) {
+				auto Image = _ImageDataManager.GetImage(_ImageDataManager.GetTexture(bar.ImageBarrier.ImageHandle)->GetImageHandle());
+				
+				if (bar.OldState != Image->GetSpec().State)
+					VULKAN_ERROR("The givne state does not match images current state!");
+
+				if (ValidateImageState(Image->GetSpec().Usage, bar.NewState) == false)
+					VULKAN_ERROR("Usage And State not Valid!");
+
+				Image->SetResourceState(bar.NewState);
+
+				targetImage = Image->GetHandle();
+				isImageBarrier = true;
+			}
+
+			if (isImageBarrier && targetImage != VK_NULL_HANDLE) {
+				VkImageMemoryBarrier imgBar = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+				imgBar.srcAccessMask = srcAccess;
+				imgBar.dstAccessMask = dstAccess;
+				imgBar.oldLayout = oldLayout;
+				imgBar.newLayout = newLayout;
+				imgBar.srcQueueFamilyIndex = srcQueueFamily;
+				imgBar.dstQueueFamilyIndex = dstQueueFamily;
+				imgBar.image = targetImage;
+
+				// Subresource Range
+				imgBar.subresourceRange.baseMipLevel = bar.ImageBarrier.SubresourceRange.baseMip;
+				imgBar.subresourceRange.levelCount = bar.ImageBarrier.SubresourceRange.mipCount;
+				imgBar.subresourceRange.baseArrayLayer = bar.ImageBarrier.SubresourceRange.baseLayer;
+				imgBar.subresourceRange.layerCount = bar.ImageBarrier.SubresourceRange.layerCount;
+
+				// Infer Aspect Mask (Depth vs Color)
+				if (bar.NewState == ResourceState::DepthWrite || bar.OldState == ResourceState::DepthWrite) {
+					imgBar.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+				}
+				else {
+					imgBar.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				}
+
+				imageBarriers.push_back(imgBar);
+			}
+
+			// --- 4. Handle Buffer Barriers ---
+			// Only process buffer if image logic above did not run (or implicit precedence based on your struct design)
+			else if (bar.BufferBarrier.Handle != UINT32_MAX) {
+				VkBufferMemoryBarrier bufBar = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+				bufBar.srcAccessMask = srcAccess;
+				bufBar.dstAccessMask = dstAccess;
+				bufBar.srcQueueFamilyIndex = srcQueueFamily;
+				bufBar.dstQueueFamilyIndex = dstQueueFamily;
+				bufBar.buffer = _BufferManager.Get(bar.BufferBarrier.Handle)->Buffer;
+				bufBar.offset = bar.BufferBarrier.Offset;
+				bufBar.size = bar.BufferBarrier.Size;
+
+				bufferBarriers.push_back(bufBar);
+			}
+		}
+
+		// --- 5. Submit to Command Buffer ---
+		if (!imageBarriers.empty() || !bufferBarriers.empty()) {
+			vkCmdPipelineBarrier(
+				cmdBuffer,
+				srcStageMask,
+				dstStageMask,
+				0,
+				0, nullptr, // Memory Barriers
+				static_cast<uint32_t>(bufferBarriers.size()), bufferBarriers.data(),
+				static_cast<uint32_t>(imageBarriers.size()), imageBarriers.data()
+			);
+		}
+	}
+
+	void VulkanGraphicsBackend::_AppendMaterialUpdateData(const MaterialDataUpdateCmdPayload& Payload)
+	{
+		_FrameResource.MaterailWritingDatas.push_back(Payload);
+	}
+
+	void VulkanGraphicsBackend::_UpdateAllMaterialUpdateData()
+	{
+		// Reserve to prevent pointer invalidation during push_back
+		const uint32_t size = _FrameResource.MaterailWritingDatas.size();
+		_FrameResource.WritingBufferInfos.reserve(size * _Spec.MaxFrameInFlight);
+		_FrameResource.WritingImageInfos.reserve(size * _Spec.MaxFrameInFlight);
+		_FrameResource.WritingSets.reserve(size * _Spec.MaxFrameInFlight);
+
+		for (const auto& UpdateInfo : _FrameResource.MaterailWritingDatas) {
+			// 2. Fetch Material & Shader Metadata
+			auto* ActiveMaterial = _MaterialManager.Get(UpdateInfo.MaterialHandle);
+			const auto& ProgramInfo = _ShaderManager.GetProgramInfo(ActiveMaterial->ProgramID);
+
+			// 3. Find the binding slot using your 32-char fixed name
+			// Internally this uses memcmp(Name, UpdateInfo.Name, 32)
+			auto BindingLocation = _ShaderManager.FindUserShaderDataLocation(
+				ActiveMaterial->ProgramID,
+				UpdateInfo.Name
+			);
+
+			if (!BindingLocation.ReturnState) {
+				VULKAN_ERROR("Uniform '%s' not found in shader!" << UpdateInfo.Name);
+				continue;
+			}
+
+			uint32_t SetIdx = BindingLocation.BindingInfo.Set - int(BindlessSetTypes::USER_0);
+			uint32_t BindingSlot = BindingLocation.BindingInfo.Binding;
+
+			// 4. Ensure Cache Capacity (No-op after first run per material)
+			auto& CurrentSetCache = ActiveMaterial->SetBindingsStates[SetIdx];
+			if (CurrentSetCache.size() <= BindingSlot) {
+				CurrentSetCache.resize(ProgramInfo.UniformInputs[SetIdx].Bindings.size(), UINT32_MAX);
+			}
+			bool Skip = false;
+
+			// ----- Uniform / Storage Buffer -----
+			if (BindingLocation.BindingInfo.Type == ShaderUniformTypes::UNIFORM_BUFFER ||
+				BindingLocation.BindingInfo.Type == ShaderUniformTypes::STORAGE_BUFFER)
+			{
+				if ((CurrentSetCache[BindingSlot] & 0xFFFFFFFF) == UpdateInfo.BufferInfo.Handle) {
+					Skip = true;
+				}
+				else {
+					// update cache
+					CurrentSetCache[BindingSlot] = UpdateInfo.BufferInfo.Handle;
+				}
+			}
+
+			// ----- Sampled Image -----
+			else if (BindingLocation.BindingInfo.Type == ShaderUniformTypes::SAMPLED_IMAGE)
+			{
+				if ((CurrentSetCache[BindingSlot] & 0xFFFFFFFF) == UpdateInfo.ImageInfo.Handle) {
+					Skip = true;
+				}
+				else {
+					CurrentSetCache[BindingSlot] = UpdateInfo.ImageInfo.Handle;
+				}
+			}
+
+			// ----- Sampler -----
+			else if (BindingLocation.BindingInfo.Type == ShaderUniformTypes::SAMPLER)
+			{
+				if ((CurrentSetCache[BindingSlot] & 0xFFFFFFFF) == UpdateInfo.ImageInfo.Sampler) {
+					Skip = true;
+				}
+				else {
+					CurrentSetCache[BindingSlot] = UpdateInfo.ImageInfo.Sampler;
+				}
+			}
+
+			// ----- Combined Image + Sampler -----
+			else if (BindingLocation.BindingInfo.Type == ShaderUniformTypes::COMBINED_IMAGE_SAMPLER)
+			{
+				uint64_t combined = (uint64_t(UpdateInfo.ImageInfo.Sampler) << 32) |
+					uint64_t(UpdateInfo.ImageInfo.Handle);
+
+				if ((CurrentSetCache[BindingSlot] & 0xFFFFFFFF) == UpdateInfo.ImageInfo.Handle &&
+					(CurrentSetCache[BindingSlot] >> 32) == UpdateInfo.ImageInfo.Sampler) {
+					Skip = true;
+				}
+				else {
+					CurrentSetCache[BindingSlot] = combined;
+				}
+			}
+
+			if (Skip)
+				continue;
+			
+			// 7. Handle Buffer Types (Uniform / Storage)
+			if (BindingLocation.BindingInfo.Type == ShaderUniformTypes::UNIFORM_BUFFER ||
+				BindingLocation.BindingInfo.Type == ShaderUniformTypes::STORAGE_BUFFER)
+			{
+				if (UpdateInfo.BufferInfo.Handle == UINT32_MAX) continue;
+
+				VkDescriptorBufferInfo bufferInfo{};
+				bufferInfo.buffer = _BufferManager.Get(UpdateInfo.BufferInfo.Handle)->Buffer;
+				bufferInfo.offset = UpdateInfo.BufferInfo.Offset;
+				bufferInfo.range = UpdateInfo.BufferInfo.Range;
+
+				// Push to transient storage and link pointer
+				_FrameResource.WritingBufferInfos.push_back(bufferInfo);
+			}
+
+			// 7. Handle Buffer Types (Uniform / Storage)
+			if (BindingLocation.BindingInfo.Type == ShaderUniformTypes::SAMPLED_IMAGE ||
+				BindingLocation.BindingInfo.Type == ShaderUniformTypes::SAMPLER ||
+				BindingLocation.BindingInfo.Type == ShaderUniformTypes::COMBINED_IMAGE_SAMPLER)
+			{
+
+				VkDescriptorImageInfo ImageInfo{};
+				ImageInfo.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				ImageInfo.sampler = VK_NULL_HANDLE;
+				ImageInfo.imageView = VK_NULL_HANDLE;
+
+				if (UpdateInfo.ImageInfo.Handle != UINT32_MAX) {
+					auto ActiveTexture = _ImageDataManager.GetTexture(UpdateInfo.ImageInfo.Handle);
+					ImageInfo.imageView = ActiveTexture->GetHandle();
+
+					auto State = GetVulkanState(UpdateInfo.ImageInfo.State);
+					ImageInfo.imageLayout = State.layout;
+				}
+				if (UpdateInfo.ImageInfo.Sampler != UINT32_MAX)
+				{
+					ImageInfo.sampler = _SamplerSet.Get(UpdateInfo.ImageInfo.Sampler)->GetHandle();
+				}
+				// Push to transient storage and link pointer
+				_FrameResource.WritingImageInfos.push_back(ImageInfo);
+			}
+
+			for (int i = 0; i < _Spec.MaxFrameInFlight; i++)
+			{
+
+				// 6. Build Vulkan Write Structure
+				VkWriteDescriptorSet descriptorWrite{};
+				descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				descriptorWrite.dstSet = ActiveMaterial->Sets[i][SetIdx];
+				descriptorWrite.dstBinding = BindingSlot;
+				descriptorWrite.dstArrayElement = UpdateInfo.DstArrayIndex;
+				descriptorWrite.descriptorCount = 1;
+				descriptorWrite.descriptorType = ShaderUniformTypeToVk(BindingLocation.BindingInfo.Type);
+
+				// 7. Handle Buffer Types (Uniform / Storage)
+				if (BindingLocation.BindingInfo.Type == ShaderUniformTypes::UNIFORM_BUFFER ||
+					BindingLocation.BindingInfo.Type == ShaderUniformTypes::STORAGE_BUFFER)
+				{
+					descriptorWrite.pBufferInfo = &_FrameResource.WritingBufferInfos.back();
+				}
+
+				// 7. Handle Buffer Types (Uniform / Storage)
+				if (BindingLocation.BindingInfo.Type == ShaderUniformTypes::SAMPLED_IMAGE ||
+					BindingLocation.BindingInfo.Type == ShaderUniformTypes::SAMPLER ||
+					BindingLocation.BindingInfo.Type == ShaderUniformTypes::COMBINED_IMAGE_SAMPLER)
+				{
+					descriptorWrite.pImageInfo = &_FrameResource.WritingImageInfos.back();
+				}
+
+				// 8. Queue for GPU Update & Mark Cache
+				_FrameResource.WritingSets.push_back(descriptorWrite);
+			}
+		}
+	}
+
 	void VulkanGraphicsBackend::SetActiveGraphicsPipelineState(VkCommandBuffer CmdBuffer, const PipelineStateInfo& State)
 	{
 		VULKAN_ASSERT(CmdBuffer != VK_NULL_HANDLE, "Valid Command Buffer Not Given!");
@@ -443,7 +1011,7 @@ namespace Chilli
 		// Static (Changed on New Pipelien state)
 		SetPrimitiveRestartEnable(CmdBuffer, State.PrimitiveRestartEnable);
 
-		SetColorBlendState(CmdBuffer, State.ColorBlendAttachments);
+		SetColorBlendState(CmdBuffer, &State.ColorBlendAttachments[0], State.ColorBlendAttachmentsCount);
 
 		SetRasterizationSamples(CmdBuffer, State.SampleCount); // Or your actual MSAA count
 
@@ -453,17 +1021,18 @@ namespace Chilli
 		ChBool8 colorWriteEnables[] = { CH_TRUE };
 		SetColorWriteEnable(CmdBuffer, 1, colorWriteEnables);
 
-		SetVertexInputState(CmdBuffer, State.VertexInputLayout);
+		//SetVertexInputState(CmdBuffer, State.VertexInputLayout);
 
 		_ActivePipelineState = State;
 	}
 
-	void VulkanGraphicsBackend::SetColorBlendState(VkCommandBuffer CmdBuffer, const std::vector<ColorBlendAttachmentState>& ColorBlendAttachments)
+	void VulkanGraphicsBackend::SetColorBlendState(VkCommandBuffer CmdBuffer,
+		const ColorBlendAttachmentState* ColorBlendAttachments, uint32_t ColorBlendAttachmentCount)
 	{
 		// The number of attachments being set dynamically
-		uint32_t attachmentCount = (uint32_t)ColorBlendAttachments.size();
-
 		// Arrays to hold the values for the simultaneous Vulkan calls
+
+		const uint32_t attachmentCount = ColorBlendAttachmentCount;
 
 		auto blendEnables = (VkBool32*)alloca(attachmentCount * sizeof(VkBool32));
 		auto colorWriteMasks = (VkColorComponentFlags*)alloca(attachmentCount
@@ -783,149 +1352,6 @@ namespace Chilli
 		}
 	}
 
-	void VulkanGraphicsBackend::FillDescriptorSetInfos(const std::vector<RenderShaderDataUpdateInfo>& Info)
-	{
-		// Reserve to prevent pointer invalidation during push_back
-		_DescriptorSetsData.WritingBufferInfos.reserve(Info.size());
-		_DescriptorSetsData.WritingImageInfos.reserve(Info.size());
-		_DescriptorSetsData.WritingSets.reserve(Info.size());
-
-		for (const auto& UpdateInfo : Info) {
-			// 2. Fetch Material & Shader Metadata
-			auto* ActiveMaterial = _MaterialManager.Get(UpdateInfo.MaterialHandle);
-			const auto& ProgramInfo = _ShaderManager.GetProgramInfo(ActiveMaterial->ProgramID);
-
-			// 3. Find the binding slot using your 32-char fixed name
-			// Internally this uses memcmp(Name, UpdateInfo.Name, 32)
-			auto BindingLocation = _ShaderManager.FindUserShaderDataLocation(
-				ActiveMaterial->ProgramID,
-				UpdateInfo.Name
-			);
-
-			if (!BindingLocation.ReturnState) {
-				VULKAN_ERROR("Uniform '%s' not found in shader!" << UpdateInfo.Name);
-				continue;
-			}
-
-			uint32_t SetIdx = BindingLocation.BindingInfo.Set - int(BindlessSetTypes::USER_0);
-			uint32_t BindingSlot = BindingLocation.BindingInfo.Binding;
-
-			// 4. Ensure Cache Capacity (No-op after first run per material)
-			auto& CurrentSetCache = ActiveMaterial->SetBindingsStates[_FrameResource.CurrentFrameIndex][SetIdx];
-			if (CurrentSetCache.size() <= BindingSlot) {
-				CurrentSetCache.resize(ProgramInfo.UniformInputs[SetIdx].Bindings.size(), UINT32_MAX);
-			}
-			bool Skip = false;
-
-			// ----- Uniform / Storage Buffer -----
-			if (BindingLocation.BindingInfo.Type == ShaderUniformTypes::UNIFORM_BUFFER ||
-				BindingLocation.BindingInfo.Type == ShaderUniformTypes::STORAGE_BUFFER)
-			{
-				if ((CurrentSetCache[BindingSlot] & 0xFFFFFFFF) == UpdateInfo.BufferInfo.Handle) {
-					Skip = true;
-				}
-				else {
-					// update cache
-					CurrentSetCache[BindingSlot] = UpdateInfo.BufferInfo.Handle;
-				}
-			}
-
-			// ----- Sampled Image -----
-			else if (BindingLocation.BindingInfo.Type == ShaderUniformTypes::SAMPLED_IMAGE)
-			{
-				if ((CurrentSetCache[BindingSlot] & 0xFFFFFFFF) == UpdateInfo.ImageInfo.Handle) {
-					Skip = true;
-				}
-				else {
-					CurrentSetCache[BindingSlot] = UpdateInfo.ImageInfo.Handle;
-				}
-			}
-
-			// ----- Sampler -----
-			else if (BindingLocation.BindingInfo.Type == ShaderUniformTypes::SAMPLER)
-			{
-				if ((CurrentSetCache[BindingSlot] & 0xFFFFFFFF) == UpdateInfo.ImageInfo.Sampler) {
-					Skip = true;
-				}
-				else {
-					CurrentSetCache[BindingSlot] = UpdateInfo.ImageInfo.Sampler;
-				}
-			}
-
-			// ----- Combined Image + Sampler -----
-			else if (BindingLocation.BindingInfo.Type == ShaderUniformTypes::COMBINED_IMAGE_SAMPLER)
-			{
-				uint64_t combined = (uint64_t(UpdateInfo.ImageInfo.Sampler) << 32) |
-					uint64_t(UpdateInfo.ImageInfo.Handle);
-
-				if ((CurrentSetCache[BindingSlot] & 0xFFFFFFFF) == UpdateInfo.ImageInfo.Handle &&
-					(CurrentSetCache[BindingSlot] >> 32) == UpdateInfo.ImageInfo.Sampler) {
-					Skip = true;
-				}
-				else {
-					CurrentSetCache[BindingSlot] = combined;
-				}
-			}
-
-			if (Skip)
-				continue;
-
-			// 6. Build Vulkan Write Structure
-			VkWriteDescriptorSet descriptorWrite{};
-			descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrite.dstSet = ActiveMaterial->Sets[_FrameResource.CurrentFrameIndex][SetIdx];
-			descriptorWrite.dstBinding = BindingSlot;
-			descriptorWrite.dstArrayElement = UpdateInfo.DstArrayIndex;
-			descriptorWrite.descriptorCount = 1;
-			descriptorWrite.descriptorType = ShaderUniformTypeToVk(BindingLocation.BindingInfo.Type);
-
-			// 7. Handle Buffer Types (Uniform / Storage)
-			if (BindingLocation.BindingInfo.Type == ShaderUniformTypes::UNIFORM_BUFFER ||
-				BindingLocation.BindingInfo.Type == ShaderUniformTypes::STORAGE_BUFFER)
-			{
-				if (UpdateInfo.BufferInfo.Handle == UINT32_MAX) continue;
-
-				VkDescriptorBufferInfo bufferInfo{};
-				bufferInfo.buffer = _BufferManager.Get(UpdateInfo.BufferInfo.Handle)->Buffer;
-				bufferInfo.offset = UpdateInfo.BufferInfo.Offset;
-				bufferInfo.range = UpdateInfo.BufferInfo.Range;
-
-				// Push to transient storage and link pointer
-				_DescriptorSetsData.WritingBufferInfos.push_back(bufferInfo);
-				descriptorWrite.pBufferInfo = &_DescriptorSetsData.WritingBufferInfos.back();
-			}
-
-			// 7. Handle Buffer Types (Uniform / Storage)
-			if (BindingLocation.BindingInfo.Type == ShaderUniformTypes::SAMPLED_IMAGE ||
-				BindingLocation.BindingInfo.Type == ShaderUniformTypes::SAMPLER ||
-				BindingLocation.BindingInfo.Type == ShaderUniformTypes::COMBINED_IMAGE_SAMPLER)
-			{
-
-				VkDescriptorImageInfo ImageInfo{};
-				ImageInfo.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-				ImageInfo.sampler = VK_NULL_HANDLE;
-				ImageInfo.imageView = VK_NULL_HANDLE;
-
-				if (UpdateInfo.ImageInfo.Handle != UINT32_MAX) {
-					auto ActiveTexture = _ImageDataManager.GetTexture(UpdateInfo.ImageInfo.Handle);
-					ImageInfo.imageView = ActiveTexture->GetHandle();
-					ImageInfo.imageLayout = _ImageDataManager.GetImage(ActiveTexture->GetImageHandle())->GetImageLayout();
-				}
-				if (UpdateInfo.ImageInfo.Sampler != UINT32_MAX)
-				{
-					ImageInfo.sampler = _SamplerSet.Get(UpdateInfo.ImageInfo.Sampler)->GetHandle();
-				}
-				// Push to transient storage and link pointer
-				_DescriptorSetsData.WritingImageInfos.push_back(ImageInfo);
-				descriptorWrite.pImageInfo = &_DescriptorSetsData.WritingImageInfos.back();
-			}
-
-			// 8. Queue for GPU Update & Mark Cache
-			_DescriptorSetsData.WritingSets.push_back(descriptorWrite);
-			//CurrentSetCache[BindingSlot] = UpdateInfo.BufferInfo.Handle;
-		}
-	}
-
 	uint32_t VulkanGraphicsBackend::PrepareMaterialData(uint32_t ShaderProgramHandle)
 	{
 		// --- 1. Initialize Material Info Structure ---
@@ -947,7 +1373,6 @@ namespace Chilli
 		// --- 2. Nested Loop for Allocation (Frame-in-Flight & Set Type) ---
 		// Outer loop: Iterates over each frame-in-flight index (0, 1, 2...)
 
-		Info.SetBindingsStates.resize(_Spec.MaxFrameInFlight);
 		for (size_t frameIndex = 0; frameIndex < framesInFlight; ++frameIndex)
 		{
 			int idx = 0;
@@ -1046,8 +1471,7 @@ namespace Chilli
 	uint32_t VulkanGraphicsBackend::GetTextureShaderIndex(uint32_t RawTextureHandle)
 	{
 		return _BindlessManager.UpdateTexture(_Data.Device.GetHandle(), RawTextureHandle,
-			_ImageDataManager.GetTexture(RawTextureHandle)->GetHandle(),
-			_ImageDataManager.GetImage(_ImageDataManager.GetTexture(RawTextureHandle)->GetImageHandle())->GetImageLayout());
+			_ImageDataManager.GetTexture(RawTextureHandle)->GetHandle());
 	}
 
 	uint32_t VulkanGraphicsBackend::GetSamplerShaderIndex(uint32_t RawSamplerHandle)
@@ -1326,6 +1750,13 @@ namespace Chilli
 	{
 		_Data.SwapChainKHR.Init(_Data.Device, _Data.SurfaceKHR, _Spec.ViewPortSize.x, _Spec.ViewPortSize.y, _Spec.VSync);
 		_Spec.ViewPortResized = false;
+
+		for (int i = 0; i < _Data.SwapChainKHR.GetImages().size(); i++)
+		{
+			_Uploader.TransitionImageLayout(_Data.SwapChainKHR.GetImages()[i], VK_IMAGE_LAYOUT_UNDEFINED,
+				VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_ASPECT_COLOR_BIT);
+			_Data.SwapChainKHR.SetImageLayout(i, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+		}
 	}
 
 	void VulkanGraphicsBackend::_ReCreateSwapChainKHR()
@@ -1363,6 +1794,7 @@ namespace Chilli
 	{
 		// Create Synchronization Resoources
 		_FrameResource.ImageAvailableSemaphores.resize(_Spec.MaxFrameInFlight);
+		_FrameResource.ComputeFinishedSemaphores.resize(_Spec.MaxFrameInFlight);
 		_FrameResource.RenderFinishedSemaphores.resize(_Spec.MaxFrameInFlight);
 		_FrameResource.InFlightFences.resize(_Spec.MaxFrameInFlight);
 		auto device = _Data.Device.GetHandle();
@@ -1377,6 +1809,7 @@ namespace Chilli
 		for (size_t i = 0; i < _Spec.MaxFrameInFlight; i++) {
 			if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &_FrameResource.ImageAvailableSemaphores[i]) != VK_SUCCESS ||
 				vkCreateSemaphore(device, &semaphoreInfo, nullptr, &_FrameResource.RenderFinishedSemaphores[i]) != VK_SUCCESS ||
+				vkCreateSemaphore(device, &semaphoreInfo, nullptr, &_FrameResource.ComputeFinishedSemaphores[i]) != VK_SUCCESS ||
 				vkCreateFence(device, &fenceInfo, nullptr, &_FrameResource.InFlightFences[i]) != VK_SUCCESS) {
 
 				throw std::runtime_error("failed to create synchronization objects for a frame!");
@@ -1393,103 +1826,8 @@ namespace Chilli
 		for (size_t i = 0; i < _Spec.MaxFrameInFlight; i++) {
 			vkDestroySemaphore(device, _FrameResource.RenderFinishedSemaphores[i], nullptr);
 			vkDestroySemaphore(device, _FrameResource.ImageAvailableSemaphores[i], nullptr);
+			vkDestroySemaphore(device, _FrameResource.ComputeFinishedSemaphores[i], nullptr);
 			vkDestroyFence(device, _FrameResource.InFlightFences[i], nullptr);
-		}
-	}
-
-	void VulkanGraphicsBackend::_BeginDynamicRendering(VkCommandBuffer CmdBuffer, const RenderPassInfo& Pass)
-	{
-		VkRenderingInfo RenderingInfo{};
-		RenderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-		RenderingInfo.layerCount = 1;
-
-		std::vector< VkRenderingAttachmentInfo> ColorAttachments;
-		ColorAttachments.reserve(Pass.ColorAttachments.size());
-
-		RenderingInfo.renderArea = { {0, 0}, {(unsigned int)Pass.RenderArea.x
-			,(unsigned int)Pass.RenderArea.y} };
-
-		if (Pass.ColorAttachments.size() > 0)
-		{
-			for (int i = 0; i < Pass.ColorAttachments.size(); i++)
-			{
-				auto& ActiveColorAttachmentInfo = Pass.ColorAttachments[i];
-
-				VkRenderingAttachmentInfo colorAttachment{};
-				colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-				colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; //  Now correct
-				colorAttachment.storeOp = StoreOpToVk(ActiveColorAttachmentInfo.StoreOp);
-				colorAttachment.loadOp = LoadOpToVk(ActiveColorAttachmentInfo.LoadOp);
-				colorAttachment.clearValue = { {ActiveColorAttachmentInfo.ClearColor.x,
-					ActiveColorAttachmentInfo.ClearColor.y, ActiveColorAttachmentInfo.ClearColor.z,
-					ActiveColorAttachmentInfo.ClearColor.w} };
-
-				// Render To SwapChain Image
-				if (ActiveColorAttachmentInfo.UseSwapChainImage)
-				{
-					RenderingInfo.renderArea.extent = {
-						min((uint32_t)Pass.RenderArea.x, _Data.SwapChainKHR.GetExtent().width),
-						min((uint32_t)Pass.RenderArea.y, _Data.SwapChainKHR.GetExtent().height)
-					};
-					colorAttachment.imageView = _Data.SwapChainKHR.GetImageViews()[_FrameResource.CurrentImageIndex];
-				}
-				ColorAttachments.push_back(colorAttachment);
-			}
-		}
-		RenderingInfo.pDepthAttachment = nullptr;
-
-		RenderingInfo.colorAttachmentCount = static_cast<uint32_t>(ColorAttachments.size());
-		RenderingInfo.pColorAttachments = ColorAttachments.data();
-
-		vkCmdBeginRendering(CmdBuffer, &RenderingInfo);
-	}
-
-	void VulkanGraphicsBackend::_PreparePassBarriers(VkCommandBuffer CmdBuffer, const std::vector<PipelineBarrier>& PrePassBarriers)
-	{
-		// Use a local vector or clear the static one to prevent data leaking between calls
-		static std::vector<VkImageMemoryBarrier2> vkBarriers;
-		vkBarriers.clear();
-		vkBarriers.reserve(PrePassBarriers.size());
-
-		for (const auto& b : PrePassBarriers) {
-			VkImageMemoryBarrier2 vkb = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-
-			auto sync = GetVulkanState(b.NewState);
-			auto prevSync = GetVulkanState(b.OldState);
-
-			// Fix: Use the image at CurrentImageIndex for swapchain barriers
-			if (b.IsSwapchain) {
-				vkb.image = _Data.SwapChainKHR.GetImages()[_FrameResource.CurrentImageIndex];
-				_Data.SwapChainKHR.SetImageLayout(_FrameResource.CurrentImageIndex, sync.layout);
-			}
-			else {
-				auto Image = _ImageDataManager.GetImage(_ImageDataManager.GetTexture(b.RawTextureHandle)->GetImageHandle());
-				vkb.image = Image->GetHandle();
-				Image->SetImageLayout(sync.layout);
-			}
-
-			vkb.srcStageMask = prevSync.stage;
-			vkb.srcAccessMask = prevSync.access;
-			vkb.dstStageMask = sync.stage;
-			vkb.dstAccessMask = sync.access;
-			vkb.oldLayout = prevSync.layout;
-			vkb.newLayout = sync.layout;
-
-			// Handle Aspect Mask (Depth vs Color)
-			vkb.subresourceRange.aspectMask = (b.NewState == ResourceState::DepthWrite) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
-			vkb.subresourceRange.baseMipLevel = 0;
-			vkb.subresourceRange.levelCount = 1;
-			vkb.subresourceRange.baseArrayLayer = 0;
-			vkb.subresourceRange.layerCount = 1;
-
-			vkBarriers.push_back(vkb);
-		}
-
-		if (!vkBarriers.empty()) {
-			VkDependencyInfo depInfo = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-			depInfo.imageMemoryBarrierCount = (uint32_t)vkBarriers.size();
-			depInfo.pImageMemoryBarriers = vkBarriers.data();
-			vkCmdPipelineBarrier2(CmdBuffer, &depInfo);
 		}
 	}
 
@@ -1781,6 +2119,12 @@ namespace Chilli
 			"Failed To Create Fence");
 		VULKAN_SUCCESS_ASSERT(vkCreateFence(Device->GetHandle(), &fenceInfo, nullptr, &_GraphicsFence),
 			"Failed To Create Fence");
+
+		_TransferQueueFamilyIndex = Device->GetPhysicalDevice()->Info.QueueIndicies.Queues[int(QueueFamilies::TRANSFER)].value();
+		_GraphicsQueueFamilyIndex = Device->GetPhysicalDevice()->Info.QueueIndicies.Queues[int(QueueFamilies::GRAPHICS)].value();
+
+		if (_TransferQueueFamilyIndex == _GraphicsQueueFamilyIndex)
+			_SameFamily = true;
 	}
 
 	void VulkanDataUploader::Destroy()
@@ -1834,7 +2178,9 @@ namespace Chilli
 		_ActiveCmdBuffer = VK_NULL_HANDLE;
 	}
 
-	void VulkanDataUploader::CopyBufferToBuffer(VkBuffer Src, VkBuffer Dst, const BufferCopyInfo& Info)
+	void VulkanDataUploader::CopyBufferToBuffer(VkBuffer Src, VkBuffer Dst, const BufferCopyInfo& Info,
+		VkAccessFlags2 dstAccess,
+		VkPipelineStageFlags2 dstStage)
 	{
 		auto VkCmdHandle = _CmdBuffer;
 
@@ -1853,11 +2199,36 @@ namespace Chilli
 		vkCmdCopyBuffer(VkCmdHandle, Src,
 			Dst, 1, &copyRegion);
 
+		// 🔴 ADD: barrier after copy (release if needed)
+		BarrierAfterCopy_Buffer(
+			_ActiveCmdBuffer,
+			Dst,
+			dstAccess,
+			dstStage
+		);
+
 		if (DoOneTimeBatching)
 			EndBatching();
+
+		// 🔵 If families differ → acquire on graphics queue
+		if (!_SameFamily && DoOneTimeBatching)
+		{
+			BeginBatching(CommandBufferPurpose::GRAPHICS);
+
+			AcquireOnGraphics_Buffer(
+				_ActiveCmdBuffer,
+				Dst,
+				dstAccess,
+				dstStage
+			);
+
+			EndBatching();
+		}
 	}
 
-	void VulkanDataUploader::CopyBufferToImage(VkBuffer Src, VkImage Dst, const VkBufferImageCopy& Copy)
+	void VulkanDataUploader::CopyBufferToImage(VkBuffer Src, VkImage Dst, const VkBufferImageCopy& Copy,
+		VkImageLayout oldLayout, VkImageLayout newLayout, VkImageSubresourceRange Range,
+		VkAccessFlags2 dstAccess, VkPipelineStageFlags2 dstStage)
 	{
 		auto VkCmdHandle = _CmdBuffer;
 
@@ -1877,11 +2248,41 @@ namespace Chilli
 			&Copy
 		);
 
+		BarrierAfterCopy_Image(
+			_ActiveCmdBuffer,
+			Dst,
+			oldLayout,
+			newLayout,
+			Range,
+			dstAccess,
+			dstStage
+		);
+
 		if (DoOneTimeBatching)
 			EndBatching();
+
+		// 🔵 If families differ → acquire on graphics queue
+		if (!_SameFamily && DoOneTimeBatching)
+		{
+			BeginBatching(CommandBufferPurpose::GRAPHICS);
+
+			AcquireOnGraphics_Image(
+				_ActiveCmdBuffer,
+				Dst,
+				oldLayout,
+				newLayout,
+				Range,
+				dstAccess,
+				dstStage
+			);
+
+			EndBatching();
+		}
 	}
 
-	void VulkanDataUploader::CopyImageToBuffer(VkImage Src, VkBuffer Dst, const VkBufferImageCopy& Copy)
+	void VulkanDataUploader::CopyImageToBuffer(VkImage Src, VkBuffer Dst, const VkBufferImageCopy& Copy,
+		VkAccessFlags2 dstAccess,
+		VkPipelineStageFlags2 dstStage)
 	{
 		auto VkCmdHandle = _CmdBuffer;
 
@@ -1901,11 +2302,36 @@ namespace Chilli
 			&Copy
 		);
 
+		// 🔴 ADD: barrier after copy (release if needed)
+		BarrierAfterCopy_Buffer(
+			_ActiveCmdBuffer,
+			Dst,
+			dstAccess,
+			dstStage
+		);
+
 		if (DoOneTimeBatching)
 			EndBatching();
+
+		// 🔵 If families differ → acquire on graphics queue
+		if (!_SameFamily && DoOneTimeBatching)
+		{
+			BeginBatching(CommandBufferPurpose::GRAPHICS);
+
+			AcquireOnGraphics_Buffer(
+				_ActiveCmdBuffer,
+				Dst,
+				dstAccess,
+				dstStage
+			);
+
+			EndBatching();
+		}
 	}
 
-	void VulkanDataUploader::CopyImageToImage(VkImage Src, VkImage Dst, const VkImageCopy& Copy)
+	void VulkanDataUploader::CopyImageToImage(VkImage Src, VkImage Dst, const VkImageCopy& Copy,
+		VkImageLayout oldLayout, VkImageLayout newLayout, VkImageSubresourceRange Range,
+		VkAccessFlags2 dstAccess, VkPipelineStageFlags2 dstStage)
 	{
 		auto VkCmdHandle = _CmdBuffer;
 
@@ -1926,8 +2352,36 @@ namespace Chilli
 			&Copy
 		);
 
+		BarrierAfterCopy_Image(
+			_ActiveCmdBuffer,
+			Dst,
+			oldLayout,
+			newLayout,
+			Range,
+			dstAccess,
+			dstStage
+		);
+
 		if (DoOneTimeBatching)
 			EndBatching();
+
+		// 🔵 If families differ → acquire on graphics queue
+		if (!_SameFamily && DoOneTimeBatching)
+		{
+			BeginBatching(CommandBufferPurpose::GRAPHICS);
+
+			AcquireOnGraphics_Image(
+				_ActiveCmdBuffer,
+				Dst,
+				oldLayout,
+				newLayout,
+				Range,
+				dstAccess,
+				dstStage
+			);
+
+			EndBatching();
+		}
 	}
 
 	void VulkanDataUploader::TransitionImageLayout(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspectFlags)
@@ -1947,6 +2401,132 @@ namespace Chilli
 
 		if (doOneTime)
 			EndBatching();
+	}
+
+	void VulkanDataUploader::BarrierAfterCopy_Image(VkCommandBuffer cmd, VkImage Image,
+		VkImageLayout oldLayout, VkImageLayout newLayout, VkImageSubresourceRange Range,
+		VkAccessFlags2 dstAccess, VkPipelineStageFlags2 dstStage)
+	{
+		VkImageMemoryBarrier2 barrier{};
+		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+		barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+		barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+
+		// RELEASE OPERATION:
+		// If different families, we "Release" to the end of the pipe with NO access.
+		// The destination queue will handle the actual stage/access transition.
+		if (!_SameFamily) {
+			barrier.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_2_NONE;
+			barrier.srcQueueFamilyIndex = _TransferQueueFamilyIndex;
+			barrier.dstQueueFamilyIndex = _GraphicsQueueFamilyIndex;
+		}
+		else {
+			barrier.dstStageMask = dstStage;
+			barrier.dstAccessMask = dstAccess;
+			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		}
+
+		barrier.oldLayout = oldLayout;
+		barrier.newLayout = newLayout;
+		barrier.image = Image;
+		barrier.subresourceRange = Range;
+
+		VkDependencyInfo depInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+		depInfo.imageMemoryBarrierCount = 1;
+		depInfo.pImageMemoryBarriers = &barrier;
+
+		vkCmdPipelineBarrier2(cmd, &depInfo);
+	}
+
+	void VulkanDataUploader::AcquireOnGraphics_Image(VkCommandBuffer cmd, VkImage Image,
+		VkImageLayout oldLayout, VkImageLayout newLayout, VkImageSubresourceRange Range,
+		VkAccessFlags2 dstAccess, VkPipelineStageFlags2 dstStage)
+	{
+		if (_SameFamily) return;
+
+		VkImageMemoryBarrier2 barrier{};
+		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+
+		// ACQUIRE OPERATION:
+		// srcStage is ignored but must be a valid stage. TOP_OF_PIPE is standard.
+		// srcAccess must be NONE for an Acquire.
+		barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+		barrier.srcAccessMask = VK_ACCESS_2_NONE;
+		barrier.dstStageMask = dstStage;
+		barrier.dstAccessMask = dstAccess;
+
+		barrier.oldLayout = oldLayout;
+		barrier.newLayout = newLayout;
+		barrier.image = Image;
+		barrier.subresourceRange = Range;
+		barrier.srcQueueFamilyIndex = _TransferQueueFamilyIndex;
+		barrier.dstQueueFamilyIndex = _GraphicsQueueFamilyIndex;
+
+		VkDependencyInfo depInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+		depInfo.imageMemoryBarrierCount = 1;
+		depInfo.pImageMemoryBarriers = &barrier;
+
+		vkCmdPipelineBarrier2(cmd, &depInfo);
+	}
+
+	void VulkanDataUploader::BarrierAfterCopy_Buffer(VkCommandBuffer cmd, VkBuffer buffer,
+		VkAccessFlags2 dstAccess, VkPipelineStageFlags2 dstStage)
+	{
+		VkBufferMemoryBarrier2 barrier{};
+		barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+		barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+		barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+
+		barrier.dstStageMask = _SameFamily ? dstStage : VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+		barrier.dstAccessMask = _SameFamily ? dstAccess : VK_ACCESS_2_NONE;
+
+		barrier.buffer = buffer;
+		barrier.offset = 0;
+		barrier.size = VK_WHOLE_SIZE;
+
+		if (_SameFamily) {
+			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		}
+		else {
+			barrier.srcQueueFamilyIndex = _TransferQueueFamilyIndex;
+			barrier.dstQueueFamilyIndex = _GraphicsQueueFamilyIndex;
+		}
+
+		VkDependencyInfo depInfo{};
+		depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+		depInfo.bufferMemoryBarrierCount = 1;
+		depInfo.pBufferMemoryBarriers = &barrier;
+
+		vkCmdPipelineBarrier2(cmd, &depInfo);
+	}
+
+	void VulkanDataUploader::AcquireOnGraphics_Buffer(VkCommandBuffer cmd, VkBuffer buffer,
+		VkAccessFlags2 dstAccess, VkPipelineStageFlags2 dstStage)
+	{
+		if (_SameFamily) return;
+
+		VkBufferMemoryBarrier2 barrier{};
+		barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+		barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+		barrier.srcAccessMask = VK_ACCESS_2_NONE;
+		barrier.dstStageMask = dstStage;
+		barrier.dstAccessMask = dstAccess;
+
+		barrier.buffer = buffer;
+		barrier.offset = 0;
+		barrier.size = VK_WHOLE_SIZE;
+		barrier.srcQueueFamilyIndex = _TransferQueueFamilyIndex;
+		barrier.dstQueueFamilyIndex = _GraphicsQueueFamilyIndex;
+
+		VkDependencyInfo depInfo{};
+		depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+		depInfo.bufferMemoryBarrierCount = 1;
+		depInfo.pBufferMemoryBarriers = &barrier;
+
+		vkCmdPipelineBarrier2(cmd, &depInfo);
 	}
 }
 
@@ -2056,17 +2636,17 @@ void _TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
 	VkImageLayout oldLayout, VkImageLayout newLayout,
 	VkImageAspectFlags aspectFlags)
 {
-	VkPipelineStageFlags2 srcStage = 0;
-	VkPipelineStageFlags2 dstStage = 0;
-	VkAccessFlags2 srcAccess = 0;
-	VkAccessFlags2 dstAccess = 0;
+	VkPipelineStageFlags2 srcStage = VK_PIPELINE_STAGE_2_NONE;
+	VkPipelineStageFlags2 dstStage = VK_PIPELINE_STAGE_2_NONE;
+	VkAccessFlags2 srcAccess = VK_ACCESS_2_NONE;
+	VkAccessFlags2 dstAccess = VK_ACCESS_2_NONE;
 
 	// Auto-detect stages based on layout transition
 	// --- UNDEFINED to various layouts ---
 	if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED)
 	{
-		srcStage = VK_PIPELINE_STAGE_2_NONE;
-		srcAccess = 0;
+		srcStage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+		srcAccess = VK_ACCESS_2_NONE;
 
 		if (newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
 		{
@@ -2106,10 +2686,13 @@ void _TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
 			dstAccess = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
 		}
 	}
-	// --- TRANSFER_DST to SHADER_READ_ONLY ---
-	else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
-		newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-	{
+	else if (oldLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR) {
+		srcStage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+		srcAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+		dstStage = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+		dstAccess = VK_ACCESS_2_NONE; // Present doesn't need an access bit
+	}
+	else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
 		srcStage = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 		srcAccess = VK_ACCESS_2_TRANSFER_WRITE_BIT;
 		dstStage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
@@ -2141,15 +2724,6 @@ void _TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
 		srcAccess = VK_ACCESS_2_SHADER_READ_BIT;
 		dstStage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 		dstAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-	}
-	// --- COLOR_ATTACHMENT to PRESENT_SRC ---
-	else if (oldLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL &&
-		newLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
-	{
-		srcStage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-		srcAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-		dstStage = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
-		dstAccess = VK_ACCESS_2_MEMORY_READ_BIT;
 	}
 	// --- PRESENT_SRC to COLOR_ATTACHMENT ---
 	else if (oldLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR &&

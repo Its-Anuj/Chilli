@@ -714,7 +714,7 @@ namespace Chilli
 			BufferCreateInfo BufferInfo{};
 			BufferInfo.Data = DeafultData.data();
 			BufferInfo.SizeInBytes = rawSize * CH_MATERIAL_SHADER_DATA_AMOUNT * Info.MaxFrameInFlight;
-			BufferInfo.State = BufferState::STATIC_DRAW;
+			BufferInfo.State = BufferState::DYNAMIC_DRAW;
 			BufferInfo.Type = BUFFER_TYPE_STORAGE;
 
 			_SetBuffers[int(BindlessSetTypes::MATERIAl)] = Info.AllocateBuffer(BufferInfo);
@@ -729,7 +729,7 @@ namespace Chilli
 			BufferCreateInfo BufferInfo{};
 			BufferInfo.Data = DeafultData.data();
 			BufferInfo.SizeInBytes = rawSize * CH_OBJECT_SHADER_DATA_AMOUNT * Info.MaxFrameInFlight;
-			BufferInfo.State = BufferState::STATIC_DRAW;
+			BufferInfo.State = BufferState::DYNAMIC_DRAW;
 			BufferInfo.Type = BUFFER_TYPE_STORAGE;
 
 			_SetBuffers[int(BindlessSetTypes::PER_OBJECT)] = Info.AllocateBuffer(BufferInfo);
@@ -827,10 +827,10 @@ namespace Chilli
 		}
 	}
 
-	void VulkanBindlessRenderingManager::_WriteShaderTexture(VkDevice device, uint32_t Index, VkImageView Texture, VkImageLayout Layout)
+	void VulkanBindlessRenderingManager::_WriteShaderTexture(VkDevice device, uint32_t Index, VkImageView Texture)
 	{
 		VkDescriptorImageInfo imageinfo{};
-		imageinfo.imageLayout = Layout;
+		imageinfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		imageinfo.sampler = VK_NULL_HANDLE;
 		imageinfo.imageView = Texture;
 
@@ -905,8 +905,7 @@ namespace Chilli
 		_TextureMap.Create({ TexIndex, UINT32_MAX });
 	}
 
-	uint32_t VulkanBindlessRenderingManager::UpdateTexture(VkDevice device, uint32_t HandleId, VkImageView Txt,
-		VkImageLayout Layout)
+	uint32_t VulkanBindlessRenderingManager::UpdateTexture(VkDevice device, uint32_t HandleId, VkImageView Txt)
 	{
 		auto MetaData = _TextureMap.Get(HandleId);
 
@@ -918,7 +917,7 @@ namespace Chilli
 			MetaData->ShaderIndex = _ActiveTextureCounter;
 
 			// Update Descritpor Set
-			_WriteShaderTexture(device, _ActiveTextureCounter, Txt, Layout);
+			_WriteShaderTexture(device, _ActiveTextureCounter, Txt);
 
 			// 2. Increment the counter for the NEXT texture
 			_ActiveTextureCounter++;

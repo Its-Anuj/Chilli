@@ -121,8 +121,7 @@ namespace Chilli
 		void PrepareForMaterial(uint32_t MaterialIndex);
 
 		void PrepareForTexture(uint32_t TexIndex);
-		uint32_t UpdateTexture(VkDevice device, uint32_t HandleId, VkImageView Txt,
-			VkImageLayout Layout);
+		uint32_t UpdateTexture(VkDevice device, uint32_t HandleId, VkImageView Txt);
 
 		void PrepareForSampler(uint32_t SamplerIndex);
 		uint32_t UpdateSampler(VkDevice device, uint32_t HandleId, VkSampler Sampler);
@@ -138,7 +137,7 @@ namespace Chilli
 		void _SetupManagerBuffers(const VulkanBindlessSetManagerCreateInfo& Info);
 		void _WriteBindlessSetManagerSets(const VulkanBindlessSetManagerCreateInfo& Info);
 		;
-		void _WriteShaderTexture(VkDevice device, uint32_t Index, VkImageView Texture, VkImageLayout Layout);
+		void _WriteShaderTexture(VkDevice device, uint32_t Index, VkImageView Texture);
 		void _WriteShaderSampler(VkDevice device, uint32_t Index, VkSampler Sampler);
 	private:
 		VulkanBindlessSetLayoutType _BindlessSetLayouts = { VK_NULL_HANDLE };

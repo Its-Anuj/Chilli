@@ -83,16 +83,47 @@ namespace Chilli
 		// Ends Recording and submits them
 		void EndBatching();
 
-		void CopyBufferToBuffer(VkBuffer Src, VkBuffer Dst, const BufferCopyInfo& Info);
-		void CopyBufferToImage(VkBuffer Src, VkImage Dst, const VkBufferImageCopy& Copy);
-		void CopyImageToBuffer(VkImage Src, VkBuffer Dst, const VkBufferImageCopy& Copy);
-		void CopyImageToImage(VkImage Src, VkImage Dst, const VkImageCopy& Copy);
+		void CopyBufferToBuffer(VkBuffer Src, VkBuffer Dst, const BufferCopyInfo& Info,
+			VkAccessFlags2 dstAccess,
+			VkPipelineStageFlags2 dstStage);
+
+		void CopyBufferToImage(VkBuffer Src, VkImage Dst, const VkBufferImageCopy& Copy,
+			VkImageLayout oldLayout, VkImageLayout newLayout, VkImageSubresourceRange Range,
+			VkAccessFlags2 dstAccess, VkPipelineStageFlags2 dstStage);
+
+		void CopyImageToBuffer(VkImage Src, VkBuffer Dst, const VkBufferImageCopy& Copy,
+			VkAccessFlags2 dstAccess,
+			VkPipelineStageFlags2 dstStage);
+
+		void CopyImageToImage(VkImage Src, VkImage Dst, const VkImageCopy& Copy,
+			VkImageLayout oldLayout, VkImageLayout newLayout, VkImageSubresourceRange Range,
+			VkAccessFlags2 dstAccess, VkPipelineStageFlags2 dstStage);
 
 		bool IsBatchRecording() const { return _BatchRecording; }
 
 		void TransitionImageLayout(VkImage image,
 			VkImageLayout oldLayout, VkImageLayout newLayout,
 			VkImageAspectFlags aspectFlags);
+
+		void BarrierAfterCopy_Image(VkCommandBuffer cmd, VkImage Image,
+			VkImageLayout oldLayout, VkImageLayout newLayout, VkImageSubresourceRange Range,
+			VkAccessFlags2 dstAccess, VkPipelineStageFlags2 dstStage);
+
+		void AcquireOnGraphics_Image(VkCommandBuffer cmd, VkImage Image,
+			VkImageLayout oldLayout, VkImageLayout newLayout, VkImageSubresourceRange Range,
+			VkAccessFlags2 dstAccess, VkPipelineStageFlags2 dstStage);
+
+		void BarrierAfterCopy_Buffer(
+			VkCommandBuffer cmd,
+			VkBuffer buffer,
+			VkAccessFlags2 dstAccess,
+			VkPipelineStageFlags2 dstStage);
+
+		void AcquireOnGraphics_Buffer(
+			VkCommandBuffer cmd,
+			VkBuffer buffer,
+			VkAccessFlags2 dstAccess,
+			VkPipelineStageFlags2 dstStage);
 
 	private:
 		VulkanDevice* _Device;
@@ -102,6 +133,10 @@ namespace Chilli
 		VkCommandBuffer _ActiveCmdBuffer;
 
 		ChBool8 _BatchRecording = CH_NONE;
+
+		uint32_t _GraphicsQueueFamilyIndex;
+		uint32_t _TransferQueueFamilyIndex;
+		bool _SameFamily = false;
 	};
 
 	class VulkanGraphicsBackend : public GraphicsBackendApi
@@ -118,8 +153,7 @@ namespace Chilli
 
 		virtual void FrameBufferResize(int Width, int Height) {}
 		virtual void BeginFrame(uint32_t Index) override;
-
-		virtual void EndFrame(const std::vector<GraphicsCommandBuffer>& CmdBuffers) override;
+		virtual void EndFrame(const RenderFramePacket& Packet) override;
 
 		virtual uint32_t AllocateBuffer(const BufferCreateInfo& Info);
 		virtual void MapBufferData(uint32_t BufferHandle, void* Data, uint32_t Size, uint32_t Offset = 0);
@@ -145,8 +179,9 @@ namespace Chilli
 
 		void SetActiveGraphicsPipelineState(VkCommandBuffer CmdBuffer, const PipelineStateInfo& State);
 		virtual void PrepareForShutDown() override;
-
-		void SetColorBlendState(VkCommandBuffer CmdBuffer, const std::vector<ColorBlendAttachmentState>& ColorBlendAttachments);
+		
+		void SetColorBlendState(VkCommandBuffer CmdBuffer,
+			const ColorBlendAttachmentState* ColorBlendAttachments, uint32_t ColorBlendAttachmentCount);
 
 		void SetPrimitiveTopology(VkCommandBuffer CmdBuffer, InputTopologyMode mode);
 		void SetPrimitiveRestartEnable(VkCommandBuffer CmdBuffer, ChBool8 enable);
@@ -183,8 +218,6 @@ namespace Chilli
 			_BindlessManager.UpdateSceneShaderData(Data);
 		}
 
-		void FillDescriptorSetInfos(const std::vector<RenderShaderDataUpdateInfo>& Info);
-
 		uint32_t PrepareMaterialData(uint32_t ShaderProgramHandle) override;
 		void ClearMaterialData(uint32_t RawMaterialHandle) override;
 
@@ -192,7 +225,7 @@ namespace Chilli
 		virtual uint32_t GetCurrentFrameIndex() override { return _FrameResource.CurrentFrameIndex; }
 
 		virtual uint32_t AllocateImage(const ImageSpec& Spec) override {
-			return _ImageDataManager.AllocateImage(_Data.Allocator, Spec); 
+			return _ImageDataManager.AllocateImage(_Data.Allocator, Spec);
 		}
 		virtual void DestroyImage(uint32_t ImageHandle) override {
 			_ImageDataManager.DestroyImage(_Data.Allocator, ImageHandle);
@@ -201,7 +234,7 @@ namespace Chilli
 			_ImageDataManager.MapImageData(ImageHandle, Data, Width, Height);
 		}
 
-		virtual uint32_t CreateTexture(uint32_t ImageHandle, const TextureSpec& Spec) override { 
+		virtual uint32_t CreateTexture(uint32_t ImageHandle, const TextureSpec& Spec) override {
 			auto Handle = _ImageDataManager.CreateTexture(_Data.Device.GetHandle(), ImageHandle, Spec);
 			_BindlessManager.PrepareForTexture(Handle);
 			return Handle;
@@ -220,7 +253,7 @@ namespace Chilli
 		virtual void UpdateMaterialShaderData(uint32_t MaterialHandle, const MaterialShaderData& Data) {
 			_BindlessManager.UpdateMaterialShaderData(MaterialHandle, Data);
 		}
-		virtual void UpdateObjectShaderData(const ObjectShaderData& Data) override{}
+		virtual void UpdateObjectShaderData(const ObjectShaderData& Data) override {}
 	private:
 		GraphcisBackendCreateSpec _Spec;
 		VulkanBackendData _Data;
@@ -228,7 +261,6 @@ namespace Chilli
 		VulkanShaderDataManager _ShaderManager;
 		VulkanBufferManager _BufferManager;
 		VulkanCommandManager _CommandManager;
-		VkCommandBuffer _ActiveCommandBuffer = VK_NULL_HANDLE;
 
 		struct {
 			std::vector<CommandBufferAllocInfo> CommandBuffers;
@@ -236,8 +268,14 @@ namespace Chilli
 			uint32_t CurrentImageIndex = 0;
 
 			std::vector<VkSemaphore >ImageAvailableSemaphores;
+			std::vector<VkSemaphore >ComputeFinishedSemaphores;
 			std::vector<VkSemaphore >RenderFinishedSemaphores;
 			std::vector<VkFence >InFlightFences;
+
+			std::vector<VkDescriptorImageInfo> WritingImageInfos;
+			std::vector<VkDescriptorBufferInfo> WritingBufferInfos;
+			std::vector< VkWriteDescriptorSet> WritingSets;
+			std::vector< MaterialDataUpdateCmdPayload> MaterailWritingDatas;
 		} _FrameResource;
 
 		PipelineStateInfo _ActivePipelineState;
@@ -248,16 +286,10 @@ namespace Chilli
 		{
 			std::vector<std::array<VkDescriptorSet, int(BindlessSetTypes::COUNT_USER)>> Sets;
 			uint32_t ProgramID = UINT32_MAX;
-			std::vector<std::array<std::vector<uint64_t>, int(BindlessSetTypes::COUNT_USER)>> SetBindingsStates;
+			std::array<std::vector<uint64_t>, int(BindlessSetTypes::COUNT_USER)> SetBindingsStates;
 		};
 
 		SparseSet<VulkanBackendMaterialInfo> _MaterialManager;
-
-		struct {
-			std::vector<VkDescriptorImageInfo> WritingImageInfos;
-			std::vector<VkDescriptorBufferInfo> WritingBufferInfos;
-			std::vector< VkWriteDescriptorSet> WritingSets;
-		} _DescriptorSetsData;
 
 		VkDescriptorPool _GeneralDescriptorPool;
 		VulkanDataUploader _Uploader;
@@ -293,9 +325,6 @@ namespace Chilli
 		void _CreateFrameResources();
 		void _DestroyFrameResources();
 
-		void _BeginDynamicRendering(VkCommandBuffer CmdBuffer, const RenderPassInfo& Pass);
-		void _PreparePassBarriers(VkCommandBuffer CmdBuffer, const std::vector< PipelineBarrier>& PrePassBarriers);
-
 		void _SetViewPortSize(VkCommandBuffer CmdBuffer, int Width, int Height);
 		void _SetScissorSize(VkCommandBuffer CmdBuffer, int Width, int Height);
 
@@ -307,5 +336,17 @@ namespace Chilli
 
 		void _CreateVulkanImageDataManager();
 		void _DestroyVulkanImageDataManager();
+
+		uint32_t _GetQueueFamilyIndex(RenderStreamTypes stream);
+
+		VkCommandBuffer _BeginFrame(const BeginFrameCmdPayload& Payload);
+		void _EndFrame(const EndFrameCmdPayload& Payload, VkCommandBuffer CmdBuffer);
+		void _BeginRenderPass(const BeginRenderPassCmdPayload& Payload, VkCommandBuffer CmdBuffer);
+		void _EndRenderPass(const EndRenderPassCmdPayload& Payload, VkCommandBuffer CmdBuffer);
+		void _ExecutePipelineBarriers(const PipelineBarrier* barriers, uint32_t count, VkCommandBuffer cmdBuffer);
+		void _AppendMaterialUpdateData(const MaterialDataUpdateCmdPayload& Payload);
+		void _UpdateAllMaterialUpdateData();
+
+		VkCommandBuffer _TranslateGraphicsCommandBuffer(const GraphicsCommandBuffer& CmdBuffer );
 	};
 }

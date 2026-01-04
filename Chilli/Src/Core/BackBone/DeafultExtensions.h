@@ -256,7 +256,6 @@ namespace Chilli
 		BackBone::AssetHandle<Mesh> ScreenRenderMesh;
 		BackBone::AssetHandle<ShaderProgram> ScreenShaderProgram;
 		BackBone::AssetHandle<Material> ScreenMaterial;
-		BackBone::Entity SceneEntity;
 	};
 
 	enum class RendererType
@@ -319,6 +318,8 @@ namespace Chilli
 		const char* DebugName = nullptr;
 		CompiledPass Pass;
 		std::function<void(BackBone::SystemContext&, RenderPassInfo&)> RenderFn;
+		PipelineStateInfo Info;
+		VertexInputShaderLayout Layout;
 		uint32_t SortOrder = 0;
 	};
 

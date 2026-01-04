@@ -7,7 +7,7 @@
 #include "Texture.h"
 #include "glm/glm.hpp"
 #include "Material.h"
-#include "RenderPass.h"
+#include "CommandBuffer.h"
 
 namespace Chilli
 {
@@ -79,18 +79,6 @@ namespace Chilli
 		uint32_t SrcOffset, DstOffset, Size;
 	};
 
-	// Global Set(0) Data Binding  0
-	struct GlobalShaderData
-	{
-		Vec4 ResolutionTime;
-	};
-	// Global Set(0) Data Binding  1
-	struct SceneShaderData
-	{
-		glm::mat4 ViewProjMatrix{ 1.0f };
-		Vec4 CameraPos;
-	};
-
 	struct Fence
 	{
 		uint32_t Handle;
@@ -114,58 +102,11 @@ namespace Chilli
 		glm::mat4 InverseTransformationMat;
 	};
 
-	enum class CommandType : uint8_t {
-		Draw,
-		Dispatch,
-	};
-
-	struct RenderStateInfo {
-		uint32_t ShaderProgramID = UINT32_MAX;
-		uint32_t PipelineStateID = UINT32_MAX;
-		uint32_t VertexBufferID = UINT32_MAX;
-		uint32_t IndexBufferID = UINT32_MAX;
-		uint32_t RenderPassIndex = UINT32_MAX;
-		uint32_t MaterialID = UINT32_MAX;
-		IndexBufferType IndexType = IndexBufferType::NONE;
-	};
-
-	struct RenderCommandInfo
+	struct RenderFramePacket
 	{
-		CommandType Type;
-		RenderStateInfo RenderState;
-
-		InputTopologyMode TopologyMode;
-
-		CullMode ShaderCullMode;
-		PolygonMode ShaderFillMode;
-		FrontFaceMode FrontFace;
-		float LineWidth = 1.0f;
-		ChBool8 RasterizerDiscardEnable = CH_FALSE;
-
-		// Depth Bias (dynamic in most modern APIs)
-		ChBool8 DepthBiasEnable = CH_FALSE;
-		float DepthBiasConstantFactor = 0.0f;
-		float DepthBiasClamp = 0.0f;
-		float DepthBiasSlopeFactor = 0.0f;
-
-		// Draw-specific
-		// Specifis vertex or index count based on what is bounded
-		uint32_t ElementCount = 0;
-		uint32_t InstanceCount = 0;
-		uint32_t FirstElement = 0;
-		uint32_t FirstInstance = 0;
-
-		// Compute-specific
-		uint32_t GroupX = 0;
-		uint32_t GroupY = 0;
-		uint32_t GroupZ = 0;
-		// Data references (not owned!)
-		struct {
-			void* Block = nullptr;
-			size_t Offst = 0;
-			size_t TotalSize = 0;
-			uint32_t Stages = 0;
-		} InlineUniformData;
+		GraphicsCommandBuffer Graphics_Stream;
+		RenderCommandBuffer Compute_Stream;
+		RenderCommandBuffer Transfer_Stream;	
 	};
 
 	struct RenderCommandInfoInlineUniformData
@@ -174,46 +115,6 @@ namespace Chilli
 		uint32_t State;
 		uint32_t Size;
 		uint32_t Offset;
-	};
-
-	struct RenderShaderDataUpdateInfo
-	{
-		uint32_t MaterialHandle = UINT32_MAX;
-		char Name[SHADER_UNIFORM_BINDING_NAME_SIZE] = { 0 };
-		uint32_t DstArrayIndex = UINT32_MAX;
-
-		bool Persistent = false;
-
-		struct {
-			uint32_t Handle = UINT32_MAX;
-			uint32_t Offset = 0;
-			uint32_t Range = 0;
-		} BufferInfo;
-
-		struct {
-			uint32_t Handle = UINT32_MAX;
-			uint32_t Sampler = UINT32_MAX;
-		} ImageInfo;
-	};
-
-	// Submits Info To Gpu
-	struct GraphicsCommandBuffer
-	{
-		std::vector<RenderCommandInfo> _RenderCommandInfos;
-		std::vector<CompiledPass> _RenderPasses;
-		std::vector< RenderShaderDataUpdateInfo> _ShaderUpdateInfos;
-		std::vector<PipelineStateInfo> _PipelineStates;
-		uint32_t _PipelineOffset = 0;
-		RenderCommandInfo _CurrentInfo;
-
-		void Clear()
-		{
-			_RenderCommandInfos.clear();
-			_RenderPasses.clear();
-			_PipelineStates.clear();
-			_ShaderUpdateInfos.clear();
-			_PipelineOffset = 0;
-		}
 	};
 
 	struct RenderFrameData
@@ -238,7 +139,7 @@ namespace Chilli
 		virtual void FrameBufferResize(int Width, int Height) = 0;
 
 		virtual void BeginFrame(uint32_t Index) = 0;
-		virtual void EndFrame(const std::vector<GraphicsCommandBuffer>& CmdBuffers) = 0;
+		virtual void EndFrame(const RenderFramePacket& Packet) = 0;
 
 		virtual uint32_t AllocateBuffer(const BufferCreateInfo& Info) = 0;
 		virtual void MapBufferData(uint32_t BufferHandle, void* Data, uint32_t Size, uint32_t Offset = 0) = 0;

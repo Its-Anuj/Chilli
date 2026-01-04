@@ -107,9 +107,6 @@ namespace Chilli
 	{
 	public:
 		Renderer() :_RenderPerFrameArena() {
-			_CommandBuffers.reserve(10);
-			_CommandBuffers.push_back(GraphicsCommandBuffer());
-			SetActiveCommandBuffer(0);
 		}
 
 		~Renderer() {}
@@ -125,147 +122,167 @@ namespace Chilli
 		// Pushes all Graphics CommandBuffers to be executed and clears all graphics Command Buffer
 		void EndFrame();
 
-		uint32_t CreateCommandBuffer() {
-			_CommandBuffers.push_back(GraphicsCommandBuffer());
-			return _CommandBuffers.size();
-		}
-
-		void SetActiveCommandBuffer(uint32_t CmdBufferID) {
-			_ActiveCommandBufferIndex = CmdBufferID;
-			_ActiveCommandBuffer = &_CommandBuffers[_ActiveCommandBufferIndex];
-		}
-
-		void SetActivePipelineState(const PipelineStateInfo& State);
-		void SetActiveCompiledRenderPass(const CompiledPass& Pass);
-
-		inline void BindVertexBuffer(uint32_t VertexBufferID) {
-			_ActiveCommandBuffer->_CurrentInfo.RenderState.VertexBufferID = VertexBufferID; 
-		}
-		
-		inline void UnBindVertexBuffer() { 
-			_ActiveCommandBuffer->_CurrentInfo.RenderState.VertexBufferID = UINT32_MAX; 
-		}
-		
-		inline void BindIndexBuffer(uint32_t IndexBufferID) { 
-			_ActiveCommandBuffer->_CurrentInfo.RenderState.IndexBufferID = IndexBufferID;
-		}
-		
-		inline void UnBindIndexBuffer() {
-			_ActiveCommandBuffer->_CurrentInfo.RenderState.IndexBufferID = UINT32_MAX;
-		}
-
-		inline void UseShaderProgram(uint32_t ProgramID) {
-			_ActiveCommandBuffer->_CurrentInfo.RenderState.ShaderProgramID = ProgramID;
-		}
-
-		inline void UseMaterial(uint32_t RawMaterialID) { 
-			_ActiveCommandBuffer->_CurrentInfo.RenderState.MaterialID = RawMaterialID;
-		}
-
-		void Draw(uint32_t VertexCount, uint32_t InstanceCount, uint32_t FirstVertex, uint32_t  FirstInstance);
-
-		void PushInlineUniformData(uint64_t Stage, void* Data, size_t Size, size_t Offset = 0);
-
-		void PushEmptyInlineUniformData() { 
-			_ActiveCommandBuffer->_CurrentInfo.InlineUniformData.Block = nullptr;
-		}
-
-		void UpdateGlobalShaderData(const GlobalShaderData& Data) { _Api->UpdateGlobalShaderData(Data); }
-		void UpdateSceneShaderData(const SceneShaderData& Data) { _Api->UpdateSceneShaderData(Data); }
-
 		const char* GetName() const { return _Api->GetName(); }
 		GraphicsBackendType GetType() const { return _Api->GetType(); }
 
-		// --- Rasterization ---
-		void SetCullMode(CullMode value)
+		void PushGraphicsCommandBuffer(const GraphicsCommandBuffer& Buffer) {
+			_FramePackets[_FrameIndex].Graphics_Stream.PushCommandBuffer(Buffer);
+		}
+
+		void BeginRenderPass(const RenderPassInfo& Pass)
 		{
-			_ActiveCommandBuffer->_CurrentInfo.ShaderCullMode = value;
+			_FramePackets[_FrameIndex].Graphics_Stream.BeginRenderPass(Pass);
 		}
 
-		void SetPolygonMode(PolygonMode value)
+		void EndRenderPass()
 		{
-			_ActiveCommandBuffer->_CurrentInfo.ShaderFillMode = value;
+			_FramePackets[_FrameIndex].Graphics_Stream.EndRenderPass();
 		}
 
-		void SetFrontFace(FrontFaceMode value)
+		void PushPipelienBarrier(const PipelineBarrier& Barrier, RenderStreamTypes Stream)
 		{
-			_ActiveCommandBuffer->_CurrentInfo.FrontFace = value;
+			if (Stream == RenderStreamTypes::TRANSFER)
+				return;
+			if (Stream == RenderStreamTypes::GRAPHICS)
+				_FramePackets[_FrameIndex].Graphics_Stream.PushPipelineBarriers({ Barrier });
+			if (Stream == RenderStreamTypes::COMPUTE)
+				_FramePackets[_FrameIndex].Compute_Stream.PushPipelineBarriers({ Barrier });
 		}
 
-		void SetLineWidth(float value)
+		void BindVertexBuffer(const std::vector<uint32_t>& Buffers)
 		{
-			_ActiveCommandBuffer->_CurrentInfo.LineWidth = value;
+			_FramePackets[_FrameIndex].Graphics_Stream.BindVertexBuffer(Buffers);
 		}
 
-		void SetRasterizerDiscard(bool value)
+		void BindIndexBuffer(uint32_t Handle, IndexBufferType Type)
 		{
-			_ActiveCommandBuffer->_CurrentInfo.RasterizerDiscardEnable = value;
+			_FramePackets[_FrameIndex].Graphics_Stream.BindIndexBuffer(Handle, Type);
 		}
 
-		// --- Depth Bias ---
-		void SetDepthBiasEnable(bool value)
+		void DrawIndexed(uint32_t ElementCount, uint32_t InstanceCount, uint32_t FirstElement, uint32_t VertexOffset, uint32_t FirstInstance)
 		{
-			_ActiveCommandBuffer->_CurrentInfo.DepthBiasEnable = value;
+			_FramePackets[_FrameIndex].Graphics_Stream.DrawIndexed(ElementCount, InstanceCount, FirstElement,
+				VertexOffset, FirstInstance);
 		}
 
-		void SetDepthBiasConstantFactor(float value)
+		void BindShaderProgram(uint32_t ShaderProgramHandle)
 		{
-			_ActiveCommandBuffer->_CurrentInfo.DepthBiasConstantFactor = value;
+			_FramePackets[_FrameIndex].Graphics_Stream.BindShaderPrgoram(ShaderProgramHandle);
 		}
 
-		void SetDepthBiasClamp(float value)
+		void SetFullPipelineState(const PipelineStateInfo& Info)
 		{
-			_ActiveCommandBuffer->_CurrentInfo.DepthBiasClamp = value;
+			_FramePackets[_FrameIndex].Graphics_Stream.SetFullPipelineState(Info);
 		}
 
-		void SetDepthBiasSlopeFactor(float value)
+		void SetVertexInputLayout(const VertexInputShaderLayout& Info)
 		{
-			_ActiveCommandBuffer->_CurrentInfo.DepthBiasSlopeFactor = value;
+			_FramePackets[_FrameIndex].Graphics_Stream.SetVertexInputLayout(Info);
 		}
-
-		void PushShaderBuffer(const BackBone::AssetHandle<Material>& Mat,
-			const Chilli::BackBone::AssetHandle<Chilli::Buffer>& Buffer,
-			const char* Name, size_t Size, size_t Offset);
-
-		void PushShaderTexture(const BackBone::AssetHandle<Material>& Mat,
-			const Chilli::BackBone::AssetHandle<Chilli::Texture>& Tex,
-			const char* Name);
-
-		void PushShaderSampler(const BackBone::AssetHandle<Material>& Mat,
-			const Chilli::BackBone::AssetHandle<Chilli::Sampler>& Tex,
-			const char* Name);
-
-		template<typename T>
-		void PushShaderBuffer(const BackBone::AssetHandle<Material>& Mat,
-			const Chilli::BackBone::AssetHandle<Chilli::Buffer>& Buffer,
-			const char* Name, size_t Offset)
+		void SetTopologyMode(InputTopologyMode Mode)
 		{
-			PushShaderBuffer(Mat, Buffer, Name, sizeof(T), Offset);
+			_FramePackets[_FrameIndex].Graphics_Stream.SetTopologyMode(Mode);
 		}
 
-		uint32_t GetCurrentFrameIndex() { return _Api->GetCurrentFrameIndex(); }
-
-		uint32_t GetTextureShaderIndex(uint32_t RawTextureHandle) { return _Api->GetTextureShaderIndex(RawTextureHandle); }
-		uint32_t GetSamplerShaderIndex(uint32_t RawSamplerHandle) { return _Api->GetSamplerShaderIndex(RawSamplerHandle); }
-
-		void UpdateMaterialShaderData(uint32_t MaterialHandle, const MaterialShaderData& Data) {
-			_Api->UpdateMaterialShaderData(MaterialHandle, Data);
+		void SetCullMode(CullMode Mode)
+		{
+			_FramePackets[_FrameIndex].Graphics_Stream.SetCullMode(Mode);
 		}
 
-		void UpdateMaterialShaderData(BackBone::AssetHandle<Material> MaterialHandle, const MaterialShaderData& Data) {
-			_Api->UpdateMaterialShaderData(MaterialHandle.ValPtr->RawMaterialHandle, Data);
+		void SetFillMode(PolygonMode Mode)
+		{
+			_FramePackets[_FrameIndex].Graphics_Stream.SetFillMode(Mode);
+		}
+
+		void SetFrontFace(FrontFaceMode Mode)
+		{
+			_FramePackets[_FrameIndex].Graphics_Stream.SetFrontFace(Mode);
+		}
+
+		void SetLineWidth(float Width)
+		{
+			_FramePackets[_FrameIndex].Graphics_Stream.SetLineWidth(Width);
+		}
+
+		void SetRasterizerDiscard(bool Enable)
+		{
+			_FramePackets[_FrameIndex].Graphics_Stream.SetRasterizerDiscard(Enable);
+		}
+
+		void SetDepthBiasEnable(bool Enable)
+		{
+			_FramePackets[_FrameIndex].Graphics_Stream.SetDepthBiasEnable(Enable);
+		}
+
+		void SetDepthBias(float ConstantFactor, float Clamp, float SlopeFactor)
+		{
+			_FramePackets[_FrameIndex].Graphics_Stream.SetDepthBias(
+				ConstantFactor,
+				Clamp,
+				SlopeFactor
+			);
+		}
+
+		void DisableDepthBias()
+		{
+			_FramePackets[_FrameIndex].Graphics_Stream.DisableDepthBias();
+		}
+
+		uint32_t GetTextureShaderIndex(uint32_t RawTextureHandle) {
+			return _Api->GetTextureShaderIndex(RawTextureHandle);
+		}
+
+		uint32_t GetSamplerShaderIndex(uint32_t RawSamplerHandle) {
+			return _Api->GetSamplerShaderIndex(RawSamplerHandle);
 		}
 
 		uint32_t GetMaterialShaderIndex(uint32_t RawMaterialHandle) {
 			return _Api->GetMaterialShaderIndex(RawMaterialHandle);
 		}
 
+		void UpdateMaterialBufferData(uint32_t MaterialHandle, uint32_t Buffer,
+			const char* Name, size_t Size, size_t Offset)
+		{
+			_FramePackets[_FrameIndex].Graphics_Stream.UpdateMaterialBufferData(MaterialHandle, Buffer,
+				Name, Size, Offset);
+		}
+
+		void UpdateMaterialTextureData(uint32_t MaterialHandle,
+			uint32_t Tex, const char* Name, ResourceState State)
+		{
+			_FramePackets[_FrameIndex].Graphics_Stream.UpdateMaterialTextureData(MaterialHandle,
+				Tex, Name, State);
+		}
+
+		void UpdateMaterialSamplerData(uint32_t MaterialHandle, uint32_t Sampler, const char* Name)
+		{
+			_FramePackets[_FrameIndex].Graphics_Stream.UpdateMaterialSamplerData(MaterialHandle, Sampler, Name);
+		}
+
+		void BindMaterailData(uint32_t MaterialHandle)
+		{
+			_FramePackets[_FrameIndex].Graphics_Stream.BindMaterailData(MaterialHandle);
+		}
+
+		void PushInlineUniformData(uint32_t ShaderProgram, uint32_t Stage, void* Data, uint32_t Size, uint32_t Offset)
+		{
+			_FramePackets[_FrameIndex].Graphics_Stream.PushInlineUniformData(ShaderProgram, Stage, Data, Size, Offset);
+		}
+
+		void PushUpdateGlobalShaderData(const GlobalShaderData& Data)
+		{
+			_FramePackets[_FrameIndex].Graphics_Stream.PushUpdateGlobalShaderData(Data);
+		}
+
+		void PushUpdateSceneShaderData(const SceneShaderData& Data)
+		{
+			_FramePackets[_FrameIndex].Graphics_Stream.PushUpdateSceneShaderData(Data);
+		}
+
+
 	private:
 		std::shared_ptr<GraphicsBackendApi> _Api;
-		
-		std::vector< GraphicsCommandBuffer> _CommandBuffers;
-		uint32_t _ActiveCommandBufferIndex = UINT32_MAX;
-		GraphicsCommandBuffer* _ActiveCommandBuffer;
+		std::vector<RenderFramePacket> _FramePackets;
 
 		// Separate data storage (also contiguous)
 		FrameAllocator _InlineUniformDataAllocator;
