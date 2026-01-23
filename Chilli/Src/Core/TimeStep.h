@@ -9,6 +9,7 @@ namespace Chilli
 		~TimeStep() {}
 
 		float GetSecond() const { return _Time; }
+		float GetFPS() const { return 1 / _Time; }
 		float GetMilliSecond() const { return _Time * 1000.0f; }
 
 		operator float() { return _Time; }

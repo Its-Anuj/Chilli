@@ -4,60 +4,38 @@
 
 namespace Chilli
 {
-	enum EventType
-	{
-		KeyPressed,
-		KeyReleased,
-		KeyRepeat,
-		MouseButtonPressed,
-		MouseButtonReleased,
-		MouseButtonRepeat,
-		CursorPos,
-		MouseScroll,
-		WindowClose,
-		WindowResize,
-		WindowMinimized,
-		WindowOutOfFocus,
-		FrameBufferResize
-	};
-
 	struct Event
 	{
 	public:
-		Event(EventType type) : Type(type) {}
+		Event() {}
 
-		EventType GetType() { return Type; }
+		virtual const char* GetName() const = 0;
 
 	private:
-		EventType Type;
 	};
-
-#define EVENT_MACRO_FUNC(x) \
-    static EventType GetStaticType() { return x; }
-
 	struct WindowCloseEvent : public Event
 	{
 	public:
-		WindowCloseEvent() : Event(EventType::WindowClose) {}
-
-		EVENT_MACRO_FUNC(EventType::WindowClose);
-
+		WindowCloseEvent() = default;
+		const char* GetName() const override { return "WindowCloseEvent"; }
 	};
 
 	struct WindowMinimizedEvent : public Event
 	{
 	public:
-		WindowMinimizedEvent() : Event(EventType::WindowMinimized) {}
-
-		EVENT_MACRO_FUNC(EventType::WindowMinimized);
+		WindowMinimizedEvent() = default;
+		const char* GetName() const override { return "WindowMinimizedEvent"; }
 	};
 
 	struct KeyPressedEvent : public Event
 	{
 	public:
-		KeyPressedEvent(Input_key code, int Mods) : ModsState(Mods), KeyCode(code), Event(EventType::KeyPressed) {}
+		KeyPressedEvent(Input_key code, int Mods)
+			: ModsState(Mods), KeyCode(code) {
+		}
 
-		EVENT_MACRO_FUNC(EventType::KeyPressed);
+		const char* GetName() const override { return "KeyPressedEvent"; }
+
 		Input_key GetKeyCode() const { return KeyCode; }
 		int GetMods() const { return ModsState; }
 
@@ -69,9 +47,12 @@ namespace Chilli
 	struct KeyReleasedEvent : public Event
 	{
 	public:
-		KeyReleasedEvent(Input_key code, int Mods) :ModsState(Mods), KeyCode(code), Event(EventType::KeyReleased) {}
+		KeyReleasedEvent(Input_key code, int Mods)
+			: ModsState(Mods), KeyCode(code) {
+		}
 
-		EVENT_MACRO_FUNC(EventType::KeyReleased);
+		const char* GetName() const override { return "KeyReleasedEvent"; }
+
 		Input_key GetKeyCode() const { return KeyCode; }
 		int GetMods() const { return ModsState; }
 
@@ -83,9 +64,12 @@ namespace Chilli
 	struct KeyRepeatEvent : public Event
 	{
 	public:
-		KeyRepeatEvent(Input_key code, int Mods) :ModsState(Mods), KeyCode(code), Event(EventType::KeyReleased) {}
+		KeyRepeatEvent(Input_key code, int Mods)
+			: ModsState(Mods), KeyCode(code) {
+		}
 
-		EVENT_MACRO_FUNC(EventType::KeyReleased);
+		const char* GetName() const override { return "KeyRepeatEvent"; }
+
 		Input_key GetKeyCode() const { return KeyCode; }
 		int GetMods() const { return ModsState; }
 
@@ -97,9 +81,12 @@ namespace Chilli
 	struct MouseButtonReleasedEvent : public Event
 	{
 	public:
-		MouseButtonReleasedEvent(Input_mouse code) : ButtonCode(code), Event(EventType::MouseButtonReleased) {}
+		MouseButtonReleasedEvent(Input_mouse code)
+			: ButtonCode(code) {
+		}
 
-		EVENT_MACRO_FUNC(EventType::MouseButtonReleased);
+		const char* GetName() const override { return "MouseButtonReleasedEvent"; }
+
 		Input_mouse GetButtonCode() const { return ButtonCode; }
 
 	private:
@@ -109,9 +96,12 @@ namespace Chilli
 	struct MouseButtonRepeatEvent : public Event
 	{
 	public:
-		MouseButtonRepeatEvent(Input_mouse code) : ButtonCode(code), Event(EventType::MouseButtonRepeat) {}
+		MouseButtonRepeatEvent(Input_mouse code)
+			: ButtonCode(code) {
+		}
 
-		EVENT_MACRO_FUNC(EventType::MouseButtonRepeat);
+		const char* GetName() const override { return "MouseButtonRepeatEvent"; }
+
 		Input_mouse GetButtonCode() const { return ButtonCode; }
 
 	private:
@@ -121,9 +111,12 @@ namespace Chilli
 	struct MouseButtonPressedEvent : public Event
 	{
 	public:
-		MouseButtonPressedEvent(Input_mouse code) : ButtonCode(code), Event(EventType::MouseButtonPressed) {}
+		MouseButtonPressedEvent(Input_mouse code)
+			: ButtonCode(code) {
+		}
 
-		EVENT_MACRO_FUNC(EventType::MouseButtonPressed);
+		const char* GetName() const override { return "MouseButtonPressedEvent"; }
+
 		Input_mouse GetButtonCode() const { return ButtonCode; }
 
 	private:
@@ -133,80 +126,83 @@ namespace Chilli
 	struct WindowResizeEvent : public Event
 	{
 	public:
-		WindowResizeEvent(int newx, int newy) : x(newx), y(newy), Event(EventType::WindowResize) {}
-		WindowResizeEvent() :Event(EventType::WindowResize) {}
+		WindowResizeEvent(int newx, int newy) : x(newx), y(newy) {}
+		WindowResizeEvent() = default;
 
-		EVENT_MACRO_FUNC(EventType::WindowResize);
+		const char* GetName() const override { return "WindowResizeEvent"; }
 
 		int GetX() const { return x; }
 		int GetY() const { return y; }
 
 	private:
-		int x, y;
+		int x{}, y{};
 	};
 
 	struct FrameBufferResizeEvent : public Event
 	{
 	public:
-		FrameBufferResizeEvent(int newx, int newy) : x(newx), y(newy), Event(EventType::FrameBufferResize) {}
+		FrameBufferResizeEvent(int newx, int newy) : x(newx), y(newy) {}
 
-		EVENT_MACRO_FUNC(EventType::FrameBufferResize);
+		const char* GetName() const override { return "FrameBufferResizeEvent"; }
 
 		int GetX() const { return x; }
 		int GetY() const { return y; }
 
 	private:
-		int x, y;
+		int x{}, y{};
 	};
 
 	struct CursorPosEvent : public Event
 	{
 	public:
-		CursorPosEvent(double newx, double newy) : x(newx), y(newy), Event(EventType::CursorPos) {}
+		CursorPosEvent(double newx, double newy) : x(newx), y(newy) {}
 
-		EVENT_MACRO_FUNC(EventType::CursorPos);
+		const char* GetName() const override { return "CursorPosEvent"; }
 
 		double GetX() const { return x; }
 		double GetY() const { return y; }
 
 	private:
-		double x, y;
+		double x{}, y{};
 	};
 
 	struct MouseScrollEvent : public Event
 	{
 	public:
-		MouseScrollEvent(double x, double y) : xoffset(x), yoffset(y), Event(EventType::MouseScroll) {}
+		MouseScrollEvent(double x, double y) : xoffset(x), yoffset(y) {}
 
-		EVENT_MACRO_FUNC(EventType::MouseScroll);
+		const char* GetName() const override { return "MouseScrollEvent"; }
 
 		double GetXOffset() const { return xoffset; }
 		double GetYOffset() const { return yoffset; }
 
 	private:
-		double xoffset, yoffset;
+		double xoffset{}, yoffset{};
 	};
 
-	class EventDispatcher
+	struct SetCursorEvent : public Event
 	{
-		template<typename T>
-		using EventFn = std::function<void(T&)>;
+	public:// Use std::vector to ensure the event 'owns' the data while it's in the queue
 
-	public:
-		EventDispatcher(Event& event) : m_Event(event) {}
-
-		template<typename T>
-		bool Dispatch(const EventFn<T>& func)
+		SetCursorEvent(const Cursor* cursor, Window* UsingWindow, DeafultCursorTypes Type = DeafultCursorTypes::Deafult)
+			:_Cursor(cursor), _UsingWindow(UsingWindow),  _Type(Type)
 		{
-			if (m_Event.GetType() == T::GetStaticType())
-			{
-				func(static_cast<T&>(m_Event));
-				return true;
-			}
-			return false;
+		}
+
+		const char* GetName() const override { return "SetCursorEvent"; }
+		const DeafultCursorTypes GetType() const { return _Type; }
+		const Cursor* GetCursor()const {
+			return _Cursor;
+		};
+
+		const Window* GetUsingWindow() const {
+			return _UsingWindow;
 		}
 
 	private:
-		Event& m_Event;
+		const Cursor* _Cursor;
+		const Window* _UsingWindow;
+		const DeafultCursorTypes _Type;
 	};
+
 } // namespace VEngine

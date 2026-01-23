@@ -10,7 +10,7 @@ namespace Chilli
 		VulkanImage() {}
 		~VulkanImage() {}
 
-		void Init(VmaAllocator Allocator, const ImageSpec& Spec, VulkanDataUploader* Uploader);
+		void Init(VmaAllocator Allocator, ImageSpec& Spec, VulkanDataUploader* Uploader);
 		void Destroy(VmaAllocator Allocator);
 
 		VkImage GetHandle() const { return _Image; }
@@ -50,7 +50,7 @@ namespace Chilli
 		VulkanTexture() {}
 		~VulkanTexture() {}
 
-		void Init(VkDevice Device, uint32_t ImageHandle, const VulkanImage* Image, const TextureSpec& Spec);
+		void Init(VkDevice Device, uint32_t ImageHandle, const VulkanImage* Image, TextureSpec& Spec);
 		void Destroy(VkDevice Device);
 
 		VkImageView GetHandle() const { return _ImageView; }
@@ -82,12 +82,12 @@ namespace Chilli
 		void Init(const VulkanImageDataManagerSpec& Spec);
 		void Destroy();
 
-		uint32_t AllocateImage(VmaAllocator Allocator, const ImageSpec& Spec);
+		uint32_t AllocateImage(VmaAllocator Allocator, ImageSpec& Spec);
 		void DestroyImage(VmaAllocator Allocator, uint32_t ImageHandle);
 		void MapImageData(uint32_t ImageHandle, void* Data, int Width, int Height);
 		VulkanImage* GetImage(uint32_t Handle) { return _ImageSet.Get(Handle); }
 
-		uint32_t CreateTexture(VkDevice Device, uint32_t ImageHandle, const TextureSpec& Spec);
+		uint32_t CreateTexture(VkDevice Device, uint32_t ImageHandle, TextureSpec& Spec);
 		void DestroyTexture(VkDevice Device, uint32_t TextureHandle);
 		VulkanTexture* GetTexture(uint32_t TextureHandle) { return _TextureSet.Get(TextureHandle); }
 	private:

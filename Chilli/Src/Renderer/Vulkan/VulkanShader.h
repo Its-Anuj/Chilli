@@ -116,7 +116,7 @@ namespace Chilli
 		}
 
 		void UpdateGlobalShaderData(const GlobalShaderData& Data);
-		void UpdateSceneShaderData(const SceneShaderData& Data);
+		void UpdateSceneShaderData(uint32_t Index, const SceneData& Data);
 
 		void PrepareForMaterial(uint32_t MaterialIndex);
 
@@ -127,9 +127,15 @@ namespace Chilli
 		uint32_t UpdateSampler(VkDevice device, uint32_t HandleId, VkSampler Sampler);
 		
 		void UpdateMaterialShaderData(uint32_t MaterialHandle, const MaterialShaderData& Data);
-		void UpdateObjectShaderData(const ObjectShaderData& Data);
+		void UpdateObjectShaderData(BackBone::Entity Entity, const ObjectShaderData& Data);
 
 		uint32_t GetMaterialShaderIndex(uint32_t RawMaterialHandle) { return _MaterialMap.Get(RawMaterialHandle)->ShaderIndex; }
+
+		uint32_t GetObjectShaderIndex(uint32_t Entity) {
+			if (auto Val = _ObjectsMap.Get(Entity))
+				return Val->ShaderIndex;
+			return UINT32_MAX;
+		}
 
 	private:
 		void _SetupBindlessSetLayouts(VkDevice Device);
@@ -144,6 +150,7 @@ namespace Chilli
 		std::vector< VkDescriptorPool> _BindlessDescPools;
 		VkDescriptorPool _BindlessTexPool;
 		std::vector<std::array<VkDescriptorSet, int(BindlessSetTypes::COUNT_NON_USER)>> _BindlessSets;
+		uint32_t _MinUBOAlignment = 0;
 
 		struct BindlessTextureMetaData
 		{
@@ -163,9 +170,16 @@ namespace Chilli
 			uint32_t ShaderIndex;
 		};
 
+		struct BindlessObjectMetaData
+		{
+			uint32_t ObjectIndex;
+			uint32_t ShaderIndex;
+		};
+
 		SparseSet<BindlessTextureMetaData> _TextureMap;
 		SparseSet<BindlessSamplerMetaData> _SamplerMap;
 		SparseSet<BindlessMaterialMetaData> _MaterialMap;
+		SparseSet<BindlessObjectMetaData> _ObjectsMap;
 
 		std::array<uint32_t, int(BindlessSetTypes::COUNT_NON_USER)> _SetBuffers;
 

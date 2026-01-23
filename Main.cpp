@@ -3,16 +3,25 @@
 #include "Profiling\Timer.h"
 #include "glm/ext/matrix_transform.hpp"
 
+#define _CRTDBG_MAP_ALLOC
+#include <cstdlib>
+#include <crtdbg.h>
+
 struct GameResource
 {
 	Chilli::BackBone::Entity Player;
 	Chilli::BackBone::Entity Camera;
+	Chilli::BackBone::Entity FPSCounter;
+	Chilli::BackBone::Entity UIPanel, UIHeader;
+	Chilli::BackBone::Entity UIPanel2, UIHeader2;
 	Chilli::BackBone::AssetHandle<Chilli::ShaderProgram> Program;
 	Chilli::BackBone::AssetHandle<Chilli::Material> Material;
 	Chilli::BackBone::AssetHandle<Chilli::Image> GrayImage;
 	Chilli::BackBone::AssetHandle<Chilli::ImageData> GrayImageData;
 	Chilli::BackBone::AssetHandle<Chilli::Texture> GrayTexture;
 	Chilli::BackBone::AssetHandle<Chilli::Sampler> Sampler;
+	Chilli::BackBone::AssetHandle<Chilli::EmberFont> LoveDaysFont;
+	Chilli::Scene GameScene;
 
 	uint32_t GameWindow;
 };
@@ -43,32 +52,7 @@ void OnGameCreate(Chilli::BackBone::SystemContext& Ctxt)
 	Command.AttachShaderModule(GeometryShaderProgram, GeometryPassFragShader);
 	Command.LinkShaderProgram(GeometryShaderProgram);
 
-	// Create Mesh
-
-	Chilli::MeshCreateInfo SquareInfo{};
-
-	std::vector<Chilli::Vertex> SquareVertices = {
-		// Position              // UV
-		{ { -0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f } }, // Bottom-left
-		{ {  0.5f, -0.5f, 0.0f }, { 1.0f, 1.0f } }, // Bottom-right
-		{ {  0.5f,  0.5f, 0.0f }, { 1.0f, 0.0f } }, // Top-right
-		{ { -0.5f,  0.5f, 0.0f }, { 0.0f, 0.0f } }  // Top-left
-	};
-
-	std::vector<uint32_t> SquareIndices = {
-		0, 1, 2, // First triangle
-		2, 3, 0  // Second triangle
-	};
-
-	SquareInfo.VertCount = SquareVertices.size();
-	SquareInfo.Vertices = SquareVertices.data();
-	SquareInfo.VerticesSize = sizeof(Chilli::Vertex) * SquareVertices.size();
-	SquareInfo.IndexCount = SquareIndices.size();
-	SquareInfo.Indicies = SquareIndices.data();
-	SquareInfo.IndiciesSize = sizeof(uint32_t) * SquareIndices.size();
-	SquareInfo.IndexType = Chilli::IndexBufferType::UINT32_T;
-	SquareInfo.State = Chilli::BufferState::STATIC_DRAW;
-	auto SquareMesh = Command.CreateMesh(SquareInfo);
+	auto SquareMesh = Command.CreateMesh(Chilli::BasicShapes::SPHERE);
 
 	auto GameData = Ctxt.Registry->GetResource<GameResource>();
 
@@ -82,32 +66,60 @@ void OnGameCreate(Chilli::BackBone::SystemContext& Ctxt)
 	Command.AddLoader<Chilli::ImageLoader>();
 
 	auto [GrayImage, GrayImageData] = Command.AllocateImage("Assets/Textures/download.jpg",
-		Chilli::ImageFormat::RGBA8, Chilli::IMAGE_USAGE_SAMPLED_IMAGE, Chilli::ImageType::IMAGE_TYPE_2D, 1);
+		Chilli::ImageFormat::RGBA8, Chilli::IMAGE_USAGE_SAMPLED_IMAGE, Chilli::ImageType::IMAGE_TYPE_2D);
 
 	GameData->GrayImage = GrayImage;
 	GameData->GrayImageData = GrayImageData;
+
+	auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
 
 	Chilli::TextureSpec TextureSpec;
 	TextureSpec.Format = Chilli::ImageFormat::RGBA8;
 	GameData->GrayTexture = Command.CreateTexture(GameData->GrayImage, TextureSpec);
 
-	Chilli::Material Material;
-	Material.ShaderProgramId = GeometryShaderProgram;
-	Material.AlbedoTextureHandle = GameData->GrayTexture;
-	Material.AlbedoSamplerHandle = GameData->Sampler;
-	GameData->Material = Command.CreateMaterial(Material);
+	GameData->Material = Command.CreateMaterial(GeometryShaderProgram);
+	MaterialSystem->SetAlbedoColor(GameData->Material, { 1.0f, 1.0f, 1.0f, 1.0f });
+	MaterialSystem->SetAlbedoTexture(GameData->Material, GameData->GrayTexture);
+	MaterialSystem->SetAlbedoSampler(GameData->Material, GameData->Sampler);
 
 	GameData->Player = Command.CreateEntity();
 	Command.AddComponent<Chilli::TransformComponent>(GameData->Player, Chilli::TransformComponent(
-		Chilli::Vec3(),
-		Chilli::Vec3(),
-		Chilli::Vec3()
 	));
+
 	Command.AddComponent<Chilli::MeshComponent>(GameData->Player, Chilli::MeshComponent{
 		.MeshHandle = SquareMesh,
 		.MaterialHandle = GameData->Material
 		});
 
+	auto Pepper = Chilli::Pepper(Ctxt);
+
+	Chilli::PepperTransform panelTransform;
+
+	Command.AddComponent<Chilli::PepperTransform>(GameData->UIPanel, panelTransform);
+	GameData->LoveDaysFont = Command.LoadFont_TTF("Assets/LoveDays.ttf");
+
+	Chilli::EmberTextComponent UIPanelText;
+	UIPanelText.Content = "Fuck my ass";
+	UIPanelText.Font = GameData->LoveDaysFont;
+	UIPanelText.IsDirty = true;
+
+	// 1. Set Dimensions (10% Width, 20% Height)
+	panelTransform.PercentageDimensions = { 0.2f, 0.2f };
+	panelTransform.PercentagePosition = { 0.1f, 0.1f };
+	panelTransform.AnchorX = Chilli::AnchorX::LEFT;
+	panelTransform.AnchorY = Chilli::AnchorY::TOP;
+
+	GameData->FPSCounter = Command.CreateEntity();
+	Command.AddComponent<Chilli::PepperTransform>(GameData->FPSCounter, panelTransform);
+	Command.AddComponent<Chilli::EmberTextComponent>(GameData->FPSCounter, UIPanelText);
+
+	GameData->Camera = Chilli::CameraBundle::Create3D(Ctxt);
+	Command.AddComponent<Chilli::Deafult3DCameraController>(GameData->Camera, Chilli::Deafult3DCameraController());
+
+	GameData->GameScene.MainCamera = GameData->Camera;
+
+	auto SceneManager = Command.GetService<Chilli::SceneManager>();
+	SceneManager->SetActiveScene(&GameData->GameScene);
 }
 
 void OnGamePlay(Chilli::BackBone::SystemContext& Ctxt)
@@ -116,28 +128,24 @@ void OnGamePlay(Chilli::BackBone::SystemContext& Ctxt)
 	auto GameData = Command.GetResource<GameResource>();
 	auto FrameData = Command.GetResource<Chilli::BackBone::GenericFrameData>();
 	auto InputManager = Command.GetService<Chilli::Input>();
-
+	auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
+		
 	auto Ts = FrameData->Ts;
 
 	auto PlayerTranform = Ctxt.Registry->GetComponent<Chilli::TransformComponent>(GameData->Player);
 
-	if (InputManager->IsKeyDown(Chilli::Input_key_A))
-		PlayerTranform->Position.x += 0.1f * Ts;
-	if (InputManager->IsKeyDown(Chilli::Input_key_D))
-		PlayerTranform->Position.x -= 0.1f * Ts;
+	auto UIPanelText = Command.GetComponent<Chilli::EmberTextComponent>(GameData->FPSCounter);
 
-	if (InputManager->IsKeyDown(Chilli::Input_key_W))
-		PlayerTranform->Position.y += 0.1f * Ts;
-	if (InputManager->IsKeyDown(Chilli::Input_key_S))
-		PlayerTranform->Position.y -= 0.1f * Ts;
+	UIPanelText->Content = std::to_string((int)FrameData->Ts.GetFPS());
+	UIPanelText->IsDirty = true;
 
-	auto RenderService = Command.GetService<Chilli::Renderer>();
-	RenderService->UpdateMaterialTextureData(GameData->Material.ValPtr->RawMaterialHandle,
-		GameData->GrayTexture.ValPtr->RawTextureHandle,
-		"Texture", Chilli::ResourceState::ShaderRead);
-	RenderService->UpdateMaterialSamplerData(GameData->Material.ValPtr->RawMaterialHandle,
-		GameData->Sampler.ValPtr->SamplerHandle,
-		"Sampler");
+	if (InputManager->IsKeyPressed(Chilli::Input_key_KpAdd))
+	{
+		MaterialSystem->SetAlbedoColor(GameData->Material,
+			MaterialSystem->GetView(GameData->Material).AlbedoColor + Chilli::Vec4(0.01f, 0.0f, 0.0f, 0.0f));
+	}
+	PlayerTranform->RotateX(2 * Ts);
+
 }
 
 void OnGameShutDown(Chilli::BackBone::SystemContext& Ctxt)
@@ -150,10 +158,13 @@ void OnGameShutDown(Chilli::BackBone::SystemContext& Ctxt)
 	Command.DestroyEntity(GameData->Camera);
 
 	Command.UnloadAsset(GameData->GrayImageData.ValPtr->FilePath);
+	Command.UnloadAsset(GameData->LoveDaysFont.ValPtr->FontSource.ValPtr->FilePath);
 }
 
 int main()
 {
+	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
+
 	Chilli::Log::Init();
 
 	Chilli::BackBone::App App;

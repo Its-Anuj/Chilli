@@ -16,6 +16,8 @@ namespace Chilli
 		COPY_BUFFER,
 		COPY_IMAGE,
 		UPDATE_BUFFER,
+		BLIT_IMAGE,
+		RESOLVE_IMAGE,
 
 		// Bindless Related
 		UPDATE_GLOBAL_SHADER_DATA,
@@ -59,6 +61,10 @@ namespace Chilli
 	enum class ResourceState : uint8_t {
 		Undefined,
 
+		HostWrite,      // CPU is filling the buffer
+		VertexRead,     // GPU is reading from Vertex Buffer
+		IndexRead,      // GPU is reading from Index Buffer
+
 		// Graphics
 		RenderTarget,
 		DepthWrite,
@@ -83,11 +89,69 @@ namespace Chilli
 	{
 		Vec4 ResolutionTime;
 	};
+
+	struct SceneData
+	{
+		// --- Camera Data ---
+		glm::mat4 ViewProjMatrix;
+		Vec4 CameraPos;
+
+		// --- Environment / Properties ---
+		Vec4 AmbientColor;    // Global light color/intensity
+		Vec4 FogProperties;   // x: density, y: start, z: end
+		Vec4 ScreenData;      // x: gamma, y: exposure, etc.
+
+		// --- Light Data (Example) ---
+		Vec4 GlobalLightDir;  // Directional light for the whole scene
+	};
+
+#define MAX_SCENE_DATA_COUNT 16
+
+	struct SceneSettings
+	{
+		// --- Environment / Properties ---
+		Vec4 AmbientColor;    // Global light color/intensity
+		Vec4 FogColor;   // x: density, y: start, z: end
+		Vec4 FogProperties;   // x: density, y: start, z: end
+		Vec4 ScreenData;      // x: gamma, y: exposure, etc.
+
+		// --- Light Data (Example) ---
+		Vec4 GlobalLightDir;  // Directional light for the whole scene
+	};
+
 	// Global Set(0) Data Binding  1
 	struct SceneShaderData
 	{
-		glm::mat4 ViewProjMatrix{ 1.0f };
-		Vec4 CameraPos;
+		SceneData Scenes[MAX_SCENE_DATA_COUNT];
+	};
+
+	struct Scene
+	{
+		std::string Name;
+		BackBone::Entity MainCamera;
+		SceneSettings Settings;
+	};
+
+	struct SceneManager
+	{
+	public:
+		SceneManager(BackBone::World* Reg) :_World(Reg) {}
+		~SceneManager() {}
+		// Lifecycle
+		void LoadScene(const std::string& path); // Clears and loads new
+		void SaveScene(const std::string& path);
+		void AppendScene(const std::string& path); // Adds entities without clearing
+
+		SceneSettings& GetSettings() { return _CurrentSettings; }
+
+		void PushUpdateShaderData();
+
+		void SetActiveScene(Scene* Sc);
+		const Scene* GetActiveScene()const;
+	private:
+		BackBone::World* _World;
+		Scene* _ActiveScene;
+		SceneSettings _CurrentSettings; // Ambient, Fog, etc.
 	};
 
 }

@@ -40,6 +40,8 @@ namespace Chilli
 
 		// Devices
 		std::vector<VulkanPhysicalDevice> PhysicalDevices;
+		std::vector<RenderDeviceInfo> PhysicalDeviceInfos;
+		std::vector<RenderDeviceLimits> PhysicalDeviceLimits;
 		int ActivePhysicalDeviceIndex = 0;
 
 		VulkanDevice Device;
@@ -125,6 +127,16 @@ namespace Chilli
 			VkAccessFlags2 dstAccess,
 			VkPipelineStageFlags2 dstStage);
 
+		void GenerateMipmaps(VkImage image,
+			VkFormat format,
+			int32_t texWidth,
+			int32_t texHeight,
+			uint32_t mipLevels);
+
+		void ResolveImage(VkImage srcImage,
+			VkImage dstImage, VkExtent2D extent, VkImageAspectFlags aspect);
+
+
 	private:
 		VulkanDevice* _Device;
 		VmaAllocator _Allocator;
@@ -179,7 +191,7 @@ namespace Chilli
 
 		void SetActiveGraphicsPipelineState(VkCommandBuffer CmdBuffer, const PipelineStateInfo& State);
 		virtual void PrepareForShutDown() override;
-		
+
 		void SetColorBlendState(VkCommandBuffer CmdBuffer,
 			const ColorBlendAttachmentState* ColorBlendAttachments, uint32_t ColorBlendAttachmentCount);
 
@@ -214,8 +226,9 @@ namespace Chilli
 			_BindlessManager.UpdateGlobalShaderData(Data);
 		}
 
-		void UpdateSceneShaderData(const SceneShaderData& Data) override {
-			_BindlessManager.UpdateSceneShaderData(Data);
+		void UpdateSceneShaderData(uint32_t Index, const SceneData& Data) override
+		{
+			_BindlessManager.UpdateSceneShaderData(Index, Data);
 		}
 
 		uint32_t PrepareMaterialData(uint32_t ShaderProgramHandle) override;
@@ -224,7 +237,7 @@ namespace Chilli
 		virtual const GraphcisBackendCreateSpec& GetSpec() const override { return _Spec; }
 		virtual uint32_t GetCurrentFrameIndex() override { return _FrameResource.CurrentFrameIndex; }
 
-		virtual uint32_t AllocateImage(const ImageSpec& Spec) override {
+		virtual uint32_t AllocateImage(ImageSpec& Spec) override {
 			return _ImageDataManager.AllocateImage(_Data.Allocator, Spec);
 		}
 		virtual void DestroyImage(uint32_t ImageHandle) override {
@@ -234,7 +247,7 @@ namespace Chilli
 			_ImageDataManager.MapImageData(ImageHandle, Data, Width, Height);
 		}
 
-		virtual uint32_t CreateTexture(uint32_t ImageHandle, const TextureSpec& Spec) override {
+		virtual uint32_t CreateTexture(uint32_t ImageHandle, TextureSpec& Spec) override {
 			auto Handle = _ImageDataManager.CreateTexture(_Data.Device.GetHandle(), ImageHandle, Spec);
 			_BindlessManager.PrepareForTexture(Handle);
 			return Handle;
@@ -253,7 +266,26 @@ namespace Chilli
 		virtual void UpdateMaterialShaderData(uint32_t MaterialHandle, const MaterialShaderData& Data) {
 			_BindlessManager.UpdateMaterialShaderData(MaterialHandle, Data);
 		}
-		virtual void UpdateObjectShaderData(const ObjectShaderData& Data) override {}
+
+		virtual void UpdateObjectShaderData(BackBone::Entity Entity, const ObjectShaderData& Data) override {
+			_BindlessManager.UpdateObjectShaderData(Entity, Data);
+		}
+
+		virtual uint32_t GetObjectShaderIndex(uint32_t Entity) override {
+			return _BindlessManager.GetObjectShaderIndex(Entity);
+		}
+
+		virtual const std::vector<RenderDeviceInfo>& GetRenderDevices() {
+			return _Data.PhysicalDeviceInfos;
+		}
+		// Takes in the raw render device handle that is inside the info
+		virtual const RenderDeviceLimits& GetRenderDeviceLimit(uint32_t Handle) {
+			return _Data.PhysicalDeviceLimits[Handle];
+		}
+		virtual const RenderDeviceLimits& GetActiveRenderDeviceLimit() {
+			return _Data.PhysicalDeviceLimits[_Data.ActivePhysicalDeviceIndex];
+		}
+		virtual const RenderDeviceStats& GetRenderDeviceStats() { return RenderDeviceStats(); }
 	private:
 		GraphcisBackendCreateSpec _Spec;
 		VulkanBackendData _Data;
@@ -295,6 +327,7 @@ namespace Chilli
 		VulkanDataUploader _Uploader;
 		VulkanImageDataManager _ImageDataManager;
 		SparseSet<VulkanSampler> _SamplerSet;
+		SceneShaderData _ActiveSceneShaderData;
 
 	private:
 		// Core Initials
@@ -347,6 +380,6 @@ namespace Chilli
 		void _AppendMaterialUpdateData(const MaterialDataUpdateCmdPayload& Payload);
 		void _UpdateAllMaterialUpdateData();
 
-		VkCommandBuffer _TranslateGraphicsCommandBuffer(const GraphicsCommandBuffer& CmdBuffer );
+		VkCommandBuffer _TranslateGraphicsCommandBuffer(const GraphicsCommandBuffer& CmdBuffer);
 	};
 }

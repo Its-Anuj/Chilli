@@ -1,5 +1,6 @@
 #include "Window.h"
 #include "Window.h"
+#include "Window.h"
 #include "Ch_PCH.h"
 #include "Window.h"
 
@@ -10,7 +11,6 @@
 
 #include "Input/Input.h"
 #include "Input/InputCodes.h"
-#include "Maths.h"
 #include "BackBone\DeafultExtensions.h"
 
 void Chilli_WindowIconifyCallBack(GLFWwindow* window, int iconified)
@@ -53,7 +53,7 @@ void Chilli_KeyCallBack(GLFWwindow* window, int key, int scancode, int action, i
 {
 	Chilli::WindowData* Data = (Chilli::WindowData*)glfwGetWindowUserPointer(window);
 
-	int MyMods = 0;	
+	int MyMods = 0;
 	if (mods & GLFW_MOD_SHIFT) MyMods += Chilli::Input_mod_Shift;
 	if (mods & GLFW_MOD_CONTROL) MyMods += Chilli::Input_mod_Control;
 	if (mods & GLFW_MOD_ALT) MyMods += Chilli::Input_mod_Alt;
@@ -120,7 +120,7 @@ namespace Chilli
 {
 	static bool GLFW_INIT = false;
 
-	void Window::Init(const WindowSpec& Spec)
+	void Window::Setup()
 	{
 		if (!GLFW_INIT)
 		{
@@ -130,7 +130,10 @@ namespace Chilli
 			else
 				GLFW_INIT = true;
 		}
+	}
 
+	void Window::Init(const WindowSpec& Spec)
+	{
 		if (!GLFW_INIT)
 			return;
 
@@ -184,6 +187,16 @@ namespace Chilli
 	void Window::PollEvents()
 	{
 		glfwPollEvents();
+
+		for (auto& e : EventReader<SetCursorEvent>(_Data.EventListener))
+		{
+			if (e.GetUsingWindow()->GetRawHandle() == this->GetRawHandle())
+				if (e.GetCursor() != nullptr)
+					SetActiveCursor(e.GetCursor()->RawCursorHandle);
+				else
+					SetActiveCursor(e.GetType());
+		}
+		_Data.EventListener->Clear<SetCursorEvent>();
 	}
 
 	bool Window::WindowShouldClose()
@@ -201,6 +214,72 @@ namespace Chilli
 		int w, h;
 		glfwGetFramebufferSize(_Window, &w, &h);
 		return Vec2((float)w, (float)h);
+	}
+
+	void Window::SetActiveCursor(void* Handle)
+	{
+		glfwSetCursor(_Window, (GLFWcursor*)Handle);
+	}
+
+	void Window::SetActiveCursor(DeafultCursorTypes Type)
+	{
+		if (Type == DeafultCursorTypes::Deafult)
+			glfwSetCursor(_Window, NULL);
+	}
+
+	void* Window::CreateCursor(Cursor* Data)
+	{
+		GLFWimage image;
+		image.width = Data->Data->Resolution.x;
+		image.height = Data->Data->Resolution.y;
+		image.pixels = (unsigned char*)Data->Data->Pixels;
+
+		GLFWcursor* cursor = glfwCreateCursor(&image, Data->HotX, Data->HotY);
+		return (void*)cursor;
+	}
+
+	void* Window::CreateCursor(DeafultCursorTypes Type)
+	{
+		switch (Type)
+		{
+		case DeafultCursorTypes::Arrow:
+			return glfwCreateStandardCursor(GLFW_ARROW_CURSOR);
+
+		case DeafultCursorTypes::IBeam:
+			return glfwCreateStandardCursor(GLFW_IBEAM_CURSOR);
+
+		case DeafultCursorTypes::Crosshair:
+			return glfwCreateStandardCursor(GLFW_CROSSHAIR_CURSOR);
+
+		case DeafultCursorTypes::PointingHand:
+			return glfwCreateStandardCursor(GLFW_POINTING_HAND_CURSOR);
+
+		case DeafultCursorTypes::ResizeEW:
+			return glfwCreateStandardCursor(GLFW_RESIZE_EW_CURSOR);
+
+		case DeafultCursorTypes::ResizeNS:
+			return glfwCreateStandardCursor(GLFW_RESIZE_NS_CURSOR);
+
+		case DeafultCursorTypes::ResizeNWSE:
+			return glfwCreateStandardCursor(GLFW_RESIZE_NWSE_CURSOR);
+
+		case DeafultCursorTypes::ResizeNESW:
+			return glfwCreateStandardCursor(GLFW_RESIZE_NESW_CURSOR);
+
+		case DeafultCursorTypes::ResizeAll:
+			return glfwCreateStandardCursor(GLFW_RESIZE_ALL_CURSOR);
+
+		case DeafultCursorTypes::NotAllowed:
+			return glfwCreateStandardCursor(GLFW_NOT_ALLOWED_CURSOR);
+
+		default:
+			return nullptr;
+		}
+	}
+
+	void Window::DestroyCursor(void* RawHandle)
+	{
+		glfwDestroyCursor((GLFWcursor*)RawHandle);
 	}
 
 	float GetWindowTime()

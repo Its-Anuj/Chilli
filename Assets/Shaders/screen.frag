@@ -5,12 +5,16 @@ layout(location = 0) in vec2 fragUV;
 
 layout(location = 0) out vec4 outColor;
 
-layout(set = 4, binding = 0) uniform texture2D ScreenTexture;
-layout(set = 4, binding = 1) uniform sampler ScreenSampler;
+layout(push_constant) uniform PushConstants {
+    int ObjectIndex;
+    int MaterialIndex;
+} DrawPushData;
 
 void main()
 {
-    vec4 TextureColor = texture(sampler2D(Textures[1], ScreenSampler), fragUV);
-
-    outColor = TextureColor;
-}
+    Material ActiveMaterial = Materials[DrawPushData.MaterialIndex];
+    vec4 TextureColor = texture(sampler2D(Textures[ActiveMaterial.AlbedoTextureIndex], Samplers[ActiveMaterial.AlbedoSamplerIndex]),
+        fragUV);
+    
+    outColor = TextureColor * ActiveMaterial.AlbedoColor;
+}   

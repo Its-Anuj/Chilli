@@ -11,6 +11,7 @@ namespace Chilli
 		TRIANGLE,
 		QUAD,
 		CUBE,
+		SPHERE
 	};
 
 	struct MeshCreateInfo
@@ -34,9 +35,17 @@ namespace Chilli
 		IndexBufferType IBType = IndexBufferType::NONE;
 	};
 
-	struct Vertex
+	struct Vertex2D
 	{
 		Chilli::Vec3 Position;
 		Chilli::Vec2 UV;
 	};
+
+	struct Vertex
+	{
+		Chilli::Vec3 Position;
+		Chilli::Vec3 Normal;
+		Chilli::Vec2 UV;
+	};
+
 }

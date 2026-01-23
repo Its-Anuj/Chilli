@@ -60,19 +60,9 @@ namespace Chilli
 			return _Api.lock()->PrepareMaterialData(ShaderProgramHandle);
 		}
 
-		inline uint32_t PrepareMaterialData(const BackBone::AssetHandle<Material>& Mat)
-		{
-			return PrepareMaterialData(Mat.ValPtr->ShaderProgramId.ValPtr->RawProgramHandle);
-		}
-
 		void ClearMaterialData(uint32_t RawMaterialHandle)
 		{
 			_Api.lock()->ClearMaterialData(RawMaterialHandle);
-		}
-
-		void ClearMaterialData(const BackBone::AssetHandle<Material>& Mat)
-		{
-			_Api.lock()->ClearMaterialData(Mat.ValPtr->RawMaterialHandle);
 		}
 
 		const GraphcisBackendCreateSpec& GetSpec() const
@@ -80,7 +70,7 @@ namespace Chilli
 			return _Api.lock()->GetSpec();
 		}
 
-		inline uint32_t AllocateImage(const ImageSpec& Spec) {
+		inline uint32_t AllocateImage(ImageSpec& Spec) {
 			return _Api.lock()->AllocateImage(Spec);
 		}
 
@@ -91,7 +81,7 @@ namespace Chilli
 			_Api.lock()->MapImageData(ImageHandle, Data, Width, Height);
 		}
 
-		inline uint32_t CreateTexture(uint32_t ImageHandle, const TextureSpec& Spec) {
+		inline uint32_t CreateTexture(uint32_t ImageHandle, TextureSpec& Spec) {
 			return _Api.lock()->CreateTexture(ImageHandle, Spec);
 		}
 		inline void DestroyTexture(uint32_t TextureHandle)
@@ -240,23 +230,31 @@ namespace Chilli
 			return _Api->GetMaterialShaderIndex(RawMaterialHandle);
 		}
 
+		void UpdateMaterialShaderData(uint32_t MaterialHandle, const MaterialShaderData& Data) {
+			_Api->UpdateMaterialShaderData(MaterialHandle, Data);
+		}
+		
+		void UpdateObjectShaderData(BackBone::Entity Entity, const ObjectShaderData& Data) {
+			_Api->UpdateObjectShaderData(Entity, Data);
+		}
+
 		void UpdateMaterialBufferData(uint32_t MaterialHandle, uint32_t Buffer,
-			const char* Name, size_t Size, size_t Offset)
+			const char* Name, size_t Size, size_t Offset, uint32_t DstArrayIndex = 0)
 		{
 			_FramePackets[_FrameIndex].Graphics_Stream.UpdateMaterialBufferData(MaterialHandle, Buffer,
-				Name, Size, Offset);
+				Name, Size, Offset, DstArrayIndex);
 		}
 
 		void UpdateMaterialTextureData(uint32_t MaterialHandle,
-			uint32_t Tex, const char* Name, ResourceState State)
+			uint32_t Tex, const char* Name, ResourceState State, uint32_t DstArrayIndex = 0)
 		{
 			_FramePackets[_FrameIndex].Graphics_Stream.UpdateMaterialTextureData(MaterialHandle,
-				Tex, Name, State);
+				Tex, Name, State, DstArrayIndex);
 		}
 
-		void UpdateMaterialSamplerData(uint32_t MaterialHandle, uint32_t Sampler, const char* Name)
+		void UpdateMaterialSamplerData(uint32_t MaterialHandle, uint32_t Sampler, const char* Name, uint32_t DstArrayIndex = 0)
 		{
-			_FramePackets[_FrameIndex].Graphics_Stream.UpdateMaterialSamplerData(MaterialHandle, Sampler, Name);
+			_FramePackets[_FrameIndex].Graphics_Stream.UpdateMaterialSamplerData(MaterialHandle, Sampler, Name, DstArrayIndex);
 		}
 
 		void BindMaterailData(uint32_t MaterialHandle)
@@ -274,12 +272,32 @@ namespace Chilli
 			_FramePackets[_FrameIndex].Graphics_Stream.PushUpdateGlobalShaderData(Data);
 		}
 
-		void PushUpdateSceneShaderData(const SceneShaderData& Data)
+		void PushUpdateSceneShaderData(uint32_t Index, const SceneData& Data)
 		{
-			_FramePackets[_FrameIndex].Graphics_Stream.PushUpdateSceneShaderData(Data);
+			_FramePackets[_FrameIndex].Graphics_Stream.PushUpdateSceneShaderData(Index, Data);
 		}
 
+		uint32_t GetCurrentFrameIndex() {
+			return _Api->GetCurrentFrameIndex();
+		}
 
+		uint32_t GetObjectShaderIndex(uint32_t Entity) {
+			return _Api->GetObjectShaderIndex(Entity);
+		}
+
+		const std::vector<RenderDeviceInfo>& GetRenderDevices() {
+			return _Api->GetRenderDevices();
+		}
+		// Takes in the raw render device handle that is inside the info
+		const RenderDeviceLimits& GetRenderDeviceLimit(uint32_t Handle) {
+			return _Api->GetRenderDeviceLimit(Handle);
+		}
+		const RenderDeviceLimits& GetActiveRenderDeviceLimit() {
+			return _Api->GetActiveRenderDeviceLimit();
+		}
+		const RenderDeviceStats& GetRenderDeviceStats() {
+			return _Api->GetRenderDeviceStats();
+		}
 	private:
 		std::shared_ptr<GraphicsBackendApi> _Api;
 		std::vector<RenderFramePacket> _FramePackets;

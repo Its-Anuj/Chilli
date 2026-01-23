@@ -78,7 +78,8 @@ namespace Chilli
 
 	struct PushUpdateSceneShaderDataCmdPayload
 	{
-		SceneShaderData Data;
+		uint32_t Index = UINT32_MAX;
+		SceneData Data;
 	};
 
 	struct RenderCommandBuffer
@@ -138,11 +139,11 @@ namespace Chilli
 		}
 
 		void UpdateMaterialBufferData(uint32_t MaterialHandle, uint32_t Buffer,
-			const char* Name, size_t Size, size_t Offset)
+			const char* Name, size_t Size, size_t Offset, uint32_t DstArrayIndex = 0)
 		{
 			MaterialDataUpdateCmdPayload Info{};
 			Info.MaterialHandle = MaterialHandle;
-			Info.DstArrayIndex = 0;
+			Info.DstArrayIndex = DstArrayIndex;
 			strncpy(Info.Name, Name, SHADER_UNIFORM_BINDING_NAME_SIZE);
 			Info.Persistent = false;
 			Info.BufferInfo.Handle = Buffer;
@@ -153,11 +154,11 @@ namespace Chilli
 		}
 
 		void UpdateMaterialTextureData(uint32_t MaterialHandle,
-			uint32_t Tex, const char* Name, ResourceState State)
+			uint32_t Tex, const char* Name, ResourceState State, uint32_t DstArrayIndex = 0)
 		{
 			MaterialDataUpdateCmdPayload Info{};
 			Info.MaterialHandle = MaterialHandle;
-			Info.DstArrayIndex = 0;
+			Info.DstArrayIndex = DstArrayIndex;
 			strncpy(Info.Name, Name, SHADER_UNIFORM_BINDING_NAME_SIZE);
 			Info.Persistent = false;
 			Info.ImageInfo.Handle = Tex;
@@ -166,11 +167,11 @@ namespace Chilli
 			PushCommand<MaterialDataUpdateCmdPayload>(RenderOpCode::UPDATE_MATERIL_DATA, Info);
 		}
 
-		void UpdateMaterialSamplerData(uint32_t MaterialHandle, uint32_t Sampler, const char* Name)
+		void UpdateMaterialSamplerData(uint32_t MaterialHandle, uint32_t Sampler, const char* Name, uint32_t DstArrayIndex = 0)
 		{
 			MaterialDataUpdateCmdPayload Info{};
 			Info.MaterialHandle = MaterialHandle;
-			Info.DstArrayIndex = 0;
+			Info.DstArrayIndex = DstArrayIndex;
 			strncpy(Info.Name, Name, SHADER_UNIFORM_BINDING_NAME_SIZE);
 			Info.Persistent = false;
 			Info.ImageInfo.Sampler = Sampler;
@@ -322,6 +323,7 @@ namespace Chilli
 		uint32_t BindingIndex = 0;
 		uint32_t Stride = 0;
 		uint32_t AttribsCount = 0;
+		bool IsInstanced = false;
 	};
 
 	struct SetVertexLayoutCmdPayload
@@ -351,6 +353,56 @@ namespace Chilli
 		float DepthBiasSlopeFactor = UNCHANGE_FLOAT_VALUE;
 	};
 
+	struct Rect3D {
+		int32_t x, y, z;
+		uint32_t width, height, depth;
+	};
+
+	struct BlitImageCmdPayload
+	{
+		// Source
+		uint32_t SrcImage;
+		uint32_t    SrcMipLevel = 0;
+		uint32_t    SrcBaseLayer = 0;
+		uint32_t    SrcLayerCount = 1;
+		Rect3D     SrcRegion;   // offset + extent
+
+		// Destination
+		uint32_t DstImage;
+		uint32_t    DstMipLevel = 0;
+		uint32_t    DstBaseLayer = 0;
+		uint32_t    DstLayerCount = 1;
+		Rect3D     DstRegion;
+
+		// Behavior
+		SamplerFilter Filter;     // NEAREST / LINEAR
+		uint32_t aspects;   // COLOR / DEPTH (if you ever allow depth blits)
+
+		// Optional flags
+		bool flipY = false;     // engine-level convenience
+	};
+
+	struct ResolveImageCmdPayload
+	{
+		// Multisampled source
+		uint32_t SrcImage;
+		uint32_t    SrcMipLevel = 0;
+		uint32_t    SrcBaseLayer = 0;
+		uint32_t    SrcLayerCount = 1;
+
+		// Single-sampled destination
+		uint32_t dstImage;
+		uint32_t    DstMipLevel = 0;
+		uint32_t    DstBaseLayer = 0;
+		uint32_t    DstLayerCount = 1;
+
+		// Region (must match size)
+		Rect3D     region;
+
+		// Usually COLOR only (depth requires extensions / render-pass resolve)
+		uint32_t aspects = IMAGE_ASPECT_COLOR;
+	};
+
 	class GraphicsCommandBuffer : public RenderCommandBuffer
 	{
 	public:
@@ -360,6 +412,16 @@ namespace Chilli
 		void BeginFrame(uint32_t FrameIndex)
 		{
 			PushCommand<BeginFrameCmdPayload>(RenderOpCode::BEGIN_FRAME, { FrameIndex });
+		}
+
+		void PushBlitImage (const BlitImageCmdPayload& Payload)
+		{
+			PushCommand<BlitImageCmdPayload>(RenderOpCode::BLIT_IMAGE, Payload);
+		}
+
+		void PushResolveImage(const ResolveImageCmdPayload& Payload)
+		{
+			PushCommand<ResolveImageCmdPayload>(RenderOpCode::RESOLVE_IMAGE, Payload);
 		}
 
 		void BeginRenderPass(const RenderPassInfo& Pass)
@@ -436,6 +498,7 @@ namespace Chilli
 				BindingInfo.BindingIndex = Binding.BindingIndex;
 				BindingInfo.Stride = Binding.Stride;
 				BindingInfo.AttribsCount = Binding.Attribs.size();
+				BindingInfo.IsInstanced = Binding.IsInstanced;
 
 				memcpy(Dst, &BindingInfo, sizeof(BindingInfo));
 
@@ -582,10 +645,10 @@ namespace Chilli
 				{ Data });
 		}
 
-		void PushUpdateSceneShaderData(const SceneShaderData& Data)
+		void PushUpdateSceneShaderData(uint32_t Index, const SceneData& Data)
 		{
 			PushCommand<PushUpdateSceneShaderDataCmdPayload>(RenderOpCode::UPDATE_SCENE_SHADER_DATA,
-				{ Data });
+				{ Index, Data });
 		}
 
 	private:

@@ -144,9 +144,6 @@ namespace Chilli
 	void VulkanGraphicsBackend::BeginFrame(uint32_t Index)
 	{
 		_FrameResource.CurrentFrameIndex = Index;
-		_FrameResource.WritingBufferInfos.clear();
-		_FrameResource.WritingImageInfos.clear();
-		_FrameResource.WritingSets.clear();
 	}
 
 	VkCommandBuffer VulkanGraphicsBackend::_BeginFrame(const BeginFrameCmdPayload& Payload)
@@ -156,7 +153,6 @@ namespace Chilli
 		vkWaitForFences(_Data.Device.GetHandle(), 1, &_FrameResource.InFlightFences[_FrameResource.CurrentFrameIndex], VK_TRUE, UINT64_MAX);
 
 		_FrameResource.CurrentFrameIndex = Payload.FrameIndex;
-		vkResetFences(_Data.Device.GetHandle(), 1, &_FrameResource.InFlightFences[_FrameResource.CurrentFrameIndex]);
 
 		VkResult result = vkAcquireNextImageKHR(_Data.Device.GetHandle(), _Data.SwapChainKHR.GetHandle(), UINT64_MAX,
 			_FrameResource.ImageAvailableSemaphores[_FrameResource.CurrentFrameIndex], VK_NULL_HANDLE,
@@ -175,6 +171,8 @@ namespace Chilli
 		{
 			std::cout << "ERROR: AcquireNextImage failed: " << result << "\n";
 		}
+		vkResetFences(_Data.Device.GetHandle(), 1, &_FrameResource.InFlightFences[_FrameResource.CurrentFrameIndex]);
+
 		auto CmdBuffer = _CommandManager.Get(_FrameResource.CommandBuffers[Payload.FrameIndex].CommandBufferHandle);
 
 		vkResetCommandBuffer(CmdBuffer, 0);
@@ -196,16 +194,15 @@ namespace Chilli
 		auto& Payload = PassPayload.Pass;
 
 		VkRenderingInfo RenderingInfo{};
-
 		RenderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
 		RenderingInfo.layerCount = 1;
-
 		RenderingInfo.renderArea.extent.width = Payload.RenderArea.x;
 		RenderingInfo.renderArea.extent.height = Payload.RenderArea.y;
 
+		// Use a local vector or a small_vector to avoid static thread-safety issues if needed
 		static std::vector<VkRenderingAttachmentInfo> ColorAttachments;
 		ColorAttachments.clear();
-		ColorAttachments.reserve(CH_MAX_COLOR_ATTACHMENT_COUNT);
+		ColorAttachments.reserve(Payload.ColorAttachmentCount);
 
 		for (int i = 0; i < Payload.ColorAttachmentCount; i++)
 		{
@@ -213,20 +210,34 @@ namespace Chilli
 
 			VkRenderingAttachmentInfo colorAttachment{};
 			colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-			colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; //  Now correct
-			colorAttachment.storeOp = StoreOpToVk(ActiveColorAttachmentInfo.StoreOp);
+			colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 			colorAttachment.loadOp = LoadOpToVk(ActiveColorAttachmentInfo.LoadOp);
+
+			// --- 1. HANDLE RESOLVE LOGIC ---
+			if (ActiveColorAttachmentInfo.ResolveTexture != UINT32_MAX)
+			{
+				// If resolving, we almost always want to DONT_CARE about the MSAA buffer 
+				// after the resolve is finished to save bandwidth.
+				colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+
+				colorAttachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT; // Standard for color
+				colorAttachment.resolveImageView = _ImageDataManager.GetTexture(ActiveColorAttachmentInfo.ResolveTexture)->GetHandle();
+				colorAttachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			}
+			else
+			{
+				colorAttachment.storeOp = StoreOpToVk(ActiveColorAttachmentInfo.StoreOp);
+				colorAttachment.resolveMode = VK_RESOLVE_MODE_NONE;
+			}
+
 			colorAttachment.clearValue = { {ActiveColorAttachmentInfo.ClearColor.x,
 				ActiveColorAttachmentInfo.ClearColor.y, ActiveColorAttachmentInfo.ClearColor.z,
 				ActiveColorAttachmentInfo.ClearColor.w} };
 
-			// Render To SwapChain Image
+			// Handle Image View (Multisampled Image A)
 			if (ActiveColorAttachmentInfo.UseSwapChainImage)
 			{
-				RenderingInfo.renderArea.extent = {
-					min((uint32_t)Payload.RenderArea.x, _Data.SwapChainKHR.GetExtent().width),
-					min((uint32_t)Payload.RenderArea.y, _Data.SwapChainKHR.GetExtent().height)
-				};
+				// Swapchain images are typically 1-sample, so Resolve is usually null here
 				colorAttachment.imageView = _Data.SwapChainKHR.GetImageViews()[_FrameResource.CurrentImageIndex];
 			}
 			else
@@ -237,7 +248,24 @@ namespace Chilli
 			ColorAttachments.push_back(colorAttachment);
 		}
 
+		// --- 2. DEPTH ATTACHMENT ---
 		RenderingInfo.pDepthAttachment = nullptr;
+		VkRenderingAttachmentInfo depthAttach{}; // Renamed to avoid shadowing
+
+		if (Payload.DepthAttachment.DepthTexture != UINT32_MAX)
+		{
+			auto& ActiveAttachment = Payload.DepthAttachment;
+			depthAttach.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+			depthAttach.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+			depthAttach.storeOp = StoreOpToVk(ActiveAttachment.StoreOp);
+			depthAttach.loadOp = LoadOpToVk(ActiveAttachment.LoadOp);
+			depthAttach.imageView = _ImageDataManager.GetTexture(ActiveAttachment.DepthTexture)->GetHandle();
+			depthAttach.clearValue.depthStencil.depth = ActiveAttachment.Depth;
+
+			// Note: Depth Resolve is possible in 1.3, but usually not needed for 
+			// post-processing quads. We leave it as a simple store for now.
+			RenderingInfo.pDepthAttachment = &depthAttach;
+		}
 
 		RenderingInfo.colorAttachmentCount = static_cast<uint32_t>(ColorAttachments.size());
 		RenderingInfo.pColorAttachments = ColorAttachments.data();
@@ -290,9 +318,13 @@ namespace Chilli
 					0,
 					nullptr // No copies are being performed here
 				);
+				_FrameResource.MaterailWritingDatas.clear();
 
 				auto Payload = (BeginFrameCmdPayload*)(Dst);
 				ActiveCommandBuffer = _BeginFrame(*Payload);
+
+				if (ActiveCommandBuffer == VK_NULL_HANDLE)
+					return ActiveCommandBuffer;
 				break;
 			}
 			case RenderOpCode::UPDATE_GLOBAL_SHADER_DATA:
@@ -304,13 +336,90 @@ namespace Chilli
 			case RenderOpCode::UPDATE_SCENE_SHADER_DATA:
 			{
 				auto Payload = (PushUpdateSceneShaderDataCmdPayload*)(Dst);
-				_BindlessManager.UpdateSceneShaderData(Payload->Data);
+				_BindlessManager.UpdateSceneShaderData(Payload->Index, Payload->Data);
 				break;
 			}
 			case RenderOpCode::END_FRAME:
 			{
 				auto Payload = (EndFrameCmdPayload*)(Dst);
 				_EndFrame(*Payload, ActiveCommandBuffer);
+				break;
+			}
+			case RenderOpCode::BLIT_IMAGE:
+			{
+				auto Payload = (BlitImageCmdPayload*)(Dst);
+
+				VkImage srcVkImage = _ImageDataManager.GetImage(Payload->SrcImage)->GetHandle();
+				VkImage dstVkImage = _ImageDataManager.GetImage(Payload->DstImage)->GetHandle();
+
+				VkImageBlit blitRegion{};
+				blitRegion.srcSubresource.aspectMask = Payload->aspects;
+				blitRegion.srcSubresource.mipLevel = Payload->SrcMipLevel;
+				blitRegion.srcSubresource.baseArrayLayer = Payload->SrcBaseLayer;
+				blitRegion.srcSubresource.layerCount = Payload->SrcLayerCount;
+
+				blitRegion.srcOffsets[0] = { Payload->SrcRegion.x, Payload->SrcRegion.y, Payload->SrcRegion.z };
+				blitRegion.srcOffsets[1] = {
+					Payload->SrcRegion.x + static_cast<int32_t>(Payload->SrcRegion.width),
+					Payload->SrcRegion.y + static_cast<int32_t>(Payload->SrcRegion.height),
+					Payload->SrcRegion.z + static_cast<int32_t>(Payload->SrcRegion.depth)
+				};
+
+				blitRegion.dstSubresource.aspectMask = Payload->aspects;
+				blitRegion.dstSubresource.mipLevel = Payload->DstMipLevel;
+				blitRegion.dstSubresource.baseArrayLayer = Payload->DstBaseLayer;
+				blitRegion.dstSubresource.layerCount = Payload->DstLayerCount;
+
+				blitRegion.dstOffsets[0] = { Payload->DstRegion.x, Payload->DstRegion.y, Payload->DstRegion.z };
+				blitRegion.dstOffsets[1] = {
+					Payload->DstRegion.x + static_cast<int32_t>(Payload->DstRegion.width),
+					Payload->DstRegion.y + static_cast<int32_t>(Payload->DstRegion.height),
+					Payload->DstRegion.z + static_cast<int32_t>(Payload->DstRegion.depth)
+				};
+
+				// Perform the blit
+				vkCmdBlitImage(
+					ActiveCommandBuffer,                       // VkCommandBuffer
+					srcVkImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+					dstVkImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+					1, &blitRegion,
+					(Payload->Filter == SamplerFilter::LINEAR) ? VK_FILTER_LINEAR : VK_FILTER_NEAREST
+				);
+
+				break;
+			}
+			case RenderOpCode::RESOLVE_IMAGE:
+			{
+				auto Payload = (ResolveImageCmdPayload*)(Dst);
+
+				VkImage srcVkImage = _ImageDataManager.GetImage(Payload->SrcImage)->GetHandle();
+				VkImage dstVkImage = _ImageDataManager.GetImage(Payload->dstImage)->GetHandle();
+
+				VkImageResolve resolveRegion{};
+				resolveRegion.srcSubresource.aspectMask = Payload->aspects;
+				resolveRegion.srcSubresource.mipLevel = Payload->SrcMipLevel;
+				resolveRegion.srcSubresource.baseArrayLayer = Payload->SrcBaseLayer;
+				resolveRegion.srcSubresource.layerCount = Payload->SrcLayerCount;
+
+				resolveRegion.srcOffset = { Payload->region.x, Payload->region.y, Payload->region.z };
+
+				resolveRegion.dstSubresource.aspectMask = Payload->aspects;
+				resolveRegion.dstSubresource.mipLevel = Payload->DstMipLevel;
+				resolveRegion.dstSubresource.baseArrayLayer = Payload->DstBaseLayer;
+				resolveRegion.dstSubresource.layerCount = Payload->DstLayerCount;
+
+				resolveRegion.dstOffset = { Payload->region.x, Payload->region.y, Payload->region.z };
+
+				resolveRegion.extent = { Payload->region.width, Payload->region.height, Payload->region.depth };
+
+				// Perform the resolve
+				vkCmdResolveImage(
+					ActiveCommandBuffer,
+					srcVkImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+					dstVkImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+					1, &resolveRegion
+				);
+
 				break;
 			}
 			case RenderOpCode::BEGIN_RENDER_PASS:
@@ -427,8 +536,17 @@ namespace Chilli
 					VkVertexInputBindingDescription2EXT bindingDescriptions{};
 					bindingDescriptions.sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT;
 					bindingDescriptions.binding = ActiveBinding->BindingIndex;
-					bindingDescriptions.divisor = 1;
-					bindingDescriptions.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+					// INSTANCING LOGIC HERE:
+					if (ActiveBinding->IsInstanced) {
+						bindingDescriptions.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+						bindingDescriptions.divisor = 1; // Step once per instance (1 character)
+					}
+					else {
+						bindingDescriptions.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+						bindingDescriptions.divisor = 1; // Standard vertex stepping
+					}
+
 					bindingDescriptions.stride = ActiveBinding->Stride;
 
 					BindingDescriptions[i] = bindingDescriptions;
@@ -474,9 +592,9 @@ namespace Chilli
 
 				auto ActiveMaterial = _MaterialManager.Get(Payload->RawMaterialHandle);
 
-				_ShaderManager.BindUserSets(ActiveCommandBuffer, 
+				_ShaderManager.BindUserSets(ActiveCommandBuffer,
 					ActiveMaterial->ProgramID,
-					ActiveMaterial->Sets[_FrameResource.CurrentFrameIndex]); 
+					ActiveMaterial->Sets[_FrameResource.CurrentFrameIndex]);
 				break;
 			}
 			case RenderOpCode::SET_FULL_PIPELINE_STATE:
@@ -510,7 +628,7 @@ namespace Chilli
 					i++;
 				}
 
-				VkDeviceSize offsets[] = { 0 };
+				VkDeviceSize offsets[100] = { 0 };
 				vkCmdBindVertexBuffers(ActiveCommandBuffer, 0, Payload->VertexBufferCount, Handles, offsets);
 
 				break;
@@ -518,7 +636,7 @@ namespace Chilli
 			case RenderOpCode::PUSH_SHADER_INLINE_UNIFORM_DATA:
 			{
 				auto Payload = (PushShaderInlineUniformDataCmdPayload*)(Dst);
-				
+
 				void* PushConstantDataPtr = (void*)(Dst + sizeof(PushShaderInlineUniformDataCmdPayload));
 
 				_ShaderManager.PushConstants(ActiveCommandBuffer,
@@ -568,8 +686,12 @@ namespace Chilli
 	{
 		_ActivePipelineState = PipelineStateInfo();
 
-		auto VkGraphicsCmdBuffer = _CommandManager.Get(_FrameResource.CommandBuffers[_FrameResource.CurrentFrameIndex].CommandBufferHandle);
-		_TranslateGraphicsCommandBuffer(Packet.Graphics_Stream);
+		auto VkGraphicsCmdBuffer = _TranslateGraphicsCommandBuffer(Packet.Graphics_Stream);
+
+		// CRITICAL: If a resize happened during translation, abort submission!
+		if (VkGraphicsCmdBuffer == VK_NULL_HANDLE) {
+			return;
+		}
 
 		{
 			VkSubmitInfo submitInfo{};
@@ -586,6 +708,7 @@ namespace Chilli
 			VkSemaphore signalSemaphores[] = { _FrameResource.RenderFinishedSemaphores[_FrameResource.CurrentFrameIndex] };
 			submitInfo.signalSemaphoreCount = 1;
 			submitInfo.pSignalSemaphores = signalSemaphores;
+
 
 			VULKAN_SUCCESS_ASSERT(vkQueueSubmit(_Data.Device.GetQueue(QueueFamilies::GRAPHICS), 1, &submitInfo, _FrameResource.InFlightFences[_FrameResource.CurrentFrameIndex]), "Failed to Submit Graphics Queue");
 		}
@@ -656,6 +779,12 @@ namespace Chilli
 			return { VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL };
 		case ResourceState::Present:
 			return { 0, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR };
+		case ResourceState::HostWrite:
+			return { VK_ACCESS_HOST_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED };
+		case ResourceState::VertexRead:
+			return { VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT, VK_IMAGE_LAYOUT_UNDEFINED };
+		case ResourceState::IndexRead:
+			return { VK_ACCESS_INDEX_READ_BIT, VK_IMAGE_LAYOUT_UNDEFINED };
 		default:
 			return { 0, VK_IMAGE_LAYOUT_UNDEFINED };
 		}
@@ -674,6 +803,9 @@ namespace Chilli
 		case ResourceState::CopyDst:      return VK_PIPELINE_STAGE_TRANSFER_BIT;
 		case ResourceState::ComputeRead:
 		case ResourceState::ComputeWrite: return VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+		case ResourceState::HostWrite:  return VK_PIPELINE_STAGE_HOST_BIT;
+		case ResourceState::VertexRead:
+		case ResourceState::IndexRead:   return VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
 		case ResourceState::Present:      return VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
 		default: break;
 		}
@@ -696,86 +828,77 @@ namespace Chilli
 	{
 		if (count == 0) return;
 
-		static std::vector<VkImageMemoryBarrier> imageBarriers;
-		static std::vector<VkBufferMemoryBarrier> bufferBarriers;
+		// Use the 2-suffix versions for Vulkan 1.3
+		static std::vector<VkImageMemoryBarrier2> imageBarriers;
+		static std::vector<VkBufferMemoryBarrier2> bufferBarriers;
 
-		// Pre-allocate to avoid resize overhead
 		imageBarriers.clear();
 		bufferBarriers.clear();
-
 		imageBarriers.reserve(count);
 		bufferBarriers.reserve(count);
-
-		VkPipelineStageFlags srcStageMask = 0;
-		VkPipelineStageFlags dstStageMask = 0;
 
 		for (uint32_t i = 0; i < count; ++i) {
 			const PipelineBarrier& bar = barriers[i];
 
-			// --- 1. Resolve Access & Stages ---
+			// 1. Resolve Access, Layouts, and Stages
 			auto [srcAccess, oldLayout] = GetAccessAndLayout(bar.OldState);
 			auto [dstAccess, newLayout] = GetAccessAndLayout(bar.NewState);
 
-			VkPipelineStageFlags stageSrc = GetPipelineStage(bar.OldState, bar.OldStream);
-			VkPipelineStageFlags stageDst = GetPipelineStage(bar.NewState, bar.NewStream);
+			// Cast these to the 64-bit Flags2 versions required by Sync 2
+			VkPipelineStageFlags2 stageSrc = (VkPipelineStageFlags2)GetPipelineStage(bar.OldState, bar.OldStream);
+			VkPipelineStageFlags2 stageDst = (VkPipelineStageFlags2)GetPipelineStage(bar.NewState, bar.NewStream);
 
-			srcStageMask |= stageSrc;
-			dstStageMask |= stageDst;
-
-			// --- 2. Resolve Queue Ownership Transfer ---
+			// 2. Resolve Queue Ownership
 			uint32_t srcQueueFamily = VK_QUEUE_FAMILY_IGNORED;
 			uint32_t dstQueueFamily = VK_QUEUE_FAMILY_IGNORED;
-
-			// Only set families if streams are different (Ownership Transfer)
 			if (bar.OldStream != bar.NewStream) {
 				srcQueueFamily = _GetQueueFamilyIndex(bar.OldStream);
 				dstQueueFamily = _GetQueueFamilyIndex(bar.NewStream);
 			}
 
-			// --- 3. Handle Image Barriers ---
+			// 3. Handle Image Barriers
 			VkImage targetImage = VK_NULL_HANDLE;
 			bool isImageBarrier = false;
 
-			// Check SwapChain FIRST as requested
 			if (bar.ImageBarrier.IsSwapChain) {
 				targetImage = _Data.SwapChainKHR.GetImages()[_FrameResource.CurrentFrameIndex];
 				isImageBarrier = true;
 			}
-			// Only check Handle if SwapChain was false
 			else if (bar.ImageBarrier.ImageHandle != UINT32_MAX) {
 				auto Image = _ImageDataManager.GetImage(_ImageDataManager.GetTexture(bar.ImageBarrier.ImageHandle)->GetImageHandle());
-				
-				if (bar.OldState != Image->GetSpec().State)
-					VULKAN_ERROR("The givne state does not match images current state!");
 
-				if (ValidateImageState(Image->GetSpec().Usage, bar.NewState) == false)
-					VULKAN_ERROR("Usage And State not Valid!");
+				// State Validation
+				if (bar.OldState != Image->GetSpec().State)
+					VULKAN_ERROR("The given state does not match images current state!");
+				if (!ValidateImageState(Image->GetSpec().Usage, bar.NewState))
+					VULKAN_ERROR("Usage and State not valid!");
 
 				Image->SetResourceState(bar.NewState);
-
 				targetImage = Image->GetHandle();
 				isImageBarrier = true;
 			}
 
 			if (isImageBarrier && targetImage != VK_NULL_HANDLE) {
-				VkImageMemoryBarrier imgBar = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-				imgBar.srcAccessMask = srcAccess;
-				imgBar.dstAccessMask = dstAccess;
+				VkImageMemoryBarrier2 imgBar = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+				imgBar.srcStageMask = stageSrc;
+				imgBar.srcAccessMask = (VkAccessFlags2)srcAccess;
+				imgBar.dstStageMask = stageDst;
+				imgBar.dstAccessMask = (VkAccessFlags2)dstAccess;
 				imgBar.oldLayout = oldLayout;
 				imgBar.newLayout = newLayout;
 				imgBar.srcQueueFamilyIndex = srcQueueFamily;
 				imgBar.dstQueueFamilyIndex = dstQueueFamily;
 				imgBar.image = targetImage;
 
-				// Subresource Range
 				imgBar.subresourceRange.baseMipLevel = bar.ImageBarrier.SubresourceRange.baseMip;
 				imgBar.subresourceRange.levelCount = bar.ImageBarrier.SubresourceRange.mipCount;
 				imgBar.subresourceRange.baseArrayLayer = bar.ImageBarrier.SubresourceRange.baseLayer;
 				imgBar.subresourceRange.layerCount = bar.ImageBarrier.SubresourceRange.layerCount;
 
-				// Infer Aspect Mask (Depth vs Color)
+				// Aspect Mask Logic
 				if (bar.NewState == ResourceState::DepthWrite || bar.OldState == ResourceState::DepthWrite) {
-					imgBar.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+					auto Image = _ImageDataManager.GetImage(_ImageDataManager.GetTexture(bar.ImageBarrier.ImageHandle)->GetImageHandle());
+					imgBar.subresourceRange.aspectMask = FormatToVkAspectMask(Image->GetSpec().Format, Image->GetSpec().Usage);
 				}
 				else {
 					imgBar.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -783,34 +906,36 @@ namespace Chilli
 
 				imageBarriers.push_back(imgBar);
 			}
-
-			// --- 4. Handle Buffer Barriers ---
-			// Only process buffer if image logic above did not run (or implicit precedence based on your struct design)
+			// 4. Handle Buffer Barriers
 			else if (bar.BufferBarrier.Handle != UINT32_MAX) {
-				VkBufferMemoryBarrier bufBar = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
-				bufBar.srcAccessMask = srcAccess;
-				bufBar.dstAccessMask = dstAccess;
+				VkBufferMemoryBarrier2 bufBar = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2 };
+				bufBar.srcStageMask = stageSrc;
+				bufBar.srcAccessMask = (VkAccessFlags2)srcAccess;
+				bufBar.dstStageMask = stageDst;
+				bufBar.dstAccessMask = (VkAccessFlags2)dstAccess;
 				bufBar.srcQueueFamilyIndex = srcQueueFamily;
 				bufBar.dstQueueFamilyIndex = dstQueueFamily;
 				bufBar.buffer = _BufferManager.Get(bar.BufferBarrier.Handle)->Buffer;
 				bufBar.offset = bar.BufferBarrier.Offset;
-				bufBar.size = bar.BufferBarrier.Size;
+
+				if (bar.BufferBarrier.Size == CH_BUFFER_WHOLE_SIZE)
+					bufBar.size = VK_WHOLE_SIZE;
+				else
+					bufBar.size = bar.BufferBarrier.Size;
 
 				bufferBarriers.push_back(bufBar);
 			}
 		}
 
-		// --- 5. Submit to Command Buffer ---
+		// 5. Submit using Dependency Info
 		if (!imageBarriers.empty() || !bufferBarriers.empty()) {
-			vkCmdPipelineBarrier(
-				cmdBuffer,
-				srcStageMask,
-				dstStageMask,
-				0,
-				0, nullptr, // Memory Barriers
-				static_cast<uint32_t>(bufferBarriers.size()), bufferBarriers.data(),
-				static_cast<uint32_t>(imageBarriers.size()), imageBarriers.data()
-			);
+			VkDependencyInfo depInfo = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+			depInfo.imageMemoryBarrierCount = static_cast<uint32_t>(imageBarriers.size());
+			depInfo.pImageMemoryBarriers = imageBarriers.data();
+			depInfo.bufferMemoryBarrierCount = static_cast<uint32_t>(bufferBarriers.size());
+			depInfo.pBufferMemoryBarriers = bufferBarriers.data();
+
+			vkCmdPipelineBarrier2(cmdBuffer, &depInfo);
 		}
 	}
 
@@ -823,9 +948,13 @@ namespace Chilli
 	{
 		// Reserve to prevent pointer invalidation during push_back
 		const uint32_t size = _FrameResource.MaterailWritingDatas.size();
-		_FrameResource.WritingBufferInfos.reserve(size * _Spec.MaxFrameInFlight);
-		_FrameResource.WritingImageInfos.reserve(size * _Spec.MaxFrameInFlight);
-		_FrameResource.WritingSets.reserve(size * _Spec.MaxFrameInFlight);
+		_FrameResource.WritingBufferInfos.resize(size * _Spec.MaxFrameInFlight);
+		_FrameResource.WritingImageInfos.resize(size * _Spec.MaxFrameInFlight);
+		_FrameResource.WritingSets.resize(size * _Spec.MaxFrameInFlight);
+
+		_FrameResource.WritingBufferInfos.clear();
+		_FrameResource.WritingImageInfos.clear();
+		_FrameResource.WritingSets.clear();
 
 		for (const auto& UpdateInfo : _FrameResource.MaterailWritingDatas) {
 			// 2. Fetch Material & Shader Metadata
@@ -906,7 +1035,7 @@ namespace Chilli
 
 			if (Skip)
 				continue;
-			
+
 			// 7. Handle Buffer Types (Uniform / Storage)
 			if (BindingLocation.BindingInfo.Type == ShaderUniformTypes::UNIFORM_BUFFER ||
 				BindingLocation.BindingInfo.Type == ShaderUniformTypes::STORAGE_BUFFER)
@@ -1640,6 +1769,84 @@ namespace Chilli
 		VULKAN_PRINTLN("Surface KHR ShutDown!");
 	}
 
+	void PopulateDeviceInfo(const VulkanPhysiscalDeviceInfo& vkInfo, RenderDeviceInfo& outInfo)
+	{
+		// Copy Name safely
+		strncpy_s(outInfo.DeviceName, vkInfo.properties.deviceName, 256);
+
+		outInfo.VendorID = vkInfo.properties.vendorID;
+		outInfo.DeviceID = vkInfo.properties.deviceID;
+
+		// Map Type
+		switch (vkInfo.properties.deviceType) {
+		case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:   outInfo.Type = RenderDeviceInfo::DeviceType::Discrete; break;
+		case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: outInfo.Type = RenderDeviceInfo::DeviceType::Integrated; break;
+		case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:    outInfo.Type = RenderDeviceInfo::DeviceType::Virtual; break;
+		case VK_PHYSICAL_DEVICE_TYPE_CPU:            outInfo.Type = RenderDeviceInfo::DeviceType::CPU; break;
+		default:                                     outInfo.Type = RenderDeviceInfo::DeviceType::Unknown; break;
+		}
+
+		// Extract Version
+		outInfo.APIVersionMajor = VK_API_VERSION_MAJOR(vkInfo.properties.apiVersion);
+		outInfo.APIVersionMinor = VK_API_VERSION_MINOR(vkInfo.properties.apiVersion);
+	}
+
+	void PopulateDeviceLimits(const VulkanPhysiscalDeviceInfo& vkInfo, RenderDeviceLimits& outLimits)
+	{
+		const auto& props = vkInfo.properties;
+		const auto& memProps = vkInfo.memoryProperties;
+
+		// --- 1. Memory Calculation ---
+		outLimits.TotalVRAMBytes = 0;
+		outLimits.SharedMemoryBytes = 0;
+
+		for (uint32_t i = 0; i < memProps.memoryHeapCount; i++) {
+			if (memProps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
+				outLimits.TotalVRAMBytes += memProps.memoryHeaps[i].size;
+			}
+			else {
+				outLimits.SharedMemoryBytes += memProps.memoryHeaps[i].size;
+			}
+		}
+
+		// --- 2. MSAA Setup ---
+		// Combine Color and Depth support to find the common denominator
+		VkSampleCountFlags counts = props.limits.framebufferColorSampleCounts & props.limits.framebufferDepthSampleCounts;
+		outLimits.SupportedSampleCounts = static_cast<uint32_t>(counts);
+
+		// Helper to get max samples (finding highest bit set)
+		auto GetMaxFromBitmask = [](uint32_t bitmask) -> uint32_t {
+			if (bitmask & VK_SAMPLE_COUNT_64_BIT) return 64;
+			if (bitmask & VK_SAMPLE_COUNT_32_BIT) return 32;
+			if (bitmask & VK_SAMPLE_COUNT_16_BIT) return 16;
+			if (bitmask & VK_SAMPLE_COUNT_8_BIT)  return 8;
+			if (bitmask & VK_SAMPLE_COUNT_4_BIT)  return 4;
+			if (bitmask & VK_SAMPLE_COUNT_2_BIT)  return 2;
+			return 1;
+			};
+
+		outLimits.MaxColorSamples = GetMaxFromBitmask(props.limits.framebufferColorSampleCounts);
+		outLimits.MaxDepthSamples = GetMaxFromBitmask(props.limits.framebufferDepthSampleCounts);
+
+		// --- 3. Texture & Viewport ---
+		outLimits.MaxTextureDimension = props.limits.maxImageDimension2D;
+		outLimits.MaxImageArrayLayers = props.limits.maxImageArrayLayers;
+		outLimits.MaxViewports = props.limits.maxViewports;
+		outLimits.MaxAnisotropy = props.limits.maxSamplerAnisotropy;
+
+		// --- 4. Shaders & Compute ---
+		outLimits.MaxBoundDescriptorSets = props.limits.maxBoundDescriptorSets;
+		outLimits.MaxPushConstantsSize = props.limits.maxPushConstantsSize;
+		outLimits.MaxComputeWorkGroupInvocations = props.limits.maxComputeWorkGroupInvocations;
+		memcpy(outLimits.MaxComputeWorkGroupSize, props.limits.maxComputeWorkGroupSize, sizeof(uint32_t) * 3);
+
+		// --- 5. Features (Vulkan 1.2+ Features) ---
+		outLimits.bSupportsBindlessTextures = vkInfo.features12.descriptorIndexing;
+		outLimits.bSupportsRayTracing = false; // Requires checking specific RT extensions/features
+		outLimits.bSupportsMeshShaders = vkInfo.features13.dynamicRendering; // Just an example, check actual Mesh features
+		outLimits.bSupportsVariableRateShading = false; // Requires checking VK_KHR_fragment_shading_rate
+	}
+
 	void VulkanGraphicsBackend::_CreatePhysicalDevice(std::vector<const char*>& DeviceExtensions)
 	{
 		uint32_t PDeviceCount = 0;
@@ -1654,6 +1861,8 @@ namespace Chilli
 
 		VULKAN_PRINTLN("Vulkan Supported devices: " << PDevices.size())
 			_Data.PhysicalDevices.resize(PDevices.size());
+		_Data.PhysicalDeviceInfos.resize(PDevices.size());
+		_Data.PhysicalDeviceLimits.resize(PDevices.size());
 
 		for (int i = 0; i < PDevices.size(); i++)
 			_Data.PhysicalDevices[i].PhysicalDevice = PDevices[i];
@@ -1678,6 +1887,13 @@ namespace Chilli
 		{
 			if (CheckVulkanPhysicalDeviceExtensions(device, DeviceExtensions) == false)
 				device.Info.SupportsExtensions = false;
+		}
+
+		for (int i = 0; i < _Data.PhysicalDevices.size(); i++)
+		{
+			PopulateDeviceInfo(_Data.PhysicalDevices[i].Info, _Data.PhysicalDeviceInfos[i]);
+			PopulateDeviceLimits(_Data.PhysicalDevices[i].Info, _Data.PhysicalDeviceLimits[i]);
+			_Data.PhysicalDeviceInfos[i].RawDeviceHandle = i;
 		}
 
 		_FindSuitablePhysicalDevice();
@@ -1762,9 +1978,11 @@ namespace Chilli
 	void VulkanGraphicsBackend::_ReCreateSwapChainKHR()
 	{
 		if (_Spec.ViewPortResized)
-			_Data.SwapChainKHR.Recreate(_Data.Device, _Data.SurfaceKHR, _Spec.ViewPortSize.x, _Spec.ViewPortSize.y, _Spec.VSync);
-
-		_Spec.ViewPortResized = false;
+		{
+			vkDeviceWaitIdle(_Data.Device.GetHandle());
+			_DestroySwapChainKHR();
+			_CreateSwapChainKHR();
+		}
 	}
 
 	void VulkanGraphicsBackend::_DestroySwapChainKHR()
@@ -2527,6 +2745,149 @@ namespace Chilli
 		depInfo.pBufferMemoryBarriers = &barrier;
 
 		vkCmdPipelineBarrier2(cmd, &depInfo);
+	}
+
+	void VulkanDataUploader::GenerateMipmaps(VkImage image, VkFormat format, int32_t texWidth, int32_t texHeight, uint32_t mipLevels)
+	{
+		// Mip generation requires a queue that supports GRAPHICS
+		auto VkCmdHandle = _GraphicsCmdBuffer;
+
+		bool DoOneTimeBatching = (_BatchRecording == CH_NONE);
+		if (DoOneTimeBatching)
+			BeginBatching(CommandBufferPurpose::GRAPHICS);
+		else
+			VkCmdHandle = _ActiveCmdBuffer;
+
+		// --- 1. Transition Level 0 for Blitting ---
+		// If we just came from a Transfer queue, we need to ensure Level 0 
+		// is transitioned from TRANSFER_DST to TRANSFER_SRC.
+		VkImageMemoryBarrier2 initialBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+		initialBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+		initialBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+		initialBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+		initialBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+		initialBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		initialBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		initialBarrier.image = image;
+		initialBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+		initialBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		initialBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+		VkDependencyInfo depInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+		depInfo.imageMemoryBarrierCount = 1;
+		depInfo.pImageMemoryBarriers = &initialBarrier;
+		vkCmdPipelineBarrier2(VkCmdHandle, &depInfo);
+
+		// --- 2. Blit Loop ---
+		int32_t mipWidth = texWidth;
+		int32_t mipHeight = texHeight;
+
+		for (uint32_t i = 1; i < mipLevels; i++) {
+			VkImageMemoryBarrier2 prepareDst{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+			prepareDst.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+			prepareDst.srcAccessMask = 0;
+			prepareDst.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+			prepareDst.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+			prepareDst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			prepareDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			prepareDst.image = image;
+			prepareDst.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, i, 1, 0, 1 };
+
+			depInfo.pImageMemoryBarriers = &prepareDst;
+			vkCmdPipelineBarrier2(VkCmdHandle, &depInfo);
+			// Prepare current destination mip (i)
+
+			VkImageBlit2 blit{ VK_STRUCTURE_TYPE_IMAGE_BLIT_2 };
+			blit.srcOffsets[1] = { mipWidth, mipHeight, 1 };
+			blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, i - 1, 0, 1 };
+			blit.dstOffsets[1] = { mipWidth > 1 ? mipWidth / 2 : 1, mipHeight > 1 ? mipHeight / 2 : 1, 1 };
+			blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, i, 0, 1 };
+
+			VkBlitImageInfo2 blitInfo{ VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2 };
+			blitInfo.srcImage = image;
+			blitInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			blitInfo.dstImage = image;
+			blitInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			blitInfo.regionCount = 1;
+			blitInfo.pRegions = &blit;
+			blitInfo.filter = VK_FILTER_LINEAR;
+
+			vkCmdBlitImage2(VkCmdHandle, &blitInfo);
+
+			// Transition source mip (i-1) to final shader-read layout
+			VkImageMemoryBarrier2 toShader{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+			toShader.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+			toShader.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+			toShader.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+			toShader.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+			toShader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			toShader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			toShader.image = image;
+			toShader.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, i - 1, 1, 0, 1 };
+
+			depInfo.pImageMemoryBarriers = &toShader;
+			vkCmdPipelineBarrier2(VkCmdHandle, &depInfo);
+
+			// Prepare next mip as source
+			if (i < mipLevels - 1) {
+				VkImageMemoryBarrier2 nextSrc{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+				nextSrc.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				nextSrc.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				nextSrc.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				nextSrc.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+				nextSrc.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+				nextSrc.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+				nextSrc.image = image;
+				nextSrc.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, i, 1, 0, 1 };
+
+				depInfo.pImageMemoryBarriers = &nextSrc;
+				vkCmdPipelineBarrier2(VkCmdHandle, &depInfo);
+			}
+
+			if (mipWidth > 1) mipWidth /= 2;
+			if (mipHeight > 1) mipHeight /= 2;
+		}
+
+		// Transition last mip to shader-read
+		VkImageMemoryBarrier2 lastMip{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+		lastMip.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+		lastMip.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+		lastMip.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+		lastMip.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+		lastMip.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		lastMip.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		lastMip.image = image;
+		lastMip.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, mipLevels - 1, 1, 0, 1 };
+
+		depInfo.pImageMemoryBarriers = &lastMip;
+		vkCmdPipelineBarrier2(VkCmdHandle, &depInfo);
+
+		if (DoOneTimeBatching)
+			EndBatching();
+	}
+
+	void VulkanDataUploader::ResolveImage(VkImage srcImage, VkImage dstImage, VkExtent2D extent, VkImageAspectFlags aspect)
+	{
+		bool doOneTime = (_BatchRecording == CH_NONE);
+		if (doOneTime) BeginBatching(CommandBufferPurpose::GRAPHICS);
+
+		VkImageResolve2 region{ VK_STRUCTURE_TYPE_IMAGE_RESOLVE_2 };
+		region.srcSubresource = { aspect, 0, 0, 1 };
+		region.dstSubresource = { aspect, 0, 0, 1 };
+		region.extent = { extent.width, extent.height, 1 };
+
+		VkResolveImageInfo2 resolveInfo{ VK_STRUCTURE_TYPE_RESOLVE_IMAGE_INFO_2 };
+		resolveInfo.srcImage = srcImage;
+		resolveInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		resolveInfo.dstImage = dstImage;
+		resolveInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		resolveInfo.regionCount = 1;
+		resolveInfo.pRegions = &region;
+
+		vkCmdResolveImage2(_ActiveCmdBuffer, &resolveInfo);
+
+		if (doOneTime) EndBatching();
 	}
 }
 

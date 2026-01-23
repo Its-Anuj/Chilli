@@ -191,6 +191,12 @@ namespace Chilli
 
 		case ImageFormat::RGBA8:
 			return VK_FORMAT_R8G8B8A8_UNORM;
+		case ImageFormat::R8:
+			return VK_FORMAT_R8_UNORM;
+		case ImageFormat::RG8:
+			return VK_FORMAT_R8G8_UNORM;
+		case ImageFormat::RGB8:
+			return VK_FORMAT_R8G8B8_UNORM;
 
 		case ImageFormat::SRGBA8:
 			return VK_FORMAT_R8G8B8A8_SRGB;
@@ -422,6 +428,8 @@ namespace Chilli
 			Flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 		if (Type & IMAGE_USAGE_INPUT_ATTACHMENT)
 			Flags |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+		if (Type & IMAGE_USAGE_TRANSIENT_ATTACHMENT)
+			Flags |= VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
 
 		assert(Flags != 0 && "Unhandled ImageUsage value");
 		return Flags;
@@ -541,4 +549,129 @@ namespace Chilli
 					 VK_IMAGE_LAYOUT_UNDEFINED };
 		}
 	}
+
+	inline VkImageAspectFlags ImageAspectsToVk(uint32_t aspects)
+	{
+		VkImageAspectFlags vkAspects = 0;
+
+		if (aspects & IMAGE_ASPECT_COLOR)
+			vkAspects |= VK_IMAGE_ASPECT_COLOR_BIT;
+
+		if (aspects & IMAGE_ASPECT_DEPTH)
+			vkAspects |= VK_IMAGE_ASPECT_DEPTH_BIT;
+
+		if (aspects & IMAGE_ASPECT_STENCIL)
+			vkAspects |= VK_IMAGE_ASPECT_STENCIL_BIT;
+
+		return vkAspects;
+	}
+
+	inline uint32_t VkToImageAspects(VkImageAspectFlags vkAspects)
+	{
+		uint32_t aspects = 0;
+
+		if (vkAspects & VK_IMAGE_ASPECT_COLOR_BIT)
+			aspects |= IMAGE_ASPECT_COLOR;
+
+		if (vkAspects & VK_IMAGE_ASPECT_DEPTH_BIT)
+			aspects |= IMAGE_ASPECT_DEPTH;
+
+		if (vkAspects & VK_IMAGE_ASPECT_STENCIL_BIT)
+			aspects |= IMAGE_ASPECT_STENCIL;
+
+		return aspects;
+	}
+
+	inline VkComponentSwizzle SwizzleToVk(ComponentSwizzle swizzle) {
+		switch (swizzle) {
+		case ComponentSwizzle::R:        return VK_COMPONENT_SWIZZLE_R;
+		case ComponentSwizzle::G:        return VK_COMPONENT_SWIZZLE_G;
+		case ComponentSwizzle::B:        return VK_COMPONENT_SWIZZLE_B;
+		case ComponentSwizzle::A:        return VK_COMPONENT_SWIZZLE_A;
+		case ComponentSwizzle::ZERO:     return VK_COMPONENT_SWIZZLE_ZERO;
+		case ComponentSwizzle::ONE:      return VK_COMPONENT_SWIZZLE_ONE;
+		case ComponentSwizzle::IDENTITY:
+		default:                         return VK_COMPONENT_SWIZZLE_IDENTITY;
+		}
+	}
+
+	inline uint32_t GetImageFormatBytesPerPixel(ImageFormat format)
+	{
+		switch (format)
+		{
+		case ImageFormat::R8:       return 1;
+		case ImageFormat::RG8:      return 2;
+		case ImageFormat::RGB8:     return 3;
+
+		case ImageFormat::RGBA8:    return 4;
+		case ImageFormat::SRGBA8:   return 4;
+		case ImageFormat::BGRA8:    return 4;
+
+		case ImageFormat::R16F:     return 2;  // 16-bit float (2 bytes)
+		case ImageFormat::RG16F:    return 4;  // 2x 16-bit floats
+		case ImageFormat::RGBA16F:  return 8;  // 4x 16-bit floats
+
+		case ImageFormat::RGBA32F:  return 16; // 4x 32-bit floats
+
+		case ImageFormat::S8I:      return 1;  // Stencil only
+		case ImageFormat::D32F:     return 4;  // 32-bit depth float
+		case ImageFormat::D32F_S8I: return 5;  // 4 bytes depth + 1 byte stencil
+
+		case ImageFormat::NONE:
+		default:
+			return 0;
+		}
+	}
+
+	inline ImageFormat VkToFormat(VkFormat format)
+	{
+		switch (format)
+		{
+		case VK_FORMAT_UNDEFINED:
+			return ImageFormat::NONE;
+
+		case VK_FORMAT_R8G8B8A8_UNORM:
+			return ImageFormat::RGBA8;
+
+		case VK_FORMAT_R8_UNORM:
+			return ImageFormat::R8;
+
+		case VK_FORMAT_R8G8_UNORM:
+			return ImageFormat::RG8;
+
+		case VK_FORMAT_R8G8B8_UNORM:
+			return ImageFormat::RGB8;
+
+		case VK_FORMAT_R8G8B8A8_SRGB:
+			return ImageFormat::SRGBA8;
+
+		case VK_FORMAT_R16_SFLOAT:
+			return ImageFormat::R16F;
+
+		case VK_FORMAT_R16G16_SFLOAT:
+			return ImageFormat::RG16F;
+
+		case VK_FORMAT_R16G16B16A16_SFLOAT:
+			return ImageFormat::RGBA16F;
+
+		case VK_FORMAT_R32G32B32A32_SFLOAT:
+			return ImageFormat::RGBA32F;
+
+		case VK_FORMAT_B8G8R8A8_SRGB:
+			return ImageFormat::BGRA8;
+
+		case VK_FORMAT_S8_UINT:
+			return ImageFormat::S8I;
+
+		case VK_FORMAT_D32_SFLOAT:
+			return ImageFormat::D32F;
+
+		case VK_FORMAT_D32_SFLOAT_S8_UINT:
+			return ImageFormat::D32F_S8I;
+		}
+
+		// Unknown / unsupported VkFormat
+		return ImageFormat::NONE;
+	}
+
 }

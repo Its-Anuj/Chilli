@@ -101,6 +101,10 @@ namespace Chilli
 		ImageFormat Format = ImageFormat::NONE;
 		std::string FileName;
 		std::string FilePath;
+
+		~ImageData() {
+
+		}
 	};
 
 	// 1. The Interface (The Contract)
@@ -109,24 +113,33 @@ namespace Chilli
 		virtual ~IAssetLoader() = default;
 
 		// Every loader must implement these
-		virtual BackBone::AssetHandle<ImageData> Load(BackBone::SystemContext& Ctxt, const std::string& Path) = 0;
 		virtual void Unload(BackBone::SystemContext& Ctxt, const std::string& Path) = 0;
-		virtual void Unload(BackBone::SystemContext& Ctxt, const BackBone::AssetHandle<ImageData>& Data) = 0;
+
 		virtual std::vector<std::string> GetExtensions() = 0;
 		virtual bool DoesExist(const std::string& Path) const = 0;
 		virtual int __FindIndex(const std::string& Path) const = 0;
+	};
+	
+	template<typename T>
+	class BaseLoader : public IAssetLoader {
+	public:
+		// This is the specific Load for this type
+		virtual BackBone::AssetHandle<T> LoadTyped(BackBone::SystemContext& Ctxt, const std::string& Path) = 0;
+
+		// We can provide a common Unload for the handle
+		virtual void Unload(BackBone::SystemContext& Ctxt, const BackBone::AssetHandle<T>& Handle) = 0;
 	};
 
 	template<typename T>
 	concept DerivedFromIAssetLoader = std::is_base_of_v<IAssetLoader, T>;
 
-	class ImageLoader : public IAssetLoader
+	class ImageLoader : public BaseLoader<ImageData>
 	{
 	public:
 		ImageLoader() {}
 		~ImageLoader();
 		
-		virtual BackBone::AssetHandle<ImageData> Load(BackBone::SystemContext& Ctxt, const std::string& Path) override;
+		virtual BackBone::AssetHandle<ImageData> LoadTyped(BackBone::SystemContext& Ctxt, const std::string& Path) override;
 		virtual void Unload(BackBone::SystemContext& Ctxt, const std::string& Path) override;
 		virtual void Unload(BackBone::SystemContext& Ctxt, const BackBone::AssetHandle<ImageData>& Data) override;
 
@@ -218,10 +231,14 @@ namespace Chilli
 			auto it = _ExtensionMap.find(Extension);
 			if (it != _ExtensionMap.end())
 			{
+				// 1. Get the generic loader
 				IAssetLoader* loader = _AssetLoaders[it->second];
-				// We must cast the loader's output to the requested AssetHandle type
-				// This assumes the loader associated with that extension returns the correct type
-				return loader->Load(_Ctxt, Path);
+
+				// 2. Cast it to the typed version of itself
+				// We assume the user called Load<ImageData> for a .png
+				auto typedLoader = static_cast<BaseLoader<_AssetType>*>(loader);
+
+				return typedLoader->LoadTyped(_Ctxt, Path);
 			}
 
 			// Return an empty/null handle if no loader found

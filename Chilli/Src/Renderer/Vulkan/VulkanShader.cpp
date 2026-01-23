@@ -679,6 +679,7 @@ namespace Chilli
 	{
 		// Global Buffers
 		size_t alignment = Info.Device->GetPhysicalDevice()->Info.properties.limits.minUniformBufferOffsetAlignment;
+		_MinUBOAlignment = alignment;
 		{
 			size_t rawSize = sizeof(GlobalShaderData);
 			_GlobalBufferAlignedSize = (rawSize + alignment - 1) & ~(alignment - 1);
@@ -884,14 +885,18 @@ namespace Chilli
 		}
 	}
 
-	void VulkanBindlessRenderingManager::UpdateSceneShaderData(const SceneShaderData& Data)
+	void VulkanBindlessRenderingManager::UpdateSceneShaderData(uint32_t Index, const SceneData& Data)
 	{
+		int _SceneElementAlignedSize = (sizeof(SceneData) + _MinUBOAlignment - 1) & ~(_MinUBOAlignment - 1);
+
 		for (int i = 0; i < _CreateInfo.MaxFrameInFlight; i++)
 		{
+			size_t offset = i * (_SceneBufferAlignedSize)+Index * _SceneElementAlignedSize;
+
 			_CreateInfo.MapBufferData(_SetBuffers[int(BindlessSetTypes::SCENE_BUFFER_USAGE)],
 				(void*)&Data,
-				sizeof(SceneShaderData),
-				i * _SceneBufferAlignedSize);
+				sizeof(SceneData),
+				offset);
 		}
 	}
 
@@ -998,10 +1003,37 @@ namespace Chilli
 			_ActiveMaterialCounter++;
 	}
 
-	// USe Entity Handle for Objects
-	void VulkanBindlessRenderingManager::UpdateObjectShaderData(const ObjectShaderData& Data)
+	// Use Entity Handle for Objects
+	void VulkanBindlessRenderingManager::UpdateObjectShaderData(
+		BackBone::Entity Entity,
+		const ObjectShaderData& Data
+	)
 	{
-		const uint32_t ObjectOffset = _ActiveObjectCounter * sizeof(ObjectShaderData);
+		uint32_t ObjectOffset = _ActiveObjectCounter;
+		auto MetaData = _ObjectsMap.Get(Entity);
+
+		if (!MetaData)
+		{
+			BindlessObjectMetaData MData;
+			MData.ShaderIndex = UINT32_MAX;
+			_ObjectsMap.Insert(Entity, MData);
+			MetaData = _ObjectsMap.Get(Entity);
+		}
+
+		bool Increment = false;
+		if (MetaData)
+		{
+			if (MetaData->ShaderIndex == UINT32_MAX)
+			{
+				MetaData->ShaderIndex = ObjectOffset;
+				Increment = true;
+			}
+			else
+			{
+				ObjectOffset = MetaData->ShaderIndex;
+			}
+		}
+
 		for (uint32_t i = 0; i < _CreateInfo.MaxFrameInFlight; i++)
 		{
 			const uint32_t frameOffset =
@@ -1011,11 +1043,14 @@ namespace Chilli
 				_SetBuffers[int(BindlessSetTypes::PER_OBJECT)],
 				(void*)&Data,
 				sizeof(ObjectShaderData),
-				frameOffset + ObjectOffset
+				frameOffset + (ObjectOffset * sizeof(ObjectShaderData))
 			);
 		}
-		_ActiveObjectCounter++;
+
+		if (Increment)
+			_ActiveObjectCounter++;
 	}
+
 #pragma endregion 
 
 }

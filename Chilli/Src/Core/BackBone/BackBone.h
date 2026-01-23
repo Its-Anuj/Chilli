@@ -37,6 +37,11 @@ namespace Chilli
 			bool operator==(const IHandle& other) const noexcept {
 				return Handle == other.Handle;
 			}
+
+			bool IsValid() const
+			{
+				return Handle != npos;
+			}
 		};
 
 		template<typename T>

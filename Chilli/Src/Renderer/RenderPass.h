@@ -39,18 +39,35 @@ namespace Chilli
 		uint32_t BarriersCount = 0;
 	};
 
+	enum class ResolveMode {
+		NONE = 0,
+		AVERAGE = 1 << 0, // Standard for Color (averages samples)
+		MIN = 1 << 1,     // Keeps the smallest value
+		MAX = 1 << 2,     // Keeps the largest value
+	};
+
 	struct ColorAttachment {
 		uint32_t ColorTexture = UINT32_MAX;
+		uint32_t ResolveTexture = UINT32_MAX;  // This is Image B (Sampled/Texture)
+
 		bool UseSwapChainImage = false;
+
 		Vec4 ClearColor = { 0, 0, 0, 1 };
 		AttachmentLoadOp LoadOp = AttachmentLoadOp::CLEAR;
 		AttachmentStoreOp StoreOp = AttachmentStoreOp::STORE;
+
+		ResolveMode ResolveOp = ResolveMode::AVERAGE;
 	};
 
 	struct DepthAttachment {
 		uint32_t DepthTexture = UINT32_MAX;
 		AttachmentLoadOp LoadOp = AttachmentLoadOp::CLEAR;
 		AttachmentStoreOp StoreOp = AttachmentStoreOp::STORE;
+		AttachmentLoadOp StencilLoadOp = AttachmentLoadOp::CLEAR;
+		AttachmentStoreOp StencilStoreOp = AttachmentStoreOp::STORE;
+
+		float Depth = 1.0f;
+		float Stencil = 0.0f;
 	};
 
 	struct RenderPassInfo {
@@ -76,10 +93,10 @@ namespace Chilli
 
 		RenderPassBuilder& SetArea(int w, int h) { _info.RenderArea = { w, h }; return *this; }
 
-		RenderPassBuilder& AddColor(ColorAttachment col) { 
+		RenderPassBuilder& AddColor(ColorAttachment col) {
 			_info.ColorAttachments[_info.ColorAttachmentCount] = col;
 			_info.ColorAttachmentCount++;
-			return *this; 
+			return *this;
 		}
 
 		RenderPassBuilder& AddSwapChain(Vec4 clear = { 0,0,0,1 }) {
@@ -94,6 +111,11 @@ namespace Chilli
 			_info.DepthAttachment.DepthTexture = texHandle;
 			_info.DepthAttachment.LoadOp = load;
 			_info.DepthAttachment.StoreOp = store;
+			return *this;
+		}
+
+		RenderPassBuilder& SetDepth(const DepthAttachment& Depth) {
+			_info.DepthAttachment = Depth;
 			return *this;
 		}
 
@@ -113,7 +135,7 @@ namespace Chilli
 		// Custom Buffer Barrier
 		RenderPassBuilder& AddBufferBarrier(bool prePass, uint32_t handle, ResourceState oldState, ResourceState newState, uint64_t offset = 0, uint64_t size = (size_t)CH_BUFFER_WHOLE_SIZE) {
 			PipelineBarrier b{};
-			b.BufferBarrier.Handle = handle; 
+			b.BufferBarrier.Handle = handle;
 			b.BufferBarrier.Offset = offset;
 			b.BufferBarrier.Size = size;
 			b.OldState = oldState;
@@ -130,12 +152,24 @@ namespace Chilli
 			return AddImageBarrier(true, handle, src, dst, isSwapChainImage);
 		}
 
+		// Sugar for the specific methods you asked for
+		RenderPassBuilder& AddPrePipelineBarrier(const PipelineBarrier& Barrier) {
+			_PrePipelineBarriers.push_back(Barrier);
+			return *this;
+		}
+
+		// Sugar for the specific methods you asked for
+		RenderPassBuilder& AddPostPipelineBarrier(const PipelineBarrier& Barrier) {
+			_PrePipelineBarriers.push_back(Barrier);
+			return *this;
+		}
+
 		RenderPassBuilder& AddPostPipelineBarrier(uint32_t handle, ResourceState src, ResourceState dst, bool isBuffer = true, bool isSwapChainImage = false) {
 			if (isBuffer) return AddBufferBarrier(false, handle, src, dst
 			);
 			return AddImageBarrier(false, handle, src, dst, isSwapChainImage);
 		}
-		
+
 		CompiledPass Build() {
 			return { _info, _PrePipelineBarriers, _PostPipelineBarriers };
 		}
@@ -149,7 +183,7 @@ namespace Chilli
 	// --- 5. The Compiler (Automation Logic) ---
 	class RenderPassCompiler {
 	private:
-		
+
 	public:
 		int PushPass(const CompiledPass& pass) { _queue.push_back(pass); return _queue.size() - 1; }
 

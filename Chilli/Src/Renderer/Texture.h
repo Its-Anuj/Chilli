@@ -23,6 +23,7 @@ namespace Chilli
         std::string FilePath;
 
         ImageFormat Format = ImageFormat::NONE;
+        uint8_t Aspect = ImageAspect::IMAGE_ASPECT_ASSUME_FROM_USAGE;
 
         // --- NEW VIEW CRITERIA ---
         ComponentMapping Swizzle;

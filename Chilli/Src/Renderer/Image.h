@@ -15,6 +15,10 @@ namespace Chilli
 	{
 		NONE,
 
+		R8,
+		RG8,
+		RGB8,
+
 		RGBA8,
 		SRGBA8,
 		R16F,
@@ -29,6 +33,15 @@ namespace Chilli
 		D32F_S8I
 	};
 
+    // The ASpect of the image the texture allows to be viewed
+    enum ImageAspect : uint8_t
+    {
+        IMAGE_ASPECT_COLOR = (1 << 0),
+        IMAGE_ASPECT_DEPTH = (1 << 1),
+        IMAGE_ASPECT_STENCIL = (1 << 2),
+        IMAGE_ASPECT_ASSUME_FROM_USAGE = (1 << 3)
+    };
+
 	enum ImageUsage : uint32_t {
 		IMAGE_USAGE_NONE = 0,
 		IMAGE_USAGE_SAMPLED_IMAGE = 1 << 0,
@@ -38,7 +51,18 @@ namespace Chilli
 		IMAGE_USAGE_TRANSFER_SRC = 1 << 4,
 		IMAGE_USAGE_TRANSFER_DST = 1 << 5,
 		IMAGE_USAGE_INPUT_ATTACHMENT = 1 << 6,
-		IMAGE_USAGE_PRESENT_IMAGE = 1 << 7
+		IMAGE_USAGE_PRESENT_IMAGE = 1 << 7,
+		IMAGE_USAGE_TRANSIENT_ATTACHMENT = 1 << 8 // <--- Add this
+	};
+
+	enum SampleCount {
+		IMAGE_SAMPLE_COUNT_1_BIT = (1 << 0),
+		IMAGE_SAMPLE_COUNT_2_BIT = (1 << 1),
+		IMAGE_SAMPLE_COUNT_4_BIT = (1 << 2),
+		IMAGE_SAMPLE_COUNT_8_BIT = (1 << 3),
+		IMAGE_SAMPLE_COUNT_16_BIT = (1 << 4),
+		IMAGE_SAMPLE_COUNT_32_BIT = (1 << 5),
+		IMAGE_SAMPLE_COUNT_64_BIT = (1 << 6),
 	};
 
 	struct ImageSpec
@@ -53,6 +77,7 @@ namespace Chilli
 		uint32_t Usage = ImageUsage::IMAGE_USAGE_SAMPLED_IMAGE;
 		uint32_t MipLevel = 1;
 		ResourceState State = ResourceState::Undefined;
+		SampleCount Sample = IMAGE_SAMPLE_COUNT_1_BIT;
 	};
 
 	struct Image

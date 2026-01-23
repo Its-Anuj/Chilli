@@ -425,6 +425,25 @@ namespace Chilli
 				.ColorWriteMask = 0xF // R|G|B|A
 			};
 		}
+		
+		inline static ColorBlendAttachmentState AlphaBlend()
+		{
+			return ColorBlendAttachmentState{
+				.BlendEnable = CH_TRUE,
+
+				// Color = (SrcColor * SrcAlpha) + (DstColor * (1 - SrcAlpha))
+				.SrcColorFactor = BlendFactor::SRC_ALPHA,
+				.DstColorFactor = BlendFactor::ONE_MINUS_SRC_ALPHA,
+				.ColorBlendOp = BlendOp::ADD,
+
+				// Alpha = (SrcAlpha * 1) + (DstAlpha * 0) -> usually we just want the text's alpha
+				.SrcAlphaFactor = BlendFactor::ONE,
+				.DstAlphaFactor = BlendFactor::ZERO,
+				.AlphaBlendOp = BlendOp::ADD,
+
+				.ColorWriteMask = 0xF // RGBA
+			};
+		}
 	};
 
 	struct VertexInputShaderAttribute
@@ -445,6 +464,7 @@ namespace Chilli
 		std::vector<VertexInputShaderAttribute> Attribs;
 		uint32_t Stride = 0;
 		uint32_t BindingIndex = 0; // Which slot (0, 1, etc.) this buffer binds to
+		bool IsInstanced = false;
 	};
 
 	struct VertexInputShaderLayout
@@ -452,10 +472,11 @@ namespace Chilli
 		std::vector<VertexInputShaderBinding> Bindings;
 
 		// Helper to start a new buffer binding
-		void BeginBinding(uint32_t bindingIndex)
+		void BeginBinding(uint32_t bindingIndex, bool isInstanced = false)
 		{
 			VertexInputShaderBinding newBinding;
 			newBinding.BindingIndex = bindingIndex;
+			newBinding.IsInstanced = isInstanced;
 			Bindings.push_back(newBinding);
 		}
 
@@ -574,7 +595,7 @@ namespace Chilli
 			builder._state.StencilBack = StencilOpState{};           // Default initialized to keep/always
 
 			// === Multisampling (MSAA) State ===
-			builder._state.SampleCount = 1;                          // No MSAA
+			builder._state.SampleCount = IMAGE_SAMPLE_COUNT_1_BIT;                          // No MSAA
 			builder._state.SampleMask = 0xFFFFFFFF;
 			builder._state.AlphaToCoverageEnable = false;
 

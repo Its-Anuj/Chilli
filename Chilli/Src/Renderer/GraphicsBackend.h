@@ -106,7 +106,7 @@ namespace Chilli
 	{
 		GraphicsCommandBuffer Graphics_Stream;
 		RenderCommandBuffer Compute_Stream;
-		RenderCommandBuffer Transfer_Stream;	
+		RenderCommandBuffer Transfer_Stream;
 	};
 
 	struct RenderCommandInfoInlineUniformData
@@ -120,6 +120,77 @@ namespace Chilli
 	struct RenderFrameData
 	{
 		uint32_t CurrentFrameIndex = 0;
+	};
+
+	struct RenderDeviceInfo
+	{
+		char DeviceName[256];
+		uint32_t VendorID;     // PCI ID (0x10DE for NVIDIA, 0x1002 for AMD, etc.)
+		uint32_t DeviceID;
+
+		enum class DeviceType {
+			Integrated,
+			Discrete,
+			Virtual,
+			CPU,
+			Unknown
+		} Type;
+
+		// API specific versioning (e.g., Vulkan 1.3, DX 12.2)
+		uint32_t APIVersionMajor;
+		uint32_t APIVersionMinor;
+
+		uint32_t RawDeviceHandle = UINT32_MAX;
+	};
+
+	struct RenderDeviceLimits
+	{
+		// --- Memory Management ---
+		uint64_t TotalVRAMBytes;        // Total Dedicated Video Memory
+		uint64_t SharedMemoryBytes;     // System RAM accessible to GPU (Integrated)
+
+		// --- Multisampled Anti-Aliasing (MSAA) ---
+		// A bitmask representing supported counts: 1, 2, 4, 8, 16, 32, 64
+		uint32_t SupportedSampleCounts;
+		uint32_t MaxColorSamples;       // Usually 8 or 16
+		uint32_t MaxDepthSamples;       // Often matches Color, but sometimes lower
+
+		// --- Texture & Buffer Constraints ---
+		uint32_t MaxTextureDimension;   // Usually 8192 or 16384
+		uint32_t MaxImageArrayLayers;   // Usually 2048 (Important for 2D Array Textures)
+		uint32_t MaxViewports;          // For multi-monitor or VR (Usually 16)
+		float    MaxAnisotropy;         // Usually 16.0f
+
+		// --- Shader Constraints ---
+		uint32_t MaxBoundDescriptorSets;// Vulkan specific (usually 4-32)
+		uint32_t MaxPushConstantsSize;  // Vulkan (minimum guaranteed is 128 bytes)
+		uint32_t MaxComputeWorkGroupSize[3]; // [X, Y, Z] for Compute Shaders
+		uint32_t MaxComputeWorkGroupInvocations;
+
+		// --- Features (Booleans for API capabilities) ---
+		bool bSupportsRayTracing;
+		bool bSupportsMeshShaders;
+		bool bSupportsBindlessTextures; // Resource Heap in DX12 / Descriptor Indexing in VK
+		bool bSupportsVariableRateShading;
+	};
+
+	struct RenderDeviceStats
+	{
+		// --- Resource Counts ---
+		uint32_t TotalImagesAllocated = 0;   // Current count of VkImage handles
+		uint32_t TotalTexturesCreated = 0;  // Current count of VkImageView handles
+		uint32_t TotalBuffersCreated = 0;   // Count of vertex/index/uniform buffers
+		uint32_t ActivePipelines = 0;       // Number of unique shader/pso combinations
+
+		// --- Memory Tracking (Bytes) ---
+		uint64_t AllocatedVRAM = 0;         // Total memory requested from the GPU
+		uint64_t UsedVRAM = 0;              // Actual memory in use (sub-allocated)
+		uint64_t StagingBufferMemory = 0;   // Memory held in upload/staging buffers
+
+		// --- Frame Performance (Updated per frame) ---
+		uint32_t DrawCallsPerFrame = 0;
+		uint32_t TrianglesPerFrame = 0;
+		uint32_t DescriptorSetBinds = 0;
 	};
 
 	class GraphicsBackendApi
@@ -156,7 +227,7 @@ namespace Chilli
 		virtual void LinkShaderProgram(uint32_t ProgramHandle) = 0;
 
 		virtual void UpdateGlobalShaderData(const GlobalShaderData& Data) = 0;
-		virtual void UpdateSceneShaderData(const SceneShaderData& Data) = 0;
+		virtual void UpdateSceneShaderData(uint32_t Index, const SceneData& Data) = 0;
 
 		virtual uint32_t PrepareMaterialData(uint32_t ShaderProgramHandle) = 0;
 		virtual void ClearMaterialData(uint32_t RawMaterialHandle) = 0;
@@ -164,11 +235,11 @@ namespace Chilli
 		virtual const GraphcisBackendCreateSpec& GetSpec() const = 0;
 		virtual uint32_t GetCurrentFrameIndex() = 0;
 
-		virtual uint32_t AllocateImage(const ImageSpec& Spec) = 0;
+		virtual uint32_t AllocateImage(ImageSpec& Spec) = 0;
 		virtual void DestroyImage(uint32_t ImageHandle) = 0;
 		virtual void MapImageData(uint32_t ImageHandle, void* Data, int Width, int Height) = 0;
 
-		virtual uint32_t CreateTexture(uint32_t ImageHandle, const TextureSpec& Spec) = 0;
+		virtual uint32_t CreateTexture(uint32_t ImageHandle, TextureSpec& Spec) = 0;
 		virtual void DestroyTexture(uint32_t TextureHandle) = 0;
 
 		virtual uint32_t CreateSampler(const SamplerSpec& Spec) = 0;
@@ -177,9 +248,16 @@ namespace Chilli
 		virtual uint32_t GetTextureShaderIndex(uint32_t RawTextureHandle) = 0;
 		virtual uint32_t GetSamplerShaderIndex(uint32_t RawSamplerHandle) = 0;
 		virtual uint32_t GetMaterialShaderIndex(uint32_t RawMaterialHandle) = 0;
+		virtual uint32_t GetObjectShaderIndex(uint32_t Entity) = 0;
 
 		virtual void UpdateMaterialShaderData(uint32_t MaterialHandle, const MaterialShaderData& Data) = 0;
-		virtual void UpdateObjectShaderData(const ObjectShaderData& Data) = 0;
+		virtual void UpdateObjectShaderData(BackBone::Entity Entity, const ObjectShaderData& Data) = 0;
+
+		virtual const std::vector<RenderDeviceInfo>& GetRenderDevices() = 0;
+		// Takes in the raw render device handle that is inside the info
+		virtual const RenderDeviceLimits& GetRenderDeviceLimit(uint32_t Handle) = 0;
+		virtual const RenderDeviceLimits& GetActiveRenderDeviceLimit() = 0;
+		virtual const RenderDeviceStats& GetRenderDeviceStats() = 0;
 	private:
 	};
 }

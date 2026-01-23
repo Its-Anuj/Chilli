@@ -96,12 +96,15 @@ namespace Chilli
 				_MouseButtonStates[ButtonCode] = InputResult::INPUT_RELEASE;
 			}
 		}
-		
+	
+		_OldCursorPos = _CursorPos;
 		// Cursor Pos
 		auto CursorPosRead = EventManager->GetEventStorage<CursorPosEvent>();
 		if (CursorPosRead->GetActiveSize()> 0)
 			for (auto CursorEvent : *CursorPosRead)
 				_CursorPos = {(int) CursorEvent.GetX(),(int)CursorEvent.GetY() };
+		_CursorDelta.x = _CursorPos.x - _OldCursorPos.x;
+		_CursorDelta.y = _CursorPos.y - _OldCursorPos.y;
 	}
 
 	InputResult Input::GetKeyState(Input_key KeyCode)

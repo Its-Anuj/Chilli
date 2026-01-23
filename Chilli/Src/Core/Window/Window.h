@@ -35,6 +35,8 @@ namespace Chilli
 		Window() {}
 		~Window() {}
 
+		static void Setup();
+
 		void Init(const WindowSpec& Spec);
 		void Terminate();
 
@@ -55,6 +57,13 @@ namespace Chilli
 
 		bool IsClose() const { return _Data.Close; }
 		bool IsActive() const { return _Data.IsActive; }
+
+		void SetActiveCursor(void* Handle);
+		void SetActiveCursor(DeafultCursorTypes Type);
+
+		static void* CreateCursor(Cursor* Data);
+		static void* CreateCursor(DeafultCursorTypes Type);
+		static void DestroyCursor(void* RawHandle);
 	private:
 		GLFWwindow* _Window;
 		WindowSpec _Spec;

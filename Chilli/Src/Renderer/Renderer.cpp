@@ -71,4 +71,104 @@ namespace Chilli
 		HashCombine(hash, Flag.StageFlags);
 		return hash;
 	}
+
+	BackBone::AssetHandle<Material> MaterialSystem::CreateMaterial(BackBone::AssetHandle<ShaderProgram> Program)
+	{
+		auto Command = Chilli::Command(_Ctxt);
+		auto RenderCommandService = Command.GetService<RenderCommand>();
+
+		auto MaterialStore = Command.GetStore<Chilli::Material>();
+
+		Material Mat;
+		auto ReturnHandle = MaterialStore->Add(Mat);
+		ReturnHandle.ValPtr->ShaderProgramId = Program;
+		ReturnHandle.ValPtr->RawMaterialHandle = RenderCommandService->PrepareMaterialData(Program.ValPtr->RawProgramHandle);
+
+		return ReturnHandle;
+	}
+
+	Material* MaterialSystem::GetMaterial(BackBone::AssetHandle<Material> Handle)
+	{
+		auto Command = Chilli::Command(_Ctxt);
+		auto RenderCommandService = Command.GetService<RenderCommand>();
+
+		auto MaterialStore = Command.GetStore<Chilli::Material>();
+
+		auto Mat = MaterialStore->Get(Handle);
+		return Mat;
+	}
+
+	const MaterialShaderData& MaterialSystem::GetMaterialShaderData(BackBone::AssetHandle<Material> Handle)
+	{
+		auto Command = Chilli::Command(_Ctxt);
+		auto RenderService = Command.GetService<Renderer>();
+
+		auto Mat = GetMaterial(Handle);
+		Mat->LastUploadedVersion = Mat->Version;
+
+		MaterialShaderData Data;
+		Data.AlbedoColor = Mat->AlbedoColor;
+		Data.AlbedoTextureIndex = RenderService->GetTextureShaderIndex(Mat->AlbedoTextureHandle.ValPtr->RawTextureHandle);
+		Data.AlbedoSamplerIndex = RenderService->GetSamplerShaderIndex(Mat->AlbedoSamplerHandle.ValPtr->SamplerHandle);
+
+		return Data;
+	}
+
+	void MaterialSystem::ClearMaterialData(BackBone::AssetHandle<Material> Mat)
+	{
+		auto Command = Chilli::Command(_Ctxt);
+
+		auto MaterialStore = Command.GetStore<Chilli::Material>();
+		auto RenderCommandService = Command.GetService<RenderCommand>();
+
+		RenderCommandService->ClearMaterialData(Mat.ValPtr->RawMaterialHandle);
+		Mat.ValPtr->RawMaterialHandle = UINT32_MAX;
+	}
+
+	bool MaterialSystem::ShouldMaterialShaderDataUpdate(BackBone::AssetHandle<Material> Handle)
+	{
+		auto Mat = GetMaterial(Handle);
+		return Mat->Version != Mat->LastUploadedVersion;
+	}
+
+	void MaterialSystem::DestroyMaterial(BackBone::AssetHandle<Material> Mat)
+	{
+		auto Command = Chilli::Command(_Ctxt);
+
+		auto MaterialStore = Command.GetStore<Chilli::Material>();
+		auto RenderCommandService = Command.GetService<RenderCommand>();
+
+		RenderCommandService->ClearMaterialData(Mat.ValPtr->RawMaterialHandle);
+		Mat.ValPtr->RawMaterialHandle = UINT32_MAX;
+		MaterialStore->Remove(Mat);
+	}
+
+	void SceneManager::LoadScene(const std::string& path) // Clears and loads new
+	{
+
+	}
+		
+	void SceneManager::SaveScene(const std::string& path)
+	{
+	}
+
+	void SceneManager::AppendScene(const std::string& path)
+	{
+	}
+
+	void SceneManager::SetActiveScene(Scene* Sc)
+	{
+		_ActiveScene = Sc;
+
+		auto Camera = _World->GetComponent<CameraComponent>(Sc->MainCamera);
+		if (Camera == nullptr)
+			CH_CORE_ERROR("Camera is Needed! Scene: {}", Sc->Name);
+	}
+
+	const Scene* SceneManager::GetActiveScene() const
+	{
+		if (_ActiveScene == nullptr)
+			CH_CORE_ERROR("NO ACTIVE SCENEN");
+		return _ActiveScene;
+	}
 }

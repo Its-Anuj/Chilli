@@ -27,6 +27,8 @@ namespace Chilli
 		LINEAR
 	};
 
+#define CH_LOD_CLAMP_NONE 1000.0f
+
 	struct SamplerSpec
 	{
 		SamplerMode Mode;
@@ -36,7 +38,7 @@ namespace Chilli
 		SamplerFilter MipmapMode; // Usually Linear for smooth transitions
 		float MaxAnisotropy;      // 1.0f (off) to 16.0f
 		float MinLod;             // Usually 0.0f
-		float MaxLod;             // Usually VK_LOD_CLAMP_NONE or texture.MipCount
+		float MaxLod = CH_LOD_CLAMP_NONE;             // Usually VK_LOD_CLAMP_NONE or texture.MipCount
 
 		// Logic/State
 		bool bEnableCompare = false;      // Crucial if you ever want to do Shadow Mapping

@@ -50,6 +50,12 @@ target_link_libraries(${CMAKE_PROJECT_NAME} ${Vulkan_LIBRARIES})
 if(CMAKE_BUILD_TYPE MATCHES "Debug")
 	message("Using Debug")
 	target_compile_definitions(${CMAKE_PROJECT_NAME} PUBLIC CHILLI_ENGINE_DEBUG=true)
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od")
+
+    if(MSVC)
+         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /PROFILE")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /PROFILE")
+    endif()
 endif()
 
 if(CMAKE_BUILD_TYPE MATCHES "Release")
@@ -103,3 +109,4 @@ add_dependencies(CopyTextures PrepareAssetDirs)
 if(${CHILLI_COMPILE_EXAMPLES} MATCHES ON)
     add_subdirectory(Examples)
 endif()
+

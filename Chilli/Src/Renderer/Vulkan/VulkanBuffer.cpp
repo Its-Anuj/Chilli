@@ -122,6 +122,10 @@ namespace Chilli
 		auto Buffer = _Buffers.Get(Handle);
 		if (Buffer == nullptr)
 			return;
+
+		if (Size == CH_BUFFER_WHOLE_SIZE)
+			Size = Buffer->CreateInfo.SizeInBytes;
+
 		// --- CATEGORY 1: DIRECT ACCESS (Host Visible) ---
 		// These buffers are either CPU-to-GPU or GPU-to-CPU. 
 		// VMA has already mapped these, so we just memcpy.

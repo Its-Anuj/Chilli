@@ -3,11 +3,38 @@
 #include "InputCodes.h"
 #include "Maths.h"
 #include "BackBone\BackBone.h"
+#include "BackBone\AssetLoader.h"
 
 namespace Chilli
 {
     class Window;
     struct EventHandler;
+
+    struct ImageData;
+
+    enum class DeafultCursorTypes
+    {
+        Deafult,
+        Arrow,
+        IBeam,
+        Crosshair,
+        PointingHand,
+        ResizeEW,
+        ResizeNS,
+        ResizeNWSE,
+        ResizeNESW,
+        ResizeAll,
+        NotAllowed,
+
+        Count
+    };
+
+    struct Cursor
+    {
+        ImageData* Data;
+        int HotX, HotY;
+        void* RawCursorHandle = nullptr;
+    };
 
     enum class InputResult
     {
@@ -38,6 +65,7 @@ namespace Chilli
         }
 
         const IVec2 GetCursorPos() const { return _CursorPos; }
+        const IVec2 GetCursorDelta() const { return _CursorDelta; }
 
         bool IsKeyPressed(Input_key key) const {
             return _KeyStates[key] == InputResult::INPUT_PRESS;
@@ -76,6 +104,8 @@ namespace Chilli
         InputResult _MouseButtonStates[Input_mouse_Count];
         int _ModStates = 0; 
         IVec2 _CursorPos;
+        IVec2 _OldCursorPos;
+        IVec2 _CursorDelta;
 
     };
 } // namespace VEngine

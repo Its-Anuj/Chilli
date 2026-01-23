@@ -1,4 +1,5 @@
 #include "AssetLoader.h"
+#include "AssetLoader.h"
 #include "Ch_PCH.h"-
 #include "AssetLoader.h"
 #include "Profiling\Timer.h"
@@ -30,7 +31,7 @@ namespace Chilli
 		}
 	}
 
-	BackBone::AssetHandle<ImageData> ImageLoader::Load(BackBone::SystemContext& Ctxt, const std::string& Path)
+	BackBone::AssetHandle<ImageData> ImageLoader::LoadTyped(BackBone::SystemContext& Ctxt, const std::string& Path)
 	{
 		auto Command = Chilli::Command(Ctxt);
 		auto ImageDataStore = Command.GetStore<ImageData>();

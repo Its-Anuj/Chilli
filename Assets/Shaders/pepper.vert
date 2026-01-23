@@ -4,15 +4,13 @@
 
 layout(location = 0) in vec3 InPosition;
 layout(location = 1) in vec2 InTexCoords;
+layout(location = 2) in uint InPepperMaterialIndex;
 
 layout(location = 0) out vec2 fragUV;
-
-layout(push_constant) uniform PushConstants {
-    int ObjectIndex;
-    int MaterialIndex;
-} DrawPushData;
+layout(location = 1) flat out uint OutPepperMaterialIndex;
 
 void main() {
     gl_Position = vec4(InPosition, 1.0);
     fragUV = InTexCoords;
+    OutPepperMaterialIndex = InPepperMaterialIndex;
 }
