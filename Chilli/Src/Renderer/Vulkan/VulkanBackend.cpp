@@ -161,6 +161,7 @@ namespace Chilli
 		if (result == VK_ERROR_OUT_OF_DATE_KHR) {
 			_Spec.ViewPortResized = true;
 			_ReCreateSwapChainKHR();
+			VULKAN_PRINTLN("ReSize");
 			return VK_NULL_HANDLE;
 		}
 		else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
@@ -308,6 +309,17 @@ namespace Chilli
 				_FrameResource.WritingImageInfos.clear();
 				_FrameResource.WritingSets.clear();
 
+				// --- Frame Performance (Updated per frame) ---
+				_Stats.IndiciesRendered = 0;
+				_Stats.VerticesRendered = 0;
+				_Stats.DrawCallsPerFrame = 0;
+				_Stats.TrianglesPerFrame = 0;
+				_Stats.DescriptorSetBinds = 0;
+
+				_Stats.TotalImagesAllocated = _ImageDataManager.GetImageAllocatedCount();
+				_Stats.TotalTexturesCreated = _ImageDataManager.GetTextureAllocatedCount();
+				_Stats.TotalBuffersCreated = _BufferManager.GetActiveCount();
+
 				_UpdateAllMaterialUpdateData();
 
 				// This is the function that must be called after the loop completes
@@ -325,6 +337,13 @@ namespace Chilli
 
 				if (ActiveCommandBuffer == VK_NULL_HANDLE)
 					return ActiveCommandBuffer;
+				break;
+			}
+			case RenderOpCode::FRAME_BUFFER_RESIZE:
+			{
+				auto Payload = (FrameBufferResizeCmdPayload*)(Dst);
+				_Spec.ViewPortResized = true;
+				this->_ReCreateSwapChainKHR();
 				break;
 			}
 			case RenderOpCode::UPDATE_GLOBAL_SHADER_DATA:
@@ -672,6 +691,10 @@ namespace Chilli
 					Payload->VertexOffset,
 					Payload->FirstInstance
 				);
+
+				_Stats.DrawCallsPerFrame++;
+				_Stats.IndiciesRendered += Payload->ElementCount;
+				_Stats.TrianglesPerFrame += Payload->ElementCount/3;
 				break;
 			}
 			}
@@ -1967,6 +1990,8 @@ namespace Chilli
 		_Data.SwapChainKHR.Init(_Data.Device, _Data.SurfaceKHR, _Spec.ViewPortSize.x, _Spec.ViewPortSize.y, _Spec.VSync);
 		_Spec.ViewPortResized = false;
 
+		//if(_ActiveCo)
+
 		for (int i = 0; i < _Data.SwapChainKHR.GetImages().size(); i++)
 		{
 			_Uploader.TransitionImageLayout(_Data.SwapChainKHR.GetImages()[i], VK_IMAGE_LAYOUT_UNDEFINED,
@@ -1980,6 +2005,15 @@ namespace Chilli
 		if (_Spec.ViewPortResized)
 		{
 			vkDeviceWaitIdle(_Data.Device.GetHandle());
+
+			// Query the new size from the surface
+			VkSurfaceCapabilitiesKHR surfaceCaps;
+			vkGetPhysicalDeviceSurfaceCapabilitiesKHR(_Data.Device.GetPhysicalDevice()->PhysicalDevice, _Data.SurfaceKHR, &surfaceCaps);
+
+			// Update your stored viewport size
+			_Spec.ViewPortSize.x = surfaceCaps.currentExtent.width;
+			_Spec.ViewPortSize.y = surfaceCaps.currentExtent.height;
+
 			_DestroySwapChainKHR();
 			_CreateSwapChainKHR();
 		}
@@ -2378,20 +2412,29 @@ namespace Chilli
 		auto device = _Device->GetHandle();
 
 		vkEndCommandBuffer(_ActiveCmdBuffer);
-		vkResetFences(device, 1, &_TransferFence);
 
 		VkSubmitInfo Submit{};
 		Submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 		Submit.commandBufferCount = 1;
 		Submit.pCommandBuffers = &_ActiveCmdBuffer;
 
+		std::string FailMessage = "TRANSFER QUEUE FAILED TO SUBMIT";
 		auto Queue = _Device->GetQueue(QueueFamilies::TRANSFER);
+		auto Fence = this->_TransferFence;
+		
 		if (_ActiveCmdBuffer == _GraphicsCmdBuffer)
+		{
 			Queue = _Device->GetQueue(QueueFamilies::GRAPHICS);
+			FailMessage = "GRAPHICS QUEUE FAILED TO SUBMIT";
+			Fence = this->_GraphicsFence;
+		}
 
-		VULKAN_SUCCESS_ASSERT(vkQueueSubmit(Queue, 1, &Submit, _TransferFence),
-			"TRANSFER QUEUE FAILED TO SUBMIT!");
-		vkWaitForFences(device, 1, &_TransferFence, VK_TRUE, UINT64_MAX);
+		vkResetFences(_Device->GetHandle(), 1, &Fence);
+
+		VULKAN_SUCCESS_ASSERT(vkQueueSubmit(Queue, 1, &Submit, Fence),
+			FailMessage);
+
+		vkWaitForFences(device, 1, &Fence, VK_TRUE, UINT64_MAX);
 		_BatchRecording = CH_NONE;
 		_ActiveCmdBuffer = VK_NULL_HANDLE;
 	}

@@ -11,7 +11,8 @@ struct GameResource
 {
 	Chilli::BackBone::Entity Player;
 	Chilli::BackBone::Entity Camera;
-	Chilli::BackBone::Entity FPSCounter;
+	Chilli::BackBone::Entity RenderStatsText;
+	Chilli::BackBone::Entity RenderDataStats;
 	Chilli::BackBone::Entity UIPanel, UIHeader;
 	Chilli::BackBone::Entity UIPanel2, UIHeader2;
 	Chilli::BackBone::AssetHandle<Chilli::ShaderProgram> Program;
@@ -20,7 +21,7 @@ struct GameResource
 	Chilli::BackBone::AssetHandle<Chilli::ImageData> GrayImageData;
 	Chilli::BackBone::AssetHandle<Chilli::Texture> GrayTexture;
 	Chilli::BackBone::AssetHandle<Chilli::Sampler> Sampler;
-	Chilli::BackBone::AssetHandle<Chilli::EmberFont> LoveDaysFont;
+	Chilli::BackBone::AssetHandle<Chilli::EmberFont> AlkiaFont;
 	Chilli::Scene GameScene;
 
 	uint32_t GameWindow;
@@ -95,23 +96,27 @@ void OnGameCreate(Chilli::BackBone::SystemContext& Ctxt)
 
 	Chilli::PepperTransform panelTransform;
 
-	Command.AddComponent<Chilli::PepperTransform>(GameData->UIPanel, panelTransform);
-	GameData->LoveDaysFont = Command.LoadFont_TTF("Assets/LoveDays.ttf");
+	GameData->AlkiaFont = Command.LoadFont_TTF("Assets/Alkia.ttf");
+	
+	// Size: 20% width, 20% height (example)
+	panelTransform.PercentageDimensions = { 0.2f, 0.25f };
 
-	Chilli::EmberTextComponent UIPanelText;
-	UIPanelText.Content = "Fuck my ass";
-	UIPanelText.Font = GameData->LoveDaysFont;
-	UIPanelText.IsDirty = true;
+	// Position: Top-right corner
+	panelTransform.PercentagePosition = { 0.75f, 0.3f }; // X=0.8 → right, Y=0 → top
 
-	// 1. Set Dimensions (10% Width, 20% Height)
-	panelTransform.PercentageDimensions = { 0.2f, 0.2f };
-	panelTransform.PercentagePosition = { 0.1f, 0.1f };
-	panelTransform.AnchorX = Chilli::AnchorX::LEFT;
-	panelTransform.AnchorY = Chilli::AnchorY::TOP;
+	panelTransform.AnchorX = Chilli::AnchorX::RIGHT;  // Align right
+	panelTransform.AnchorY = Chilli::AnchorY::TOP;    // Align top
 
-	GameData->FPSCounter = Command.CreateEntity();
-	Command.AddComponent<Chilli::PepperTransform>(GameData->FPSCounter, panelTransform);
-	Command.AddComponent<Chilli::EmberTextComponent>(GameData->FPSCounter, UIPanelText);
+	Chilli::EmberTextComponent RenderStatsTextData;
+	RenderStatsTextData.Font = GameData->AlkiaFont;
+	RenderStatsTextData.FontSize = 20.0f; // Adjust as needed
+	RenderStatsTextData.IsDirty = true;
+
+	// Create entity
+	GameData->RenderStatsText = Command.CreateEntity();
+	Command.AddComponent<Chilli::PepperTransform>(GameData->RenderStatsText, panelTransform);
+	Command.AddComponent<Chilli::EmberTextComponent>(GameData->RenderStatsText, RenderStatsTextData);
+
 
 	GameData->Camera = Chilli::CameraBundle::Create3D(Ctxt);
 	Command.AddComponent<Chilli::Deafult3DCameraController>(GameData->Camera, Chilli::Deafult3DCameraController());
@@ -122,6 +127,34 @@ void OnGameCreate(Chilli::BackBone::SystemContext& Ctxt)
 	SceneManager->SetActiveScene(&GameData->GameScene);
 }
 
+void UpdateRenderStatsText(const Chilli::RenderDeviceStats& stats, Chilli::EmberTextComponent& textComp)
+{
+	// Build multi-line string
+	std::ostringstream ss;
+
+	ss << "Render Stats:\n";
+	ss << "Images: " << stats.TotalImagesAllocated << "\n";
+	ss << "Textures: " << stats.TotalTexturesCreated << "\n";
+	ss << "Buffers: " << stats.TotalBuffersCreated << "\n";
+	ss << "Pipelines: " << stats.ActivePipelines << "\n\n";
+
+	ss << "Memory (VRAM):\n";
+	ss << "Allocated: " << stats.AllocatedVRAM / 1024 << " KB\n";
+	ss << "Used: " << stats.UsedVRAM / 1024 << " KB\n";
+	ss << "Staging: " << stats.StagingBufferMemory / 1024 << " KB\n\n";
+
+	ss << "Frame Stats:\n";
+	ss << "Indices: " << stats.IndiciesRendered << "\n";
+	ss << "Vertices: " << stats.VerticesRendered << "\n";
+	ss << "Triangles: " << stats.TrianglesPerFrame << "\n";
+	ss << "Draw Calls: " << stats.DrawCallsPerFrame << "\n";
+	ss << "Descriptor Binds: " << stats.DescriptorSetBinds << "\n";
+
+	// Update the component
+	textComp.Content = ss.str();
+	textComp.IsDirty = true; // Tell Ember to rebuild glyphs
+}
+
 void OnGamePlay(Chilli::BackBone::SystemContext& Ctxt)
 {
 	auto Command = Chilli::Command(Ctxt);
@@ -129,15 +162,11 @@ void OnGamePlay(Chilli::BackBone::SystemContext& Ctxt)
 	auto FrameData = Command.GetResource<Chilli::BackBone::GenericFrameData>();
 	auto InputManager = Command.GetService<Chilli::Input>();
 	auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
-		
+	auto RenderService = Command.GetService<Chilli::Renderer>();
+
 	auto Ts = FrameData->Ts;
 
 	auto PlayerTranform = Ctxt.Registry->GetComponent<Chilli::TransformComponent>(GameData->Player);
-
-	auto UIPanelText = Command.GetComponent<Chilli::EmberTextComponent>(GameData->FPSCounter);
-
-	UIPanelText->Content = std::to_string((int)FrameData->Ts.GetFPS());
-	UIPanelText->IsDirty = true;
 
 	if (InputManager->IsKeyPressed(Chilli::Input_key_KpAdd))
 	{
@@ -145,7 +174,9 @@ void OnGamePlay(Chilli::BackBone::SystemContext& Ctxt)
 			MaterialSystem->GetView(GameData->Material).AlbedoColor + Chilli::Vec4(0.01f, 0.0f, 0.0f, 0.0f));
 	}
 	PlayerTranform->RotateX(2 * Ts);
-
+	// Inside your main update loop
+	UpdateRenderStatsText(RenderService->GetRenderDeviceStats(),
+		*Command.GetComponent<Chilli::EmberTextComponent>(GameData->RenderStatsText));
 }
 
 void OnGameShutDown(Chilli::BackBone::SystemContext& Ctxt)
@@ -158,7 +189,7 @@ void OnGameShutDown(Chilli::BackBone::SystemContext& Ctxt)
 	Command.DestroyEntity(GameData->Camera);
 
 	Command.UnloadAsset(GameData->GrayImageData.ValPtr->FilePath);
-	Command.UnloadAsset(GameData->LoveDaysFont.ValPtr->FontSource.ValPtr->FilePath);
+	Command.UnloadAsset(GameData->AlkiaFont.ValPtr->FontSource.ValPtr->FilePath);
 }
 
 int main()

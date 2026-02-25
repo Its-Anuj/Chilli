@@ -82,6 +82,11 @@ namespace Chilli
 		SceneData Data;
 	};
 
+	struct FrameBufferResizeCmdPayload
+	{
+		IVec2 FrameBufferSize;
+	};
+
 	struct RenderCommandBuffer
 	{
 	protected:
@@ -412,6 +417,11 @@ namespace Chilli
 		void BeginFrame(uint32_t FrameIndex)
 		{
 			PushCommand<BeginFrameCmdPayload>(RenderOpCode::BEGIN_FRAME, { FrameIndex });
+		}
+
+		void PushFrameBufferResize(const IVec2& NewSize)
+		{
+			PushCommand<FrameBufferResizeCmdPayload>(RenderOpCode::FRAME_BUFFER_RESIZE, { NewSize });
 		}
 
 		void PushBlitImage (const BlitImageCmdPayload& Payload)

@@ -77,7 +77,7 @@ namespace Chilli
 	{
 	public:
 		VulkanImageDataManager() {}
-		~VulkanImageDataManager(){}
+		~VulkanImageDataManager() {}
 
 		void Init(const VulkanImageDataManagerSpec& Spec);
 		void Destroy();
@@ -90,6 +90,9 @@ namespace Chilli
 		uint32_t CreateTexture(VkDevice Device, uint32_t ImageHandle, TextureSpec& Spec);
 		void DestroyTexture(VkDevice Device, uint32_t TextureHandle);
 		VulkanTexture* GetTexture(uint32_t TextureHandle) { return _TextureSet.Get(TextureHandle); }
+
+		uint32_t GetImageAllocatedCount() { return _ImageSet.GetActiveCount(); }
+		uint32_t GetTextureAllocatedCount() { return _TextureSet.GetActiveCount(); }
 	private:
 		VulkanImageDataManagerSpec _Spec;
 		SparseSet<VulkanImage> _ImageSet;

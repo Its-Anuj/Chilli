@@ -285,6 +285,11 @@ namespace Chilli
 			return _Api->GetObjectShaderIndex(Entity);
 		}
 
+		void PushFrameBufferResize(const IVec2& NewSize)
+		{
+			_FramePackets[_FrameIndex].Graphics_Stream.PushFrameBufferResize(NewSize);
+		}
+
 		const std::vector<RenderDeviceInfo>& GetRenderDevices() {
 			return _Api->GetRenderDevices();
 		}

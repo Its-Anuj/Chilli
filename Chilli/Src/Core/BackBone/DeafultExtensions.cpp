@@ -1,4 +1,4 @@
-#include "DeafultExtensions.h"
+﻿#include "DeafultExtensions.h"
 #include "Ch_PCH.h"
 #include "DeafultExtensions.h"
 #include "Window/Window.h"
@@ -113,9 +113,11 @@ namespace Chilli
 		auto Command = Chilli::Command(Ctxt);
 		auto EventService = Command.GetService<EventHandler>();
 		auto RenderGraph = Command.GetResource<Chilli::RenderGraph>();
+		auto RenderService = Command.GetService<Renderer>();
 
 		for (auto& Event : EventReader<FrameBufferResizeEvent>(EventService))
 		{
+			RenderService->PushFrameBufferResize({ Event.GetX(), Event.GetY() });
 			RenderGraph->Passes[1].Pass.Info.RenderArea = { Event.GetX(), Event.GetY() };
 			RenderGraph->Passes[2].Pass.Info.RenderArea = { Event.GetX(), Event.GetY() };
 			RenderGraph->Passes[3].Pass.Info.RenderArea = { Event.GetX(), Event.GetY() };
@@ -1587,6 +1589,8 @@ namespace Chilli
 		auto Command = Chilli::Command(Ctxt);
 		auto RenderService = Command.GetService<Renderer>();
 		auto EmberResource = Command.GetResource<Chilli::EmberResource>();
+		auto ActiveWindow = Command.GetActiveWindow();
+		float screenHeight = (float)ActiveWindow->GetHeight();
 
 		EmberResource->EmberInstanceData.clear();
 		EmberResource->GeoCharacterCount = 0;
@@ -1644,47 +1648,95 @@ namespace Chilli
 			}
 		}
 
-		// --- PASS 2: UI (Pepper Space) ---
-		for (auto [Transform, Text] : BackBone::Query<PepperTransform, EmberTextComponent>(*Ctxt.Registry))
+		// ------------------------------------------------------------
+		// PASS 1: UI TEXT (PepperTransform) — FIXED
+		// ------------------------------------------------------------
+		for (auto [Transform, Text] :
+			BackBone::Query<PepperTransform, EmberTextComponent>(*Ctxt.Registry))
 		{
-			if (!Text->Font.IsValid()) continue;
+			if (!Text->Font.IsValid())
+				continue;
+
 			auto fontData = Text->Font.ValPtr->FontSource.ValPtr;
-
-			// 1. Apply the Pivot offset to find the top-left start of the text box
-			// This matches the logic: pixelX0 = transform.ActualPosition.x - pivot.x
-			float startX = Transform->ActualPosition.x - static_cast<float>(Transform->Pivot.x);
-			float startY = Transform->ActualPosition.y - static_cast<float>(Transform->Pivot.y);
-
-			float curX = startX;
-			float curY = startY;
-
 			float s = Text->FontSize / fontData->FontSize;
+
+			// Box in UI (Y-Up) space
+			float boxLeft = Transform->ActualPosition.x;
+			float boxBottom = Transform->ActualPosition.y;
+			float boxTop = boxBottom + Transform->ActualDimensions.y;
+
+			// --------------------------------------------------------
+			// Calculate max line width (newline-aware)
+			// --------------------------------------------------------
+			float lineWidth = 0.0f;
+			float maxWidth = 0.0f;
 
 			for (char c : Text->Content)
 			{
 				if (c == '\n') {
-					curX = startX; // Reset to the pivoted start X
-					curY += fontData->GetLineHeight() * s;
+					maxWidth = std::max(maxWidth, lineWidth);
+					lineWidth = 0.0f;
 					continue;
 				}
 				if (c < 32 || c > 126) continue;
 
+				lineWidth += fontData->GetChar(c).xadvance * s;
+			}
+			maxWidth = std::max(maxWidth, lineWidth);
+
+			// --------------------------------------------------------
+			// Horizontal anchoring
+			// --------------------------------------------------------
+			float startX = boxLeft;
+
+			if (Transform->AnchorX == Chilli::AnchorX::RIGHT) {
+				startX = boxLeft + Transform->ActualDimensions.x - maxWidth;
+			}
+			else if (Transform->AnchorX == Chilli::AnchorX::CENTER) {
+				startX = boxLeft + (Transform->ActualDimensions.x - maxWidth) * 0.5f;
+			}
+
+			// --------------------------------------------------------
+			// Convert Y-Up → Y-Down
+			// Start from TOP of box
+			// --------------------------------------------------------
+			float startY = screenHeight - boxTop;
+
+			float curX = startX;
+			float curY = startY;
+
+			// --------------------------------------------------------
+			// Emit glyph instances
+			// --------------------------------------------------------
+			for (char c : Text->Content)
+			{
+				if (c == '\n') {
+					curX = startX;
+					curY += fontData->GetLineHeight() * s;
+					continue;
+				}
+
+				if (c < 32 || c > 126)
+					continue;
+
 				const auto& bc = fontData->GetChar(c);
+
 				EmberFontInstance instance;
 
-				// 2. Position the character
-				// We add the character offset to our pivoted start coordinates
+				// ✔ Correct Y-down glyph placement (NO FLIP)
 				instance.instPos.x = curX + (bc.xoff * s);
+				instance.instPos.y = curY + (fontData->Ascent - bc.yoff2) * s;
 
-				// Note: Check your Y direction. 
-				// If your text is drawing upside down or offset, change '-' to '+' 
-				// depending on if your font metrics are Y-up or Y-down.
-				instance.instPos.y = curY - (bc.yoff * s);
-
-				instance.instSize = { (bc.xoff2 - bc.xoff) * s, (bc.yoff2 - bc.yoff) * s };
+				instance.instSize = {
+					(bc.xoff2 - bc.xoff) * s,
+					(bc.yoff2 - bc.yoff) * s
+				};
 
 				fontData->GetUVs(c, instance.instUVOffset, instance.instUVRange);
-				instance.FontIndex = EmberResource->GetFontAtlasTextureShaderIndex(Text->Font.ValPtr->FontTexture);
+				instance.FontIndex =
+					EmberResource->GetFontAtlasTextureShaderIndex(
+						Text->Font.ValPtr->FontTexture
+					);
 
 				EmberResource->EmberInstanceData.push_back(instance);
 				EmberResource->UICharacterCount++;
@@ -1746,19 +1798,17 @@ namespace Chilli
 			alignas(16) glm::mat4 projection;
 			alignas(16) Vec4 textColor;
 		}pc;
-
-		// Use ortho projection
+		// Use ortho projection: Map [0, width] to [-1, 1] and [0, height] to [-1, 1]
 		float width = (float)ActiveWindow->GetWidth();
 		float height = (float)ActiveWindow->GetHeight();
 
 		glm::mat4 projection = glm::mat4(1.0f);
 		projection[0][0] = 2.0f / width;
-		projection[1][1] = -2.0f / height;  // Note the negative for Vulkan Y-down
+		projection[1][1] = 2.0f / height;  // Positive because we'll handle the flip in the math
 		projection[2][2] = 1.0f;
-		projection[3][0] = -1.0f;
-		projection[3][1] = 1.0f;
+		projection[3][0] = -1.0f;          // Map 0 to -1 (Left)
+		projection[3][1] = -1.0f;          // Map 0 to -1 (Top)
 		projection[3][3] = 1.0f;
-
 		pc.projection = projection;
 		//pc.projection[1][1] *= -1; // Flip Y for Vulkan coordinate system
 		//pc.projection = glm::mat4(1.0f);
@@ -2389,25 +2439,23 @@ namespace Chilli
 		auto PepperResource = Command.GetResource<Chilli::PepperResource>();
 		auto InputManager = Command.GetService<Chilli::Input>();
 
-		if (PepperResource->QuadCount == 0)
+		if (PepperResource->QuadCount != 0)
 		{
-			return;
+			if (InputManager->IsKeyDown(Input_key_0))
+			{
+				RenderService->SetFillMode(PolygonMode::Wireframe);
+			}
+
+			RenderService->BindShaderProgram(PepperResource->PepperShaderProgram.ValPtr->RawProgramHandle);
+
+			RenderService->BindMaterailData(MaterialSystem->GetRawMaterialHandle(PepperResource->ContextMaterial));
+
+			RenderService->BindVertexBuffer({ PepperResource->RenderMesh.ValPtr->VBHandle.ValPtr->RawBufferHandle });
+			RenderService->BindIndexBuffer(PepperResource->RenderMesh.ValPtr->IBHandle.ValPtr->RawBufferHandle,
+				IndexBufferType::UINT32_T);
+
+			RenderService->DrawIndexed(PepperResource->QuadCount * 6, 1, 0, 0, 0);
 		}
-
-		if (InputManager->IsKeyDown(Input_key_0))
-		{
-			RenderService->SetFillMode(PolygonMode::Wireframe);
-		}
-
-		RenderService->BindShaderProgram(PepperResource->PepperShaderProgram.ValPtr->RawProgramHandle);
-
-		RenderService->BindMaterailData(MaterialSystem->GetRawMaterialHandle(PepperResource->ContextMaterial));
-
-		RenderService->BindVertexBuffer({ PepperResource->RenderMesh.ValPtr->VBHandle.ValPtr->RawBufferHandle });
-		RenderService->BindIndexBuffer(PepperResource->RenderMesh.ValPtr->IBHandle.ValPtr->RawBufferHandle,
-			IndexBufferType::UINT32_T);
-
-		RenderService->DrawIndexed(PepperResource->QuadCount * 6, 1, 0, 0, 0);
 
 		OnEmberRenderUIPass(Ctxt);
 	}

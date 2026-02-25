@@ -188,6 +188,8 @@ namespace Chilli
 		uint64_t StagingBufferMemory = 0;   // Memory held in upload/staging buffers
 
 		// --- Frame Performance (Updated per frame) ---
+		uint32_t IndiciesRendered = 0;
+		uint32_t VerticesRendered = 0;
 		uint32_t DrawCallsPerFrame = 0;
 		uint32_t TrianglesPerFrame = 0;
 		uint32_t DescriptorSetBinds = 0;

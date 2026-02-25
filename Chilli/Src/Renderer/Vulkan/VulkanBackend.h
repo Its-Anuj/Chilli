@@ -285,7 +285,7 @@ namespace Chilli
 		virtual const RenderDeviceLimits& GetActiveRenderDeviceLimit() {
 			return _Data.PhysicalDeviceLimits[_Data.ActivePhysicalDeviceIndex];
 		}
-		virtual const RenderDeviceStats& GetRenderDeviceStats() { return RenderDeviceStats(); }
+		virtual const RenderDeviceStats& GetRenderDeviceStats() { return _Stats; }
 	private:
 		GraphcisBackendCreateSpec _Spec;
 		VulkanBackendData _Data;
@@ -293,6 +293,7 @@ namespace Chilli
 		VulkanShaderDataManager _ShaderManager;
 		VulkanBufferManager _BufferManager;
 		VulkanCommandManager _CommandManager;
+		RenderDeviceStats	_Stats;
 
 		struct {
 			std::vector<CommandBufferAllocInfo> CommandBuffers;

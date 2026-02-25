@@ -1,7 +1,7 @@
 #version 450
 
 // Binding 0: Unit Quad (0.0 to 1.0)
-layout(location = 0) in vec2 inVertexPos; 
+layout(location = 0) in vec2 inVertexPos;
 
 // Binding 1: Instance Data
 layout(location = 1) in vec2 instPos;
@@ -18,20 +18,28 @@ layout(push_constant) uniform Push {
     vec4 textColor;
 } pc;
 
-void main() {
-    // 1. Position Math:
-    // Scale the unit quad by glyph size and offset by character position.
-    // instPos already includes the curY + (bc.yoff * s) from your C++ code.
-    vec2 pixelPos = (inVertexPos * instSize) + instPos;
-    
-    // 2. Project to NDC:
-    // This uses your manual matrix to map 0..Width to -1..1
+void main()
+{
+    // --------------------------------------------------
+    // Flip quad Y (Y-up -> Y-down)
+    // --------------------------------------------------
+    vec2 quadPos = inVertexPos;
+    quadPos.y = 1.0 - quadPos.y;
+
+    // --------------------------------------------------
+    // Pixel space position
+    // --------------------------------------------------
+    vec2 pixelPos = instPos + quadPos * instSize;
+
+    // --------------------------------------------------
+    // Project to NDC
+    // --------------------------------------------------
     gl_Position = pc.projection * vec4(pixelPos, 0.0, 1.0);
-    
-    // 3. UV Math:
-    // stb_truetype provides s0, t0 (UVOffset) and s1, t1.
-    // We lerp between them using our 0..1 vertex positions.
-    fragTexCoord = instUVOffset + (inVertexPos * instUVRange);
-    
+
+    // --------------------------------------------------
+    // UVs (keep original orientation!)
+    // --------------------------------------------------
+    fragTexCoord = instUVOffset + inVertexPos * instUVRange;
+
     FontIndex = instFontIndex;
 }
