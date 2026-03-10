@@ -196,7 +196,10 @@ namespace Chilli
 
 	enum class CullMode : uint8_t { None, Front, Back };
 	enum class PolygonMode : uint8_t { None, Fill, Wireframe };
-	enum class InputTopologyMode : uint8_t { None, Triangle_List, Triangle_Strip };
+	enum class InputTopologyMode : uint8_t {
+		None, Triangle_Fan, Line_Strip, Point_List,
+		Line_List, Triangle_List, Triangle_Strip
+	};
 	enum class FrontFaceMode : uint8_t { None, Clock_Wise, Counter_Clock_Wise };
 
 	struct GraphicsPipelineCreateInfo
@@ -425,7 +428,7 @@ namespace Chilli
 				.ColorWriteMask = 0xF // R|G|B|A
 			};
 		}
-		
+
 		inline static ColorBlendAttachmentState AlphaBlend()
 		{
 			return ColorBlendAttachmentState{
@@ -464,6 +467,7 @@ namespace Chilli
 		std::vector<VertexInputShaderAttribute> Attribs;
 		uint32_t Stride = 0;
 		uint32_t BindingIndex = 0; // Which slot (0, 1, etc.) this buffer binds to
+		BufferState State = BufferState::STATIC_DRAW;
 		bool IsInstanced = false;
 	};
 
@@ -472,11 +476,12 @@ namespace Chilli
 		std::vector<VertexInputShaderBinding> Bindings;
 
 		// Helper to start a new buffer binding
-		void BeginBinding(uint32_t bindingIndex, bool isInstanced = false)
+		void BeginBinding(uint32_t bindingIndex, bool isInstanced = false, BufferState State = BufferState::STATIC_DRAW)
 		{
 			VertexInputShaderBinding newBinding;
 			newBinding.BindingIndex = bindingIndex;
 			newBinding.IsInstanced = isInstanced;
+			newBinding.State = State;
 			Bindings.push_back(newBinding);
 		}
 

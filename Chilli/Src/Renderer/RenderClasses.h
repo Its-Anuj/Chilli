@@ -139,6 +139,11 @@ namespace Chilli
 				_FramePackets[_FrameIndex].Compute_Stream.PushPipelineBarriers({ Barrier });
 		}
 
+		void BindVertexBuffer(uint32_t* Buffers, uint32_t BindingCount)
+		{
+			_FramePackets[_FrameIndex].Graphics_Stream.BindVertexBuffer(Buffers, BindingCount);
+		}
+
 		void BindVertexBuffer(const std::vector<uint32_t>& Buffers)
 		{
 			_FramePackets[_FrameIndex].Graphics_Stream.BindVertexBuffer(Buffers);
@@ -155,6 +160,12 @@ namespace Chilli
 				VertexOffset, FirstInstance);
 		}
 
+		void DrawArray(uint32_t ElementCount, uint32_t InstanceCount, uint32_t FirstElement, uint32_t VertexOffset, uint32_t FirstInstance)
+		{
+			_FramePackets[_FrameIndex].Graphics_Stream.DrawArray(ElementCount, InstanceCount, FirstElement,
+				VertexOffset, FirstInstance);
+		}
+
 		void BindShaderProgram(uint32_t ShaderProgramHandle)
 		{
 			_FramePackets[_FrameIndex].Graphics_Stream.BindShaderPrgoram(ShaderProgramHandle);
@@ -163,15 +174,19 @@ namespace Chilli
 		void SetFullPipelineState(const PipelineStateInfo& Info)
 		{
 			_FramePackets[_FrameIndex].Graphics_Stream.SetFullPipelineState(Info);
+			_ActiveInfo = Info;
 		}
 
 		void SetVertexInputLayout(const VertexInputShaderLayout& Info)
 		{
 			_FramePackets[_FrameIndex].Graphics_Stream.SetVertexInputLayout(Info);
+			_ActiveVertexShaderLayout = Info;
 		}
+
 		void SetTopologyMode(InputTopologyMode Mode)
 		{
 			_FramePackets[_FrameIndex].Graphics_Stream.SetTopologyMode(Mode);
+			_ActiveInfo.TopologyMode = Mode;
 		}
 
 		void SetCullMode(CullMode Mode)
@@ -192,6 +207,7 @@ namespace Chilli
 		void SetLineWidth(float Width)
 		{
 			_FramePackets[_FrameIndex].Graphics_Stream.SetLineWidth(Width);
+			_ActiveInfo.LineWidth = Width;
 		}
 
 		void SetRasterizerDiscard(bool Enable)
@@ -233,7 +249,7 @@ namespace Chilli
 		void UpdateMaterialShaderData(uint32_t MaterialHandle, const MaterialShaderData& Data) {
 			_Api->UpdateMaterialShaderData(MaterialHandle, Data);
 		}
-		
+
 		void UpdateObjectShaderData(BackBone::Entity Entity, const ObjectShaderData& Data) {
 			_Api->UpdateObjectShaderData(Entity, Data);
 		}
@@ -303,9 +319,26 @@ namespace Chilli
 		const RenderDeviceStats& GetRenderDeviceStats() {
 			return _Api->GetRenderDeviceStats();
 		}
+
+		const VertexInputShaderLayout& GetActiveVertexShaderLayout()
+		{
+			return _ActiveVertexShaderLayout;
+		}
+
+		const PipelineStateInfo& GetActivePipelineStateInfo()
+		{
+			return _ActiveInfo;
+		}
+
+		const ShaderProgram& GetDeafultShaderProgram() { return _DeafultShaderProgram; }
+
 	private:
 		std::shared_ptr<GraphicsBackendApi> _Api;
 		std::vector<RenderFramePacket> _FramePackets;
+
+		VertexInputShaderLayout _ActiveVertexShaderLayout;
+		PipelineStateInfo _ActiveInfo;
+		ShaderProgram _DeafultShaderProgram;
 
 		// Separate data storage (also contiguous)
 		FrameAllocator _InlineUniformDataAllocator;

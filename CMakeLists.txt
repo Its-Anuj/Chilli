@@ -11,7 +11,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
-set(CHILLI_COMPILE_EXAMPLES OFF)
+set(CHILLI_COMPILE_EXAMPLES ON)
+set(Chilli_EXAMPLE_GRAVITY_COMPILE ON)
 
 # Check For Vulkan
 find_package(Vulkan REQUIRED)
@@ -43,9 +44,8 @@ include_directories("Libs/TinyObjLoader/")
 include_directories(${CMAKE_SOURCE_DIR}/include)
 add_executable(${CMAKE_PROJECT_NAME} ${SOURCES} "Main.cpp")
 
-target_link_libraries(${CMAKE_PROJECT_NAME} ChilliExtensions ChilliCore ChilliVulkan VulkanMemoryAllocator glm::glm kernel32 user32 glfw)
+target_link_libraries(${CMAKE_PROJECT_NAME} ufbx ChilliExtensions ChilliCore ChilliVulkan VulkanMemoryAllocator glm::glm kernel32 user32 glfw)
 target_link_libraries(${CMAKE_PROJECT_NAME} ${Vulkan_LIBRARIES})
-
 
 if(CMAKE_BUILD_TYPE MATCHES "Debug")
 	message("Using Debug")
@@ -97,6 +97,18 @@ add_dependencies(CompileShaders PrepareAssetDirs)
 # -----------------------
 add_custom_target(
     CopyTextures ALL
+    COMMAND ${CMAKE_COMMAND} -E echo "Copying model assets..."
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/Assets/Models
+            ${CMAKE_BINARY_DIR}/bin/Assets/Models
+    COMMENT "Copying all models to binary output directory"
+)
+
+# -----------------------
+# 3️⃣ Copy Textures
+# -----------------------
+add_custom_target(
+    CopyModels ALL
     COMMAND ${CMAKE_COMMAND} -E echo "Copying texture assets..."
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_SOURCE_DIR}/Assets/Textures
@@ -105,6 +117,7 @@ add_custom_target(
 )
 
 add_dependencies(CopyTextures PrepareAssetDirs)
+add_dependencies(CopyModels PrepareAssetDirs)
 
 if(${CHILLI_COMPILE_EXAMPLES} MATCHES ON)
     add_subdirectory(Examples)

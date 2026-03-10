@@ -3,6 +3,8 @@
 #include "Maths.h"
 #include "BackBone.h"
 #include "Image.h"
+#include "Mesh.h"
+#include "Pipeline.h"
 
 namespace Chilli
 {
@@ -119,7 +121,7 @@ namespace Chilli
 		virtual bool DoesExist(const std::string& Path) const = 0;
 		virtual int __FindIndex(const std::string& Path) const = 0;
 	};
-	
+
 	template<typename T>
 	class BaseLoader : public IAssetLoader {
 	public:
@@ -138,7 +140,7 @@ namespace Chilli
 	public:
 		ImageLoader() {}
 		~ImageLoader();
-		
+
 		virtual BackBone::AssetHandle<ImageData> LoadTyped(BackBone::SystemContext& Ctxt, const std::string& Path) override;
 		virtual void Unload(BackBone::SystemContext& Ctxt, const std::string& Path) override;
 		virtual void Unload(BackBone::SystemContext& Ctxt, const BackBone::AssetHandle<ImageData>& Data) override;
@@ -150,6 +152,68 @@ namespace Chilli
 	private:
 		std::vector<IndexEntry> _IndexMaps;
 		std::vector<BackBone::AssetHandle<ImageData>> _ImageDataHandles;   // Maps Hash index to _ImageDatas index
+	};
+
+	enum class MeshAttribute {
+		POSITION = 0,
+		NORMAL = 1,
+		TEXCOORD = 2,
+		COLOR = 3,
+		TANGENT = 4
+	};
+
+	struct RawMeshData
+	{
+		std::string Name;
+		std::string Path;
+		IndexBufferType IBType;
+		std::vector<uint8_t> Vertices;
+		std::vector<uint8_t> Indices;
+		VertexInputShaderLayout FileLayout;
+	};
+
+	struct MeshLoaderData
+	{
+		std::string Path;
+		std::vector<BackBone::AssetHandle<RawMeshData>> Meshes;
+	};
+
+	class CGLFTMeshLoader : public BaseLoader<MeshLoaderData>
+	{
+	public:
+		CGLFTMeshLoader() {}
+		~CGLFTMeshLoader();
+
+		virtual BackBone::AssetHandle<MeshLoaderData> LoadTyped(BackBone::SystemContext& Ctxt, const std::string& Path) override;
+		virtual void Unload(BackBone::SystemContext& Ctxt, const std::string& Path) override;
+		virtual void Unload(BackBone::SystemContext& Ctxt, const BackBone::AssetHandle<MeshLoaderData >& Data) override;
+
+		virtual bool DoesExist(const std::string& Path) const override { return true; }
+		virtual int __FindIndex(const std::string& Path) const override { return 0; }
+
+		virtual std::vector<std::string> GetExtensions() override { return { ".gltf", ".glb" }; }
+	private:
+		std::vector<IndexEntry> _IndexMaps;
+		std::vector<BackBone::AssetHandle<MeshLoaderData>> _MeshDataHandles;   // Maps Hash index to _ImageDatas index
+	};
+
+	class TinyObjMeshLoader : public BaseLoader<MeshLoaderData>
+	{
+	public:
+		TinyObjMeshLoader() {}
+		~TinyObjMeshLoader();
+
+		virtual BackBone::AssetHandle<MeshLoaderData> LoadTyped(BackBone::SystemContext& Ctxt, const std::string& Path) override;
+		virtual void Unload(BackBone::SystemContext& Ctxt, const std::string& Path) override;
+		virtual void Unload(BackBone::SystemContext& Ctxt, const BackBone::AssetHandle<MeshLoaderData >& Data) override;
+
+		virtual bool DoesExist(const std::string& Path) const override { return true; }
+		virtual int __FindIndex(const std::string& Path) const override { return 0; }
+
+		virtual std::vector<std::string> GetExtensions() override { return { ".obj" }; }
+	private:
+		std::vector<IndexEntry> _IndexMaps;
+		std::vector<BackBone::AssetHandle<MeshLoaderData>> _MeshDataHandles;   // Maps Hash index to _ImageDatas index
 	};
 
 	uint32_t GetNewAssetLoaderID();
@@ -165,7 +229,7 @@ namespace Chilli
 	{
 	public:
 		AssetLoader(BackBone::SystemContext& Ctxt);
-		~AssetLoader(){
+		~AssetLoader() {
 			for (auto Loader : _AssetLoaders)
 				delete Loader;
 		}
@@ -257,7 +321,7 @@ namespace Chilli
 				_AssetLoaders[it->second]->Unload(_Ctxt, Path);
 			}
 		}
-		
+
 		// Getters for Inspection
 		const std::unordered_map<std::string, uint32_t>& GetExtensionMap() const { return _ExtensionMap; }
 

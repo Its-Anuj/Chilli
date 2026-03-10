@@ -10,6 +10,7 @@
 struct GameResource
 {
 	Chilli::BackBone::Entity Player;
+	Chilli::BackBone::Entity Lines;
 	Chilli::BackBone::Entity Camera;
 	Chilli::BackBone::Entity RenderStatsText;
 	Chilli::BackBone::Entity RenderDataStats;
@@ -23,6 +24,8 @@ struct GameResource
 	Chilli::BackBone::AssetHandle<Chilli::Sampler> Sampler;
 	Chilli::BackBone::AssetHandle<Chilli::EmberFont> AlkiaFont;
 	Chilli::Scene GameScene;
+
+	std::vector<Chilli::Vertex> Particles;
 
 	uint32_t GameWindow;
 };
@@ -53,7 +56,7 @@ void OnGameCreate(Chilli::BackBone::SystemContext& Ctxt)
 	Command.AttachShaderModule(GeometryShaderProgram, GeometryPassFragShader);
 	Command.LinkShaderProgram(GeometryShaderProgram);
 
-	auto SquareMesh = Command.CreateMesh(Chilli::BasicShapes::SPHERE);
+	auto SquareMesh = Command.CreateSphere(16, 16);
 
 	auto GameData = Ctxt.Registry->GetResource<GameResource>();
 
@@ -85,7 +88,8 @@ void OnGameCreate(Chilli::BackBone::SystemContext& Ctxt)
 
 	GameData->Player = Command.CreateEntity();
 	Command.AddComponent<Chilli::TransformComponent>(GameData->Player, Chilli::TransformComponent(
-	));
+	)
+	);
 
 	Command.AddComponent<Chilli::MeshComponent>(GameData->Player, Chilli::MeshComponent{
 		.MeshHandle = SquareMesh,
@@ -97,7 +101,7 @@ void OnGameCreate(Chilli::BackBone::SystemContext& Ctxt)
 	Chilli::PepperTransform panelTransform;
 
 	GameData->AlkiaFont = Command.LoadFont_TTF("Assets/Alkia.ttf");
-	
+
 	// Size: 20% width, 20% height (example)
 	panelTransform.PercentageDimensions = { 0.2f, 0.25f };
 
@@ -117,7 +121,6 @@ void OnGameCreate(Chilli::BackBone::SystemContext& Ctxt)
 	Command.AddComponent<Chilli::PepperTransform>(GameData->RenderStatsText, panelTransform);
 	Command.AddComponent<Chilli::EmberTextComponent>(GameData->RenderStatsText, RenderStatsTextData);
 
-
 	GameData->Camera = Chilli::CameraBundle::Create3D(Ctxt);
 	Command.AddComponent<Chilli::Deafult3DCameraController>(GameData->Camera, Chilli::Deafult3DCameraController());
 
@@ -125,9 +128,34 @@ void OnGameCreate(Chilli::BackBone::SystemContext& Ctxt)
 
 	auto SceneManager = Command.GetService<Chilli::SceneManager>();
 	SceneManager->SetActiveScene(&GameData->GameScene);
+
+	Chilli::BlazeVertex pathVertices[] = {
+		// Segment 1
+		{{  0.000f,  1.000f, 0.0f }}, {{  0.951f,  0.309f, 0.0f }},
+		{{  0.951f,  0.309f, 0.0f }}, {{  0.588f, -0.809f, 0.0f }},
+		{{  0.588f, -0.809f, 0.0f }}, {{ -0.588f, -0.809f, 0.0f }},
+		{{ -0.588f, -0.809f, 0.0f }}, {{ -0.951f,  0.309f, 0.0f }},
+		{{ -0.951f,  0.309f, 0.0f }}, {{  0.000f,  1.000f, 0.0f }}
+	};
+
+	GameData->Lines = Command.CreateEntity();
+	Chilli::BlazeMeshComponent BlazeMeshComponent;
+	BlazeMeshComponent.LineCount = sizeof(pathVertices)/sizeof(pathVertices[0]);
+	BlazeMeshComponent.Color = { 1.0f, 0.0f, 0.0f, 1.0f };
+
+	Chilli::BufferCreateInfo LineVBInfo;
+	LineVBInfo.SizeInBytes = sizeof(pathVertices);
+	LineVBInfo.Data = &pathVertices[0];
+	LineVBInfo.State = Chilli::BufferState::STATIC_DRAW;
+	LineVBInfo.Type = Chilli::BufferType::BUFFER_TYPE_VERTEX;
+
+	BlazeMeshComponent.VertexBuffer = Command.CreateBuffer(LineVBInfo, "LineVB");
+	BlazeMeshComponent.Mode = Chilli::BlazeMode::WORLDSPACE;
+
+	Command.AddComponent<Chilli::BlazeMeshComponent>(GameData->Lines, BlazeMeshComponent);
 }
 
-void UpdateRenderStatsText(const Chilli::RenderDeviceStats& stats, Chilli::EmberTextComponent& textComp)
+void UpdateRenderStatsText(const Chilli::RenderDeviceStats& stats, const Chilli::RenderDeviceLimits& Limits, Chilli::EmberTextComponent& textComp)
 {
 	// Build multi-line string
 	std::ostringstream ss;
@@ -139,9 +167,11 @@ void UpdateRenderStatsText(const Chilli::RenderDeviceStats& stats, Chilli::Ember
 	ss << "Pipelines: " << stats.ActivePipelines << "\n\n";
 
 	ss << "Memory (VRAM):\n";
-	ss << "Allocated: " << stats.AllocatedVRAM / 1024 << " KB\n";
-	ss << "Used: " << stats.UsedVRAM / 1024 << " KB\n";
-	ss << "Staging: " << stats.StagingBufferMemory / 1024 << " KB\n\n";
+	ss << "Used(VRAM): " << stats.MemoryUsed.GpuLocal / 1024 << " KB / " << Limits.MemoryLimits.GpuLocal / 1024
+		<< "KB\n";
+	ss << "Used(Staging): " << stats.MemoryUsed.Upload / 1024 << " KB / " << Limits.MemoryLimits.Upload / 1024
+		<< "KB\n";
+	ss << "Used(System RAM): " << stats.MemoryUsed.CpuReadback / 1024 << " KB / " << Limits.MemoryLimits.CpuReadback / 1024 << "KB\n\n";
 
 	ss << "Frame Stats:\n";
 	ss << "Indices: " << stats.IndiciesRendered << "\n";
@@ -175,7 +205,7 @@ void OnGamePlay(Chilli::BackBone::SystemContext& Ctxt)
 	}
 	PlayerTranform->RotateX(2 * Ts);
 	// Inside your main update loop
-	UpdateRenderStatsText(RenderService->GetRenderDeviceStats(),
+	UpdateRenderStatsText(RenderService->GetRenderDeviceStats(), RenderService->GetActiveRenderDeviceLimit(),
 		*Command.GetComponent<Chilli::EmberTextComponent>(GameData->RenderStatsText));
 }
 

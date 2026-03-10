@@ -23,7 +23,7 @@ namespace Chilli
 		using ExtensionID = std::uint32_t;
 
 		static constexpr Entity npos = static_cast<Entity>(-1);
-		
+
 		// Tag types
 		struct RuntimeResourceTag {};
 		struct CpuAssetTag {};
@@ -486,6 +486,17 @@ namespace Chilli
 		{
 			TimeStep Ts{ 0.0f };
 			bool IsRunning = true;
+
+			struct StageData
+			{
+				float Ticks = 1.0f/60.0f;
+				float Accumulator = 0.0f;
+				float Alpha = 0.0f;
+			};
+			StageData FixedPhysicsData;
+			StageData FixedSimulationData;
+			StageData FixedAIData;
+			StageData FixedTriggerData;
 		};
 
 		struct SystemContext
@@ -513,8 +524,18 @@ namespace Chilli
 		enum class ScheduleTimer
 		{
 			START_UP,
+
+			INPUT,
+			
+			FIXED_NETWORK,
+			SIMULATION,   // Physics/Collision
+			FIXED_AI,
+			FIXED_TRIGGER, 
+			
 			UPDATE,
+			ANIMATION,
 			RENDER,
+
 			SHUTDOWN,
 			COUNT
 		};
@@ -532,6 +553,27 @@ namespace Chilli
 			std::array<std::vector< std::function<void(SystemContext&)>>, int(ScheduleTimer::COUNT)> _SystemFunctions;
 			std::array<std::vector< std::function<void(SystemContext&)>>, int(ScheduleTimer::COUNT)> _SystemOverLayBefore;
 			std::array<std::vector< std::function<void(SystemContext&)>>, int(ScheduleTimer::COUNT)> _SystemOverLayAfter;
+		};
+
+		class FrameTimer
+		{
+		public:
+			void Start()
+			{
+				_Last = Clock::now();
+			}
+
+			float Reset()
+			{
+				auto now = Clock::now();
+				std::chrono::duration<float> delta = now - _Last;
+				_Last = now;
+				return delta.count();
+			}
+
+		private:
+			using Clock = std::chrono::steady_clock;
+			Clock::time_point _Last = Clock::now();
 		};
 
 		class Extension
@@ -870,14 +912,14 @@ namespace Chilli
 			void Run();
 
 			void AddSystem(ScheduleTimer Stage, const std::function<void(SystemContext&)>& Function) {
-				 SystemScheduler.AddSystem(Stage, Function);
+				SystemScheduler.AddSystem(Stage, Function);
 			}
 
-			void AddSystemOverLayBefore(ScheduleTimer Stage, const std::function<void(SystemContext&)>& Function) { 
-				SystemScheduler.AddSystemOverLayBefore(Stage, Function); 
+			void AddSystemOverLayBefore(ScheduleTimer Stage, const std::function<void(SystemContext&)>& Function) {
+				SystemScheduler.AddSystemOverLayBefore(Stage, Function);
 			}
 
-			void AddSystemOverLayAfter(ScheduleTimer Stage, const std::function<void(SystemContext&)>& Function) { 
+			void AddSystemOverLayAfter(ScheduleTimer Stage, const std::function<void(SystemContext&)>& Function) {
 				SystemScheduler.AddSystemOverLayAfter(Stage, Function);
 			}
 		};

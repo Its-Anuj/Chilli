@@ -6,6 +6,7 @@ namespace Chilli
 {
 	enum class BufferState
 	{
+		NONE,
 		STATIC_DRAW,
 		DYNAMIC_DRAW,
 		STREAM_DRAW,   // Set every frame, used once

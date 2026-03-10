@@ -281,6 +281,54 @@ namespace Chilli
 		vkCmdEndRendering(CmdBuffer);
 	}
 
+	void FillVmaMemoryUsageHeaps(
+		VmaAllocator allocator,
+		const VkPhysicalDeviceMemoryProperties* memProps,
+		uint64_t& GpuLocal,
+		uint64_t& Upload,
+		uint64_t& CpuReadback)
+	{
+		VmaTotalStatistics stats{};
+		vmaCalculateStatistics(allocator, &stats);
+
+		for (uint32_t i = 0; i < memProps->memoryHeapCount; i++)
+		{
+			const VkMemoryHeap& heap = memProps->memoryHeaps[i];
+
+			bool deviceLocal =
+				(heap.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0;
+
+			// 🔥 REAL allocated bytes inside this heap
+			uint64_t usage =
+				stats.memoryHeap[i].statistics.allocationBytes;
+
+			if (deviceLocal)
+			{
+				bool hostVisible = false;
+
+				for (uint32_t t = 0; t < memProps->memoryTypeCount; t++)
+				{
+					if (memProps->memoryTypes[t].heapIndex == i &&
+						(memProps->memoryTypes[t].propertyFlags &
+							VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
+					{
+						hostVisible = true;
+						break;
+					}
+				}
+
+				if (hostVisible)
+					Upload += usage;
+				else
+					GpuLocal += usage;
+			}
+			else
+			{
+				CpuReadback += usage;
+			}
+		}
+	}
+
 	VkCommandBuffer VulkanGraphicsBackend::_TranslateGraphicsCommandBuffer(const GraphicsCommandBuffer& CmdBuffer)
 	{
 		int Offset = 0;
@@ -319,6 +367,19 @@ namespace Chilli
 				_Stats.TotalImagesAllocated = _ImageDataManager.GetImageAllocatedCount();
 				_Stats.TotalTexturesCreated = _ImageDataManager.GetTextureAllocatedCount();
 				_Stats.TotalBuffersCreated = _BufferManager.GetActiveCount();
+
+				const VkPhysicalDeviceMemoryProperties* memProps = nullptr;
+				vmaGetMemoryProperties(_Data.Allocator, &memProps);
+
+				VmaBudget* budgets = (VmaBudget*)alloca(memProps->memoryHeapCount * sizeof(VmaBudget));
+				vmaGetHeapBudgets(_Data.Allocator, (VmaBudget*)budgets);
+
+				_Stats.MemoryUsed.GpuLocal = 0;
+				_Stats.MemoryUsed.Upload = 0;
+				_Stats.MemoryUsed.CpuReadback = 0;
+
+				FillVmaMemoryUsageHeaps(_Data.Allocator, memProps, _Stats.MemoryUsed.GpuLocal, _Stats.MemoryUsed.Upload,
+					_Stats.MemoryUsed.CpuReadback);
 
 				_UpdateAllMaterialUpdateData();
 
@@ -468,17 +529,17 @@ namespace Chilli
 				// ─────────────────────────────────────────────
 				// Primitive topology
 				// ─────────────────────────────────────────────
-				if (Payload->TopologyMode != InputTopologyMode::None)
+				// if (Payload->TopologyMode != InputTopologyMode::None)
 				{
 					SetPrimitiveTopology(ActiveCommandBuffer, Payload->TopologyMode);
 
-					// If your topology implies primitive restart
-					// (optional – depends on your engine design)
-					const ChBool8 restart =
-						(Payload->TopologyMode == InputTopologyMode::Triangle_Strip ||
-							Payload->TopologyMode == InputTopologyMode::Triangle_List)
-						? CH_TRUE
-						: CH_FALSE;
+					// Primitive Restart is only useful for Strips and Fans
+					// It allows a special index (0xFFFF or 0xFFFFFFFF) to break the strip
+					const ChBool8 restart = (
+						Payload->TopologyMode == InputTopologyMode::Line_Strip ||
+						Payload->TopologyMode == InputTopologyMode::Triangle_Strip ||
+						Payload->TopologyMode == InputTopologyMode::Triangle_Fan
+						) ? CH_TRUE : CH_FALSE;
 
 					SetPrimitiveRestartEnable(ActiveCommandBuffer, restart);
 				}
@@ -674,15 +735,13 @@ namespace Chilli
 					ActiveCommandBuffer,
 					_BufferManager.Get(Payload->IndexBufferHandle)->Buffer,
 					0,
-					VK_INDEX_TYPE_UINT32);
+					Payload->Type == IndexBufferType::UINT32_T ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16);
 				break;
 			}
 			case RenderOpCode::DRAW_INDEXED:
 			{
-				// 1. Cast the payload from the data stream
 				auto Payload = (DrawIndexedCmdPayload*)(Dst);
 
-				// 2. Call the Vulkan command
 				vkCmdDrawIndexed(
 					ActiveCommandBuffer,
 					Payload->ElementCount,
@@ -693,8 +752,79 @@ namespace Chilli
 				);
 
 				_Stats.DrawCallsPerFrame++;
-				_Stats.IndiciesRendered += Payload->ElementCount;
-				_Stats.TrianglesPerFrame += Payload->ElementCount/3;
+
+				uint64_t trianglesPerInstance = 0;
+
+				switch (this->_ActivePipelineState.TopologyMode)
+				{
+				case InputTopologyMode::Triangle_List:
+					trianglesPerInstance = Payload->ElementCount / 3;
+					break;
+
+				case InputTopologyMode::Triangle_Strip:
+					trianglesPerInstance =
+						Payload->ElementCount >= 3 ?
+						Payload->ElementCount - 2 : 0;
+					break;
+
+				default:
+					trianglesPerInstance = 0;
+					break;
+				}
+
+				uint64_t instanceCount = Payload->InstanceCount;
+
+				_Stats.TrianglesPerFrame +=
+					trianglesPerInstance * instanceCount;
+
+				_Stats.IndiciesRendered +=
+					uint64_t(Payload->ElementCount) * instanceCount;
+
+				break;
+			}case RenderOpCode::DRAW_ARRAY:
+			{
+				// 1. Use the correct payload for non-indexed drawing
+				auto Payload = (DrawArrayCmdPayload*)(Dst);
+
+				// 2. Call the non-indexed Vulkan draw command
+				vkCmdDraw(
+					ActiveCommandBuffer,
+					Payload->ElementCount,    // Number of vertices to draw
+					Payload->InstanceCount,  // Number of instances
+					Payload->FirstElement,    // First vertex index
+					Payload->FirstInstance   // First instance ID
+				);
+
+				_Stats.DrawCallsPerFrame++;
+
+				// 3. Calculate primitive count based on VertexCount (instead of ElementCount)
+				uint64_t trianglesPerInstance = 0;
+
+				switch (this->_ActivePipelineState.TopologyMode)
+				{
+				case InputTopologyMode::Triangle_List:
+					trianglesPerInstance = Payload->ElementCount / 3;
+					break;
+
+				case InputTopologyMode::Triangle_Strip:
+					trianglesPerInstance =
+						Payload->ElementCount >= 3 ?
+						Payload->ElementCount - 2 : 0;
+					break;
+
+				default:
+					trianglesPerInstance = 0;
+					break;
+				}
+
+				uint64_t instanceCount = Payload->InstanceCount;
+
+				_Stats.TrianglesPerFrame += trianglesPerInstance * instanceCount;
+
+				// Note: 'IndicesRendered' usually refers to index buffer usage. 
+				// For arrays, you might want to track 'VerticesRendered' instead.
+				_Stats.VerticesRendered += uint64_t(Payload->ElementCount) * instanceCount;
+
 				break;
 			}
 			}
@@ -1817,21 +1947,6 @@ namespace Chilli
 	void PopulateDeviceLimits(const VulkanPhysiscalDeviceInfo& vkInfo, RenderDeviceLimits& outLimits)
 	{
 		const auto& props = vkInfo.properties;
-		const auto& memProps = vkInfo.memoryProperties;
-
-		// --- 1. Memory Calculation ---
-		outLimits.TotalVRAMBytes = 0;
-		outLimits.SharedMemoryBytes = 0;
-
-		for (uint32_t i = 0; i < memProps.memoryHeapCount; i++) {
-			if (memProps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
-				outLimits.TotalVRAMBytes += memProps.memoryHeaps[i].size;
-			}
-			else {
-				outLimits.SharedMemoryBytes += memProps.memoryHeaps[i].size;
-			}
-		}
-
 		// --- 2. MSAA Setup ---
 		// Combine Color and Depth support to find the common denominator
 		VkSampleCountFlags counts = props.limits.framebufferColorSampleCounts & props.limits.framebufferDepthSampleCounts;
@@ -2033,6 +2148,52 @@ namespace Chilli
 		Info.physicalDevice = _Data.Device.GetPhysicalDevice()->PhysicalDevice;
 		Info.instance = _Data.Instance;
 		vmaCreateAllocator(&Info, &_Data.Allocator);
+		std::vector<VmaBudget> budgets;
+
+		for (size_t pdIndex = 0; pdIndex < _Data.PhysicalDevices.size(); pdIndex++)
+		{
+			auto& vkInfo = _Data.PhysicalDevices[pdIndex].Info;
+			const auto memProps = &vkInfo.memoryProperties;
+			auto& outLimits = _Data.PhysicalDeviceLimits[pdIndex];
+
+			outLimits.MemoryLimits = {};
+			budgets.resize(memProps->memoryHeapCount + 2);
+			vmaGetHeapBudgets(_Data.Allocator, budgets.data());
+
+			for (uint32_t heapIndex = 0; heapIndex < memProps->memoryHeapCount; heapIndex++)
+			{
+				const VkMemoryHeap& heap = memProps->memoryHeaps[heapIndex];
+
+				bool deviceLocal = (heap.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0;
+
+				bool hostVisible = false;
+				for (uint32_t t = 0; t < memProps->memoryTypeCount; t++)
+				{
+					if (memProps->memoryTypes[t].heapIndex == heapIndex &&
+						(memProps->memoryTypes[t].propertyFlags &
+							VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
+					{
+						hostVisible = true;
+						break;
+					}
+				}
+
+				VkDeviceSize budget = budgets[heapIndex].budget;
+
+				if (deviceLocal)
+				{
+					if (hostVisible)
+						outLimits.MemoryLimits.Upload += budget;     // BAR / mapped device heap
+					else
+						outLimits.MemoryLimits.GpuLocal += budget;   // True VRAM
+				}
+				else
+				{
+					outLimits.MemoryLimits.CpuReadback += budget;    // System RAM heap
+				}
+			}
+		}
+
 		VULKAN_PRINTLN("VMA Allocator Created!");
 	}
 
@@ -2421,7 +2582,7 @@ namespace Chilli
 		std::string FailMessage = "TRANSFER QUEUE FAILED TO SUBMIT";
 		auto Queue = _Device->GetQueue(QueueFamilies::TRANSFER);
 		auto Fence = this->_TransferFence;
-		
+
 		if (_ActiveCmdBuffer == _GraphicsCmdBuffer)
 		{
 			Queue = _Device->GetQueue(QueueFamilies::GRAPHICS);

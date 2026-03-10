@@ -1,4 +1,5 @@
 ﻿#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
 #include "Ch_PCH.h"
 #include "DeafultExtensions.h"
 #include "Window/Window.h"
@@ -66,7 +67,7 @@ namespace Chilli
 		auto MeshStore = Command.GetStore<Mesh>();
 		for (auto& MeshInfo : *MeshStore)
 		{
-			Command.DestroyBuffer(MeshInfo->VBHandle);
+			Command.DestroyBuffer(MeshInfo->VertexBufferHandles[0]);
 			if (MeshInfo->IBHandle.ValPtr != nullptr)
 				Command.DestroyBuffer(MeshInfo->IBHandle);
 		}
@@ -153,8 +154,19 @@ namespace Chilli
 		RenderService->PushInlineUniformData(ActiveShader.ValPtr->RawProgramHandle,
 			SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, &PushData, sizeof(PushData), 0);
 
-		RenderService->BindVertexBuffer({ DefferedResource->ScreenRenderMesh.ValPtr->VBHandle.ValPtr->RawBufferHandle });
-		RenderService->BindIndexBuffer(DefferedResource->ScreenRenderMesh.ValPtr->IBHandle.ValPtr->RawBufferHandle, IndexBufferType::UINT16_T);
+		uint32_t Buffers[16] = { 0 };
+		uint32_t BindingCount = 0;
+
+		for (int i = 0; i < DefferedResource->ScreenRenderMesh.ValPtr->ActiveVBHandlesCount; i++)
+		{
+			Buffers[i] = DefferedResource->ScreenRenderMesh.ValPtr->VertexBufferHandles[i].ValPtr->RawBufferHandle;
+			BindingCount++;
+		}
+
+		RenderService->BindVertexBuffer(Buffers, BindingCount);
+
+		RenderService->BindIndexBuffer(DefferedResource->ScreenRenderMesh.ValPtr->IBHandle.ValPtr->RawBufferHandle,
+			DefferedResource->ScreenRenderMesh.ValPtr->IBType);
 
 		RenderService->DrawIndexed(DefferedResource->ScreenRenderMesh.ValPtr->IndexCount, 1, 0, 0, 0);
 	}
@@ -175,8 +187,17 @@ namespace Chilli
 			RenderService->BindShaderProgram(ActiveShader.ValPtr->RawProgramHandle);
 			RenderService->BindMaterailData(RawMaterialHandle);
 
-			RenderService->BindVertexBuffer({ ActiveMesh->VBHandle.ValPtr->RawBufferHandle });
-			RenderService->BindIndexBuffer(ActiveMesh->IBHandle.ValPtr->RawBufferHandle, IndexBufferType::UINT16_T);
+			uint32_t Buffers[16] = { 0 };
+			uint32_t BindingCount = 0;
+
+			for (int i = 0; i < ActiveMesh->ActiveVBHandlesCount; i++)
+			{
+				Buffers[i] = ActiveMesh->VertexBufferHandles[i].ValPtr->RawBufferHandle;
+				BindingCount++;
+			}
+
+			RenderService->BindVertexBuffer(Buffers, BindingCount);
+			RenderService->BindIndexBuffer(ActiveMesh->IBHandle.ValPtr->RawBufferHandle, ActiveMesh->IBType);
 
 			if (MaterialSystem->ShouldMaterialShaderDataUpdate(MeshComp->MaterialHandle))
 			{
@@ -230,10 +251,19 @@ namespace Chilli
 			for (auto& Barrier : Pass.Pass.PrePassBarriers)
 				RenderService->PushPipelienBarrier(Barrier, RenderStreamTypes::GRAPHICS);
 			RenderService->BeginRenderPass(Pass.Pass.Info);
+			Pass.Info.SampleCount = Pass.Pass.Info.Samples;
 			RenderService->SetFullPipelineState(Pass.Info);
 			RenderService->SetVertexInputLayout(Pass.Layout);
 
 			Pass.RenderFn(Ctxt, Pass.Pass.Info);
+
+			for (auto& SubPass : Pass.SubPasses)
+			{
+				SubPass.Info.SampleCount = Pass.Pass.Info.Samples;
+				RenderService->SetFullPipelineState(SubPass.Info);
+				RenderService->SetVertexInputLayout(SubPass.Layout);
+				SubPass.RenderFn(Ctxt, Pass.Pass.Info);
+			}
 
 			RenderService->EndRenderPass();
 			for (auto& Barrier : Pass.Pass.PostPassBarriers)
@@ -300,7 +330,7 @@ namespace Chilli
 			ColorImageSpec.Usage = IMAGE_USAGE_COLOR_ATTACHMENT | IMAGE_USAGE_SAMPLED_IMAGE;
 			ColorImageSpec.State = ResourceState::ShaderRead;
 			DefferedResource->GeometryColorImage = Command.AllocateImage(ColorImageSpec);
-			
+
 			TextureSpec ColorTextureSpec;
 			ColorTextureSpec.Format = ColorImageSpec.Format;
 			DefferedResource->GeometryColorTexture = Command.CreateTexture(DefferedResource->GeometryColorImage, ColorTextureSpec);
@@ -359,15 +389,8 @@ namespace Chilli
 			GeometryPass.AddColor(Color);
 			GeometryPass.SetDepth(Depth);
 
-			auto PrePass = GetEmberPrePassPipelineBarrier(Ctxt);
-			for (auto& Barrier : PrePass)
-				GeometryPass.AddPrePipelineBarrier(Barrier);
-
-			PrePass = GetEmberPostPassPipelineBarrier(Ctxt);
-			for (auto& Barrier : PrePass)
-				GeometryPass.AddPostPipelineBarrier(Barrier);
-
 			GeometryPass.SetArea(WindowSize.x, WindowSize.y);
+			GeometryPass.SetSampleCount(GeometryPassMSAA);
 
 			GeometryPassIndex = Compiler.PushPass(GeometryPass.Build());
 		}
@@ -390,12 +413,15 @@ namespace Chilli
 
 			SquareInfo.VertCount = SquareVertices.size();
 			SquareInfo.Vertices = SquareVertices.data();
-			SquareInfo.VerticesSize = sizeof(Chilli::Vertex2D) * SquareVertices.size();
 			SquareInfo.IndexCount = SquareIndices.size();
 			SquareInfo.Indicies = SquareIndices.data();
-			SquareInfo.IndiciesSize = sizeof(uint32_t) * SquareIndices.size();
 			SquareInfo.IndexType = Chilli::IndexBufferType::UINT32_T;
-			SquareInfo.State = Chilli::BufferState::STATIC_DRAW;
+			SquareInfo.IndexBufferState = BufferState::STATIC_DRAW;
+
+			SquareInfo.MeshLayout.BeginBinding(0, false);
+			SquareInfo.MeshLayout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
+			SquareInfo.MeshLayout.AddAttribute(ShaderObjectTypes::FLOAT2, "InTexCoords", 1);
+
 			DefferedResource->ScreenRenderMesh = Command.CreateMesh(SquareInfo);
 
 			// Create Shaders
@@ -430,6 +456,7 @@ namespace Chilli
 			ScreenPass.AddColor(Color);
 			ScreenPass.AddImageBarrier(true, UINT32_MAX, ResourceState::Present, ResourceState::RenderTarget, true);
 			ScreenPass.SetArea(WindowSize.x, WindowSize.y);
+			ScreenPass.SetSampleCount(IMAGE_SAMPLE_COUNT_1_BIT);
 
 			ScreenPassIndex = Compiler.PushPass(ScreenPass.Build());
 		}
@@ -443,6 +470,7 @@ namespace Chilli
 			RenderPassBuilder UIPepperPass("UIPepperPass");
 			UIPepperPass.AddColor(Color);
 			UIPepperPass.SetArea(WindowSize.x, WindowSize.y);
+			UIPepperPass.SetSampleCount(IMAGE_SAMPLE_COUNT_1_BIT);
 
 			auto UIPepperPrePassBarriers = GetPepperPrePassPipelineBarrier(Ctxt);
 			for (auto& Barrier : UIPepperPrePassBarriers)
@@ -450,6 +478,14 @@ namespace Chilli
 
 			auto UIPepperPostPassBarriers = GetPepperPostPassPipelineBarrier(Ctxt);
 			for (auto& Barrier : UIPepperPostPassBarriers)
+				UIPepperPass.AddPostPipelineBarrier(Barrier);
+
+			auto PrePass = GetEmberPrePassPipelineBarrier(Ctxt);
+			for (auto& Barrier : PrePass)
+				UIPepperPass.AddPrePipelineBarrier(Barrier);
+
+			PrePass = GetEmberPostPassPipelineBarrier(Ctxt);
+			for (auto& Barrier : PrePass)
 				UIPepperPass.AddPostPipelineBarrier(Barrier);
 
 			UIPepperPassIndex = Compiler.PushPass(UIPepperPass.Build());
@@ -466,6 +502,7 @@ namespace Chilli
 			PresentPass.AddPostPipelineBarrier(UINT32_MAX, ResourceState::RenderTarget, ResourceState::Present,
 				false, true);
 			PresentPass.SetArea(WindowSize.x, WindowSize.y);
+			PresentPass.SetSampleCount(IMAGE_SAMPLE_COUNT_1_BIT);
 
 			PresentPassIndex = Compiler.PushPass(PresentPass.Build());
 		}
@@ -479,6 +516,7 @@ namespace Chilli
 		GeometryLayout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
 		GeometryLayout.AddAttribute(ShaderObjectTypes::FLOAT3, "InNormal", 1);
 		GeometryLayout.AddAttribute(ShaderObjectTypes::FLOAT2, "InTexCoords", 2);
+		GeometryLayout.AddAttribute(ShaderObjectTypes::FLOAT3, "InColor", 3);
 
 		RenderGraphPass GeometryGraphPass;
 		GeometryGraphPass.DebugName = "GeometryPass";
@@ -496,6 +534,76 @@ namespace Chilli
 		GeometryGraphPass.Layout = GeometryLayout;
 		GeometryGraphPass.SortOrder = 0;
 
+		{
+			// Define a standard Alpha Blend attachment for UI/Overlay
+			ColorBlendAttachmentState AlphaBlend;
+			AlphaBlend.BlendEnable = true;
+			AlphaBlend.SrcColorFactor = BlendFactor::SRC_ALPHA;
+			AlphaBlend.DstColorFactor = BlendFactor::ONE_MINUS_SRC_ALPHA;
+			AlphaBlend.ColorBlendOp = BlendOp::ADD;
+			AlphaBlend.SrcAlphaFactor = BlendFactor::ONE;
+			AlphaBlend.DstAlphaFactor = BlendFactor::ZERO;
+			AlphaBlend.AlphaBlendOp = BlendOp::ADD;
+			AlphaBlend.ColorWriteMask = 0xF; // RGBA
+
+			// WorldSpace: Depth ON, Write ON
+			PipelineStateInfo WorldSpaceState = PipelineBuilder::Default()
+				.SetTopology(InputTopologyMode::Line_List)
+				.SetRasterizer(CullMode::None)
+				.SetDepth(true, true, CompareOp::LESS) // Standard depth behavior
+				.SetMSAA(GeometryPassMSAA)             // Must match Chilli's MSAA
+				.AddColorBlend(ColorBlendAttachmentState::OpaquePass())
+				.Build();
+
+			VertexInputShaderLayout Layout;
+			Layout.BeginBinding(0);
+			Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
+
+			SubGraphPass WorldSpaceBlazeSubPass;
+			WorldSpaceBlazeSubPass.DebugName = "WorldSpaceBlazeSubPass";
+			WorldSpaceBlazeSubPass.Info = WorldSpaceState;
+			WorldSpaceBlazeSubPass.Layout = Layout;
+			WorldSpaceBlazeSubPass.RenderFn = OnBlazeRenderWorldSpace;
+
+			// X-Ray: Depth Test ON (Greater), Depth Write OFF
+	// We use AlphaBlend because X-Ray lines usually look better semi-transparent
+			PipelineStateInfo XRayState = PipelineBuilder::Default()
+				.SetTopology(InputTopologyMode::Line_List)
+				.SetRasterizer(CullMode::None)
+				.SetDepth(true, false, CompareOp::GREATER) // Pass ONLY if behind geometry
+				.SetMSAA(GeometryPassMSAA)
+				.ClearColorBlends()
+				.AddColorBlend(AlphaBlend)
+				.Build();
+
+			// Uses the same Vertex Layout as WorldSpace
+			SubGraphPass XRayBlazeSubPass;
+			XRayBlazeSubPass.DebugName = "XRayBlazeSubPass";
+			XRayBlazeSubPass.Info = XRayState;
+			XRayBlazeSubPass.Layout = Layout;
+			XRayBlazeSubPass.RenderFn = OnBlazeRenderXRay;
+
+			// Gizmo: Depth Test OFF, Depth Write OFF
+	// We use OpaquePass because Gizmos are usually solid vibrant colors (RGB)
+			PipelineStateInfo GizmoState = PipelineBuilder::Default()
+				.SetTopology(InputTopologyMode::Line_List)
+				.SetRasterizer(CullMode::None)
+				.SetDepth(false, false) // Always visible, never writes to depth
+				.SetMSAA(GeometryPassMSAA)
+				.AddColorBlend(ColorBlendAttachmentState::OpaquePass())
+				.Build();
+
+			SubGraphPass GizmoBlazeSubPass;
+			GizmoBlazeSubPass.DebugName = "GizmoBlazeSubPass";
+			GizmoBlazeSubPass.Info = GizmoState;
+			GizmoBlazeSubPass.Layout = Layout;
+			GizmoBlazeSubPass.RenderFn = OnBlazeRenderGizmo;
+
+			GeometryGraphPass.SubPasses.push_back(WorldSpaceBlazeSubPass);
+			GeometryGraphPass.SubPasses.push_back(XRayBlazeSubPass);
+			GeometryGraphPass.SubPasses.push_back(GizmoBlazeSubPass);
+		}
+
 		VertexInputShaderLayout ScreenLayout;
 		ScreenLayout.BeginBinding(0);
 		ScreenLayout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
@@ -510,6 +618,38 @@ namespace Chilli
 			.Build();
 		ScreenGraphPass.Layout = ScreenLayout;
 		ScreenGraphPass.SortOrder = 1;
+
+		SubGraphPass UIPepperBlazeSubPass;
+		{
+			// Define a standard Alpha Blend attachment for UI/Overlay
+			ColorBlendAttachmentState AlphaBlend;
+			AlphaBlend.BlendEnable = true;
+			AlphaBlend.SrcColorFactor = BlendFactor::SRC_ALPHA;
+			AlphaBlend.DstColorFactor = BlendFactor::ONE_MINUS_SRC_ALPHA;
+			AlphaBlend.ColorBlendOp = BlendOp::ADD;
+			AlphaBlend.SrcAlphaFactor = BlendFactor::ONE;
+			AlphaBlend.DstAlphaFactor = BlendFactor::ZERO;
+			AlphaBlend.AlphaBlendOp = BlendOp::ADD;
+			AlphaBlend.ColorWriteMask = 0xF; // RGBA
+
+			// Build the "SingeMode::Overlay" State
+			PipelineStateInfo OverlayState = PipelineBuilder::Default()
+				.SetTopology(InputTopologyMode::Line_List)   // Essential for Blaze lines
+				.SetRasterizer(CullMode::None)               // Don't cull lines in screen space
+				.SetDepth(false, false)                      // Disable depth test & write (Always on top)
+				.ClearColorBlends()                          // Clear defaults if any
+				.AddColorBlend(AlphaBlend)                   // Add our transparency support
+				.Build();
+
+			VertexInputShaderLayout Layout;
+			Layout.BeginBinding(0);
+			Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
+
+			UIPepperBlazeSubPass.DebugName = "PepperBlazeSubPass";
+			UIPepperBlazeSubPass.Info = OverlayState;
+			UIPepperBlazeSubPass.Layout = Layout;
+			UIPepperBlazeSubPass.RenderFn = OnBlazeRenderOverlay;
+		}
 
 		VertexInputShaderLayout UIPepperLayout;
 		UIPepperLayout.BeginBinding(0);
@@ -526,6 +666,7 @@ namespace Chilli
 			.Build();
 		UIPepperGraphPass.Layout = UIPepperLayout;
 		UIPepperGraphPass.SortOrder = 2;
+		UIPepperGraphPass.SubPasses.push_back(UIPepperBlazeSubPass);
 
 		RenderGraphPass PresentGraphPass;
 		PresentGraphPass.DebugName = "PresentPass";
@@ -574,6 +715,175 @@ namespace Chilli
 
 		App.SystemScheduler.AddSystemOverLayBefore(BackBone::ScheduleTimer::SHUTDOWN, OnRenderExtensionFinishRendering);
 		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::SHUTDOWN, OnRenderExtensionsCleanUp);
+
+		BlazeExtensionConfig BlazeConfig;
+		App.Extensions.AddExtension(std::make_unique<BlazeExtension>(BlazeConfig), true, &App);
+	}
+#pragma endregion
+
+#pragma region Blaze 
+
+	void OnBlazeSetup(BackBone::SystemContext& Ctxt)
+	{
+		auto Command = Chilli::Command(Ctxt);
+		auto BlazeResource = Command.GetResource<Chilli::BlazeResource>();
+
+		BlazeResource->Shader = Command.CreateShaderProgram();
+		auto BlazeVertShader = Command.CreateShaderModule("Assets/Shaders/blaze_vert.spv", ShaderStageType::SHADER_STAGE_VERTEX);
+		auto BlazeFragShader = Command.CreateShaderModule("Assets/Shaders/blaze_frag.spv", ShaderStageType::SHADER_STAGE_FRAGMENT);
+
+		Command.AttachShaderModule(BlazeResource->Shader, BlazeVertShader);
+		Command.AttachShaderModule(BlazeResource->Shader, BlazeFragShader);
+		Command.LinkShaderProgram(BlazeResource->Shader);
+	}
+
+	void OnBlazeUpdate(BackBone::SystemContext& Ctxt)
+	{
+	}
+
+	void OnBlazeShutDown(BackBone::SystemContext& Ctxt)
+	{
+	}
+
+	void OnBlazeRenderOverlay(BackBone::SystemContext& Ctxt, RenderPassInfo& Info)
+	{
+		auto Command = Chilli::Command(Ctxt);
+		auto RenderCommandService = Command.GetService<RenderCommand>();
+		auto RenderService = Command.GetService<Renderer>();
+		auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
+		auto BlazeResource = Command.GetResource<Chilli::BlazeResource>();
+
+		for (auto [Mesh] : BackBone::Query<BlazeMeshComponent>(*Ctxt.Registry))
+		{
+			if (Mesh->Mode != BlazeMode::OVERLAY)
+				continue;
+
+			auto ActiveShader = BlazeResource->Shader;
+
+			if (RenderService->GetActivePipelineStateInfo().LineWidth != Mesh->LineWidth)
+				RenderService->SetLineWidth(Mesh->LineWidth);
+
+			RenderService->BindShaderProgram(ActiveShader.ValPtr->RawProgramHandle);
+
+			BlazeInlineUniformDataStruct Data{
+				.ModeFlag = uint32_t(Mesh->Mode),
+				.Color = Mesh->Color
+			};
+
+			RenderService->BindVertexBuffer({ Mesh->VertexBuffer.ValPtr->RawBufferHandle });
+			RenderService->PushInlineUniformData(ActiveShader.ValPtr->RawProgramHandle,
+				SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, &Data, sizeof(Data), 0);
+
+			RenderService->DrawArray(Mesh->LineCount, 1, 0, 0, 0);
+		}
+	}
+
+	void OnBlazeRenderWorldSpace(BackBone::SystemContext& Ctxt, RenderPassInfo& Info)
+	{
+		auto Command = Chilli::Command(Ctxt);
+		auto RenderCommandService = Command.GetService<RenderCommand>();
+		auto RenderService = Command.GetService<Renderer>();
+		auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
+		auto BlazeResource = Command.GetResource<Chilli::BlazeResource>();
+
+		for (auto [Mesh] : BackBone::Query<BlazeMeshComponent>(*Ctxt.Registry))
+		{
+			if (Mesh->Mode != BlazeMode::WORLDSPACE)
+				continue;
+
+			auto ActiveShader = BlazeResource->Shader;
+
+			if (RenderService->GetActivePipelineStateInfo().LineWidth != Mesh->LineWidth)
+				RenderService->SetLineWidth(Mesh->LineWidth);
+
+			RenderService->BindShaderProgram(ActiveShader.ValPtr->RawProgramHandle);
+
+			BlazeInlineUniformDataStruct Data{
+				.ModeFlag = uint32_t(Mesh->Mode),
+				.Color = Mesh->Color
+			};
+
+			RenderService->BindVertexBuffer({ Mesh->VertexBuffer.ValPtr->RawBufferHandle });
+			RenderService->PushInlineUniformData(ActiveShader.ValPtr->RawProgramHandle,
+				SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, &Data, sizeof(Data), 0);
+
+			RenderService->DrawArray(Mesh->LineCount, 1, 0, 0, 0);
+		}
+	}
+
+	void OnBlazeRenderXRay(BackBone::SystemContext& Ctxt, RenderPassInfo& Info)
+	{
+		auto Command = Chilli::Command(Ctxt);
+		auto RenderCommandService = Command.GetService<RenderCommand>();
+		auto RenderService = Command.GetService<Renderer>();
+		auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
+		auto BlazeResource = Command.GetResource<Chilli::BlazeResource>();
+
+		for (auto [Mesh] : BackBone::Query<BlazeMeshComponent>(*Ctxt.Registry))
+		{
+			if (Mesh->Mode != BlazeMode::XRAY)
+				continue;
+
+			if (RenderService->GetActivePipelineStateInfo().LineWidth != Mesh->LineWidth)
+				RenderService->SetLineWidth(Mesh->LineWidth);
+
+			auto ActiveShader = BlazeResource->Shader;
+
+			RenderService->BindShaderProgram(ActiveShader.ValPtr->RawProgramHandle);
+
+			BlazeInlineUniformDataStruct Data{
+				.ModeFlag = uint32_t(Mesh->Mode),
+				.Color = Mesh->Color
+			};
+
+			RenderService->BindVertexBuffer({ Mesh->VertexBuffer.ValPtr->RawBufferHandle });
+			RenderService->PushInlineUniformData(ActiveShader.ValPtr->RawProgramHandle,
+				SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, &Data, sizeof(Data), 0);
+
+			RenderService->DrawArray(Mesh->LineCount, 1, 0, 0, 0);
+		}
+	}
+
+	void OnBlazeRenderGizmo(BackBone::SystemContext& Ctxt, RenderPassInfo& Info)
+	{
+		auto Command = Chilli::Command(Ctxt);
+		auto RenderCommandService = Command.GetService<RenderCommand>();
+		auto RenderService = Command.GetService<Renderer>();
+		auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
+		auto BlazeResource = Command.GetResource<Chilli::BlazeResource>();
+
+		for (auto [Mesh] : BackBone::Query<BlazeMeshComponent>(*Ctxt.Registry))
+		{
+			if (Mesh->Mode != BlazeMode::GiIZMO)
+				continue;
+
+			if (RenderService->GetActivePipelineStateInfo().LineWidth != Mesh->LineWidth)
+				RenderService->SetLineWidth(Mesh->LineWidth);
+
+			auto ActiveShader = BlazeResource->Shader;
+
+			RenderService->BindShaderProgram(ActiveShader.ValPtr->RawProgramHandle);
+
+			BlazeInlineUniformDataStruct Data{
+				.ModeFlag = uint32_t(Mesh->Mode),
+				.Color = Mesh->Color
+			};
+
+			RenderService->BindVertexBuffer({ Mesh->VertexBuffer.ValPtr->RawBufferHandle });
+			RenderService->PushInlineUniformData(ActiveShader.ValPtr->RawProgramHandle,
+				SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, &Data, sizeof(Data), 0);
+
+			RenderService->DrawArray(Mesh->LineCount, 1, 0, 0, 0);
+		}
+	}
+
+	void BlazeExtension::Build(BackBone::App& App)
+	{
+		App.Registry.AddResource<BlazeResource>();
+
+		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::START_UP, OnBlazeSetup);
+		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::UPDATE, OnBlazeUpdate);
+		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::SHUTDOWN, OnBlazeShutDown);
 	}
 #pragma endregion
 
@@ -682,12 +992,83 @@ namespace Chilli
 		App.ServiceRegistry.RegisterService< WindowManager>(std::make_shared<WindowManager>(App.AssetRegistry.GetStore<Cursor>()));
 
 		App.SystemScheduler.AddSystemOverLayBefore(BackBone::ScheduleTimer::START_UP, OnWindowStartUp);
-		App.SystemScheduler.AddSystemOverLayBefore(BackBone::ScheduleTimer::UPDATE, OnWindowRun);
+		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::INPUT, OnWindowRun);
 		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::SHUTDOWN, OnWindowShutDown);
 	}
 #pragma endregion 
 
 #pragma region Command
+
+	BackBone::AssetHandle<Mesh> Command::CreateSphere(int XSegments, int YSegments)
+	{
+		std::vector<Chilli::Vertex> Vertices;
+		std::vector<uint32_t> Indices;
+
+		const unsigned int X_SEGMENTS = XSegments;
+		const unsigned int Y_SEGMENTS = YSegments;
+		const float PI = 3.14159265359f;
+
+		for (unsigned int y = 0; y <= Y_SEGMENTS; ++y)
+		{
+			for (unsigned int x = 0; x <= X_SEGMENTS; ++x)
+			{
+				float xSegment = (float)x / (float)X_SEGMENTS;
+				float ySegment = (float)y / (float)Y_SEGMENTS;
+
+				// Calculate spherical coordinates
+				float xPos = std::cos(xSegment * 2.0f * PI) * std::sin(ySegment * PI);
+				float yPos = std::cos(ySegment * PI); // Top is 1, bottom is -1
+				float zPos = std::sin(xSegment * 2.0f * PI) * std::sin(ySegment * PI);
+
+				Chilli::Vertex v;
+				v.Position = { xPos * 0.5f, yPos * 0.5f, zPos * 0.5f }; // 0.5 radius
+				v.Normal = { xPos, yPos, zPos }; // On a unit sphere, position = normal
+				v.UV = { xSegment, ySegment };
+
+				Vertices.push_back(v);
+			}
+		}
+
+		// Generate Indices
+		for (unsigned int y = 0; y < Y_SEGMENTS; ++y)
+		{
+			for (unsigned int x = 0; x < X_SEGMENTS; ++x)
+			{
+				Indices.push_back((y + 1) * (X_SEGMENTS + 1) + x);
+				Indices.push_back(y * (X_SEGMENTS + 1) + x);
+				Indices.push_back(y * (X_SEGMENTS + 1) + (x + 1));
+
+				Indices.push_back((y + 1) * (X_SEGMENTS + 1) + x);
+				Indices.push_back(y * (X_SEGMENTS + 1) + (x + 1));
+				Indices.push_back((y + 1) * (X_SEGMENTS + 1) + (x + 1));
+			}
+		}
+
+		VertexInputShaderLayout Layout;
+		Layout.BeginBinding(0);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InNormal", 1);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT2, "InTexCoords", 2);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InColor", 3);
+
+		Chilli::MeshCreateInfo Info{};
+		Info.VertCount = Vertices.size();
+		Info.Vertices = Vertices.data();
+		Info.IndexCount = Indices.size();
+		Info.Indicies = Indices.data();
+		Info.IndexType = Chilli::IndexBufferType::UINT32_T;
+		Info.MeshLayout = Layout;
+		Info.IndexBufferState = BufferState::STATIC_DRAW;
+
+		// Use your existing CreateMesh(MeshCreateInfo) to talk to the GPU
+		return CreateMesh(Info);
+	}
+
+	BackBone::AssetHandle<Mesh> Command::CreateMesh(uint32_t VertexCount, uint32_t IndexCount
+		, IndexBufferType Type, VertexInputShaderLayout Layout)
+	{
+		return BackBone::AssetHandle<Mesh>();
+	}
 
 	BackBone::AssetHandle<Mesh> Command::CreateMesh(const MeshCreateInfo& Info)
 	{
@@ -696,25 +1077,56 @@ namespace Chilli
 		CH_CORE_ASSERT(MeshStore != nullptr, "NO MESH STORE: NOPE");
 		CH_CORE_ASSERT(RenderCommandService != nullptr, "NO RENDER COMMAAND SERVICE: NOPE");
 		CH_CORE_ASSERT(Info.VertCount != 0, "A Vertex Count is Needed: NOPE");
+		CH_CORE_ASSERT(Info.MeshLayout.Bindings.size() > 0, "Mesh layout Needs bindings");
 
 		Chilli::Mesh NewMesh;
-		{
-			BufferCreateInfo VertexBufferInfo;
-			VertexBufferInfo.State = Info.State;
-			VertexBufferInfo.Data = Info.Vertices;
-			VertexBufferInfo.Type = BufferType::BUFFER_TYPE_VERTEX;
-			VertexBufferInfo.SizeInBytes = Info.VerticesSize;
+		NewMesh.IndexBufferState = Info.IndexBufferState;
+		NewMesh.MeshLayout = Info.MeshLayout;
+		// The "highest" binding index defines how many slots we actually need to bind in Vulkan
+		uint32_t MaxBindingIndex = 0;
 
-			NewMesh.VBHandle = this->CreateBuffer(VertexBufferInfo, "VertexBuffer");
-			NewMesh.VertexCount = Info.VertCount;
+		// Iterate through layout bindings to create a buffer for EACH one
+		for (const auto& Binding : NewMesh.MeshLayout.Bindings)
+		{
+			uint32_t BIdx = Binding.BindingIndex;
+			CH_CORE_ASSERT(BIdx < 16, "Binding index exceeds limit of 16");
+
+			if (BIdx > MaxBindingIndex) MaxBindingIndex = BIdx;
+
+			// Determine if we multiply stride by VertexCount or InstanceCount
+			uint32_t ElementCount = Binding.IsInstanced ? Info.InstanceCount : Info.VertCount;
+			uint32_t TotalBufferSize = Binding.Stride * ElementCount;
+
+			BufferCreateInfo VBInfo;
+			VBInfo.State = Binding.State;
+			VBInfo.Type = BufferType::BUFFER_TYPE_VERTEX;
+			VBInfo.SizeInBytes = TotalBufferSize;
+
+			// Pass initial data only if it's the primary binding and data exists
+			// Otherwise, create an empty buffer for dynamic/manual filling
+			VBInfo.Data = (BIdx == 0) ? Info.Vertices : nullptr;
+
+			// Store handle at the exact index specified by the layout
+			NewMesh.VertexBufferHandles[BIdx] = this->CreateBuffer(VBInfo,
+				std::string("VB_Slot_" + std::to_string(BIdx)).c_str());
 		}
+
+		NewMesh.ActiveVBHandlesCount = MaxBindingIndex + 1;
+		NewMesh.VertexCount = Info.VertCount;
+
 		if (Info.IndexCount > 0)
 		{
+			CH_CORE_ASSERT(Info.IndexBufferState != BufferState::NONE, "Mesh layout Needs bindings");
+
 			BufferCreateInfo IndexBufferInfo;
-			IndexBufferInfo.State = Info.State;
+			IndexBufferInfo.State = Info.IndexBufferState;
 			IndexBufferInfo.Data = Info.Indicies;
 			IndexBufferInfo.Type = BufferType::BUFFER_TYPE_INDEX;
-			IndexBufferInfo.SizeInBytes = Info.IndiciesSize;
+
+			if (Info.IndexType == IndexBufferType::UINT16_T)
+				IndexBufferInfo.SizeInBytes = sizeof(uint16_t) * Info.IndexCount;
+			if (Info.IndexType == IndexBufferType::UINT32_T)
+				IndexBufferInfo.SizeInBytes = sizeof(uint32_t) * Info.IndexCount;
 
 			NewMesh.IBHandle = this->CreateBuffer(IndexBufferInfo, "IndexBuffer");
 			NewMesh.IBType = Info.IndexType;
@@ -724,8 +1136,7 @@ namespace Chilli
 		return MeshStore->Add(NewMesh);
 	}
 
-	void Command::MapMeshVertexBufferData(BackBone::AssetHandle<Mesh> Handle, void* Data, uint32_t Count,
-		size_t Size, uint32_t Offset)
+	void Command::MapMeshVertexBufferData(BackBone::AssetHandle<Mesh> Handle, uint32_t Binding, void* Data, uint32_t Count, size_t Size, uint32_t Offset)
 	{
 		auto RenderCommandService = _Ctxt.ServiceRegistry->GetService<Chilli::RenderCommand>();
 		auto MeshStore = _Ctxt.AssetRegistry->GetStore<Chilli::Mesh>();
@@ -735,10 +1146,11 @@ namespace Chilli
 		auto Mesh = MeshStore->Get(Handle);
 
 		CH_CORE_ASSERT(Mesh != nullptr, "Mesh Not Found");
-		CH_CORE_ASSERT(Mesh->VBHandle.ValPtr->CreateInfo.SizeInBytes >= Size, "Given Size Exceeds Mesh Initialized Size");
+		CH_CORE_ASSERT(Binding < 16, "Binding Over Limit");
+		CH_CORE_ASSERT(Mesh->VertexBufferHandles[Binding].ValPtr->CreateInfo.SizeInBytes >= Size, "Given Size Exceeds Mesh Initialized Size");
 
 		Mesh->VertexCount = Count;
-		this->MapBufferData(Mesh->VBHandle, Data, Size, Offset);
+		this->MapBufferData(Mesh->VertexBufferHandles[Binding], Data, Size, Offset);
 	}
 
 	void Command::MapMeshIndexBufferData(BackBone::AssetHandle<Mesh> Handle, void* Data, uint32_t Count,
@@ -810,57 +1222,104 @@ namespace Chilli
 			const unsigned int Y_SEGMENTS = 32;
 			const float PI = 3.14159265359f;
 
-			for (unsigned int y = 0; y <= Y_SEGMENTS; ++y)
-			{
-				for (unsigned int x = 0; x <= X_SEGMENTS; ++x)
-				{
-					float xSegment = (float)x / (float)X_SEGMENTS;
-					float ySegment = (float)y / (float)Y_SEGMENTS;
-
-					// Calculate spherical coordinates
-					float xPos = std::cos(xSegment * 2.0f * PI) * std::sin(ySegment * PI);
-					float yPos = std::cos(ySegment * PI); // Top is 1, bottom is -1
-					float zPos = std::sin(xSegment * 2.0f * PI) * std::sin(ySegment * PI);
-
-					Chilli::Vertex v;
-					v.Position = { xPos * 0.5f, yPos * 0.5f, zPos * 0.5f }; // 0.5 radius
-					v.Normal = { xPos, yPos, zPos }; // On a unit sphere, position = normal
-					v.UV = { xSegment, ySegment };
-
-					Vertices.push_back(v);
-				}
-			}
-
-			// Generate Indices
-			for (unsigned int y = 0; y < Y_SEGMENTS; ++y)
-			{
-				for (unsigned int x = 0; x < X_SEGMENTS; ++x)
-				{
-					Indices.push_back((y + 1) * (X_SEGMENTS + 1) + x);
-					Indices.push_back(y * (X_SEGMENTS + 1) + x);
-					Indices.push_back(y * (X_SEGMENTS + 1) + (x + 1));
-
-					Indices.push_back((y + 1) * (X_SEGMENTS + 1) + x);
-					Indices.push_back(y * (X_SEGMENTS + 1) + (x + 1));
-					Indices.push_back((y + 1) * (X_SEGMENTS + 1) + (x + 1));
-				}
-			}
-			break;
+			return CreateSphere(X_SEGMENTS, Y_SEGMENTS);
 		}
 		}
+
+		VertexInputShaderLayout Layout;
+		Layout.BeginBinding(0);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InNormal", 1);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT2, "InTexCoords", 2);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InColor", 3);
 
 		Chilli::MeshCreateInfo Info{};
 		Info.VertCount = Vertices.size();
 		Info.Vertices = Vertices.data();
-		Info.VerticesSize = sizeof(Chilli::Vertex) * Vertices.size();
 		Info.IndexCount = Indices.size();
 		Info.Indicies = Indices.data();
-		Info.IndiciesSize = sizeof(uint32_t) * Indices.size();
 		Info.IndexType = Chilli::IndexBufferType::UINT32_T;
-		Info.State = Chilli::BufferState::STATIC_DRAW;
+		Info.IndexBufferState = Chilli::BufferState::STATIC_DRAW;
+		Info.MeshLayout = Layout;
 
 		// Use your existing CreateMesh(MeshCreateInfo) to talk to the GPU
 		return CreateMesh(Info);
+	}
+
+	// This is the "Bridge" function you need
+	std::vector<uint8_t> RebuildVertexBuffer(
+		const Chilli::RawMeshData& Raw,
+		const Chilli::VertexInputShaderLayout& Desired)
+	{
+		uint32_t fileStride = Raw.FileLayout.Bindings[0].Stride;
+		uint32_t desiredStride = Desired.Bindings[0].Stride;
+		size_t vertCount = Raw.Vertices.size() / fileStride;
+
+		std::vector<uint8_t> NewBuffer(vertCount * desiredStride);
+
+		for (size_t i = 0; i < vertCount; ++i) {
+			uint8_t* destVert = NewBuffer.data() + (i * desiredStride);
+			uint8_t* srcVert = (uint8_t*)Raw.Vertices.data() + (i * fileStride);
+
+			// For every attribute the USER wants...
+			for (const auto& destAttr : Desired.Bindings[0].Attribs) {
+
+				// 1. Try to find this attribute in the FILE
+				bool foundInFile = false;
+				for (const auto& srcAttr : Raw.FileLayout.Bindings[0].Attribs) {
+					if (destAttr.Location == srcAttr.Location) {
+						// MATCH! Copy from File to New Buffer
+						memcpy(destVert + destAttr.Offset, srcVert + srcAttr.Offset, Chilli::ShaderTypeToSize(destAttr.Type));
+						foundInFile = true;
+						break;
+					}
+				}
+
+				// 2. If NOT found in file, Inject Defaults
+				if (!foundInFile) {
+					float* padPtr = (float*)(destVert + destAttr.Offset);
+					if (destAttr.Location == (int)Chilli::MeshAttribute::COLOR) {
+						padPtr[0] = 1.0f; padPtr[1] = 1.0f; padPtr[2] = 1.0f; // White
+					}
+					else {
+						memset(padPtr, 0, Chilli::ShaderTypeToSize(destAttr.Type)); // Zero out (UVs, etc)
+					}
+				}
+			}
+		}
+		return NewBuffer;
+	}
+
+	BackBone::AssetHandle<Mesh> Command::CreateMesh(BackBone::AssetHandle<RawMeshData> Data, const VertexInputShaderLayout& DesiredLayout)
+	{
+		Chilli::MeshCreateInfo Info;
+		// 1. Map the Raw Data
+		std::vector<uint8_t> FinalVertices = RebuildVertexBuffer(*Data.ValPtr, DesiredLayout);
+		Info.Vertices = FinalVertices.data();
+		Info.Indicies = Data.ValPtr->Indices.data();
+
+		// 2. Calculate Counts
+		// Total bytes / (8 floats * 4 bytes per float)
+		uint32_t vertexStride = DesiredLayout.Bindings[0].Stride;
+		Info.VertCount = static_cast<uint32_t>(FinalVertices.size() / vertexStride);
+
+		// Total bytes / 4 bytes (size of uint32_t)
+		Info.IndexCount = static_cast<uint32_t>(Data.ValPtr->Indices.size() / sizeof(uint32_t));
+
+		// 3. Set Instance and Type Info
+		Info.InstanceCount = 1; // Default to 1 unless doing instanced rendering
+		Info.IndexType = Data.ValPtr->IBType;
+
+		// 4. Buffer State (Usually starts as UNDEFINED or SHADER_READ depending on your backend)
+		Info.IndexBufferState = Chilli::BufferState::STATIC_DRAW;
+
+		Info.MeshLayout = DesiredLayout;
+		return this->CreateMesh(Info);
+	}
+
+	BackBone::AssetHandle<MeshLoaderData> Command::LoadMesh(const std::string& Path)
+	{
+		return this->LoadAsset<Chilli::MeshLoaderData>(Path);
 	}
 
 	void Command::DestroyMesh(BackBone::AssetHandle<Mesh> mesh, bool Free)
@@ -874,7 +1333,7 @@ namespace Chilli
 
 		CH_CORE_ASSERT(Mesh != nullptr, "Mesh Not Found");
 
-		DestroyBuffer(Mesh->VBHandle);
+		DestroyBuffer(Mesh->VertexBufferHandles[0]);
 		if (Mesh->IndexCount != 0)
 			DestroyBuffer(Mesh->IBHandle);
 
@@ -1087,6 +1546,11 @@ namespace Chilli
 		return MaterialSystem->CreateMaterial(Program);
 	}
 
+	BackBone::AssetHandle<Material> CreateMaterial()
+	{
+		return BackBone::AssetHandle<Material>();
+	}
+
 	void Command::DestroyMaterial(const BackBone::AssetHandle<Material>& Mat)
 	{
 		auto MaterialSystem = this->GetService<Chilli::MaterialSystem>();
@@ -1181,7 +1645,7 @@ namespace Chilli
 			Data, Width, Height);
 	}
 
-	BackBone::AssetHandle<Texture> Command::CreateTexture(const BackBone::AssetHandle<Image>& ImageHandle,  TextureSpec& Spec)
+	BackBone::AssetHandle<Texture> Command::CreateTexture(const BackBone::AssetHandle<Image>& ImageHandle, TextureSpec& Spec)
 	{
 		auto TextureStore = GetStore<Texture>();
 		auto RenderCommandService = GetService<RenderCommand>();
@@ -1998,13 +2462,17 @@ namespace Chilli
 		SamplerSpec.Mode = Chilli::SamplerMode::REPEAT;
 		PepperResource->PepperDeafultSampler = Command.CreateSampler(SamplerSpec);
 
+		VertexInputShaderLayout Layout;
+		Layout.BeginBinding(0, false, BufferState::DYNAMIC_DRAW);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT2, "InTexCoords", 1);
+		Layout.AddAttribute(ShaderObjectTypes::INT1, "InPepperMaterialIndex", 2);
+
 		MeshCreateInfo RenderMeshInfo;
 		RenderMeshInfo.IndexCount = PepperResource->MeshQuadCount * 6;
 		RenderMeshInfo.VertCount = PepperResource->MeshQuadCount * 4;
-		RenderMeshInfo.IndiciesSize = sizeof(uint32_t) * RenderMeshInfo.IndexCount;
-		RenderMeshInfo.VerticesSize = sizeof(PepperVertex) * RenderMeshInfo.VertCount;
-		RenderMeshInfo.State = BufferState::DYNAMIC_DRAW;
 		RenderMeshInfo.IndexType = IndexBufferType::UINT32_T;
+		RenderMeshInfo.MeshLayout = Layout;
 		PepperResource->RenderMesh = Command.CreateMesh(RenderMeshInfo);
 
 		PepperResource->QuadVertices.reserve(RenderMeshInfo.VertCount);
@@ -2401,7 +2869,8 @@ namespace Chilli
 			PepperResource->PepperMaterialSSBO[RenderService->GetCurrentFrameIndex()].ValPtr->CreateInfo.SizeInBytes,
 			0);
 
-		Command.MapMeshVertexBufferData(PepperResource->RenderMesh, PepperResource->QuadVertices.data(),
+		Command.MapMeshVertexBufferData(PepperResource->RenderMesh, 0,
+			PepperResource->QuadVertices.data(),
 			PepperResource->QuadVertices.size(), sizeof(PepperVertex) * PepperResource->QuadVertices.size(),
 			0);
 		Command.MapMeshIndexBufferData(PepperResource->RenderMesh, PepperResource->QuadIndicies.data(),
@@ -2450,7 +2919,7 @@ namespace Chilli
 
 			RenderService->BindMaterailData(MaterialSystem->GetRawMaterialHandle(PepperResource->ContextMaterial));
 
-			RenderService->BindVertexBuffer({ PepperResource->RenderMesh.ValPtr->VBHandle.ValPtr->RawBufferHandle });
+			RenderService->BindVertexBuffer({ PepperResource->RenderMesh.ValPtr->VertexBufferHandles[0].ValPtr->RawBufferHandle });
 			RenderService->BindIndexBuffer(PepperResource->RenderMesh.ValPtr->IBHandle.ValPtr->RawBufferHandle,
 				IndexBufferType::UINT32_T);
 
@@ -2467,7 +2936,7 @@ namespace Chilli
 		auto RenderService = Command.GetService<Renderer>();
 
 		PipelineBarrier PrepareVertexBarrier{};
-		PrepareVertexBarrier.BufferBarrier.Handle = PepperResource->RenderMesh.ValPtr->VBHandle.ValPtr->RawBufferHandle;
+		PrepareVertexBarrier.BufferBarrier.Handle = PepperResource->RenderMesh.ValPtr->VertexBufferHandles[0].ValPtr->RawBufferHandle;
 		PrepareVertexBarrier.BufferBarrier.Offset = 0;
 		PrepareVertexBarrier.BufferBarrier.Size = CH_BUFFER_WHOLE_SIZE;
 		PrepareVertexBarrier.OldState = ResourceState::HostWrite;
@@ -2497,7 +2966,7 @@ namespace Chilli
 		auto RenderService = Command.GetService<Renderer>();
 
 		PipelineBarrier VertexBarrier{};
-		VertexBarrier.BufferBarrier.Handle = PepperResource->RenderMesh.ValPtr->VBHandle.ValPtr->RawBufferHandle;
+		VertexBarrier.BufferBarrier.Handle = PepperResource->RenderMesh.ValPtr->VertexBufferHandles[0].ValPtr->RawBufferHandle;
 		VertexBarrier.BufferBarrier.Offset = 0;
 		VertexBarrier.BufferBarrier.Size = CH_BUFFER_WHOLE_SIZE;
 		VertexBarrier.OldState = ResourceState::VertexRead;

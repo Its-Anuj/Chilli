@@ -230,16 +230,30 @@ namespace Chilli
 		return VK_FORMAT_UNDEFINED;
 	}
 
-
 	inline VkPrimitiveTopology TopologyToVk(InputTopologyMode Mode)
 	{
 		switch (Mode)
 		{
+		case InputTopologyMode::Point_List:
+			return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+
+		case InputTopologyMode::Line_List:
+			return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+
+		case InputTopologyMode::Line_Strip:
+			return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+
 		case InputTopologyMode::Triangle_List:
 			return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
 		case InputTopologyMode::Triangle_Strip:
 			return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+
+		case InputTopologyMode::Triangle_Fan:
+			return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
+
 		default:
+			// Use an assertion here to catch errors during development
 			return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 		}
 	}
@@ -309,7 +323,7 @@ namespace Chilli
 		default:                                 return VK_COMPARE_OP_ALWAYS; // safe fallback
 		}
 	}
-	
+
 	// Ensure this function looks exactly like this:
 	inline VkBufferUsageFlags BufferTypesToVk(uint32_t type) {
 		VkBufferUsageFlags flags = 0;
@@ -498,7 +512,7 @@ namespace Chilli
 		}
 		return AspectFlag;
 	}
-	
+
 	struct VulkanStateMapping {
 		VkPipelineStageFlags2 stage;
 		VkAccessFlags2 access;

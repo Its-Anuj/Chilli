@@ -143,12 +143,16 @@ namespace Chilli
 		uint32_t RawDeviceHandle = UINT32_MAX;
 	};
 
+	struct GraphicsMemoryStats
+	{
+		uint64_t GpuLocal = 0;
+		uint64_t Upload = 0;
+		uint64_t CpuReadback = 0;
+		uint64_t CpuOnly = 0;
+	};
+
 	struct RenderDeviceLimits
 	{
-		// --- Memory Management ---
-		uint64_t TotalVRAMBytes;        // Total Dedicated Video Memory
-		uint64_t SharedMemoryBytes;     // System RAM accessible to GPU (Integrated)
-
 		// --- Multisampled Anti-Aliasing (MSAA) ---
 		// A bitmask representing supported counts: 1, 2, 4, 8, 16, 32, 64
 		uint32_t SupportedSampleCounts;
@@ -172,6 +176,8 @@ namespace Chilli
 		bool bSupportsMeshShaders;
 		bool bSupportsBindlessTextures; // Resource Heap in DX12 / Descriptor Indexing in VK
 		bool bSupportsVariableRateShading;
+
+		GraphicsMemoryStats MemoryLimits;
 	};
 
 	struct RenderDeviceStats
@@ -182,17 +188,14 @@ namespace Chilli
 		uint32_t TotalBuffersCreated = 0;   // Count of vertex/index/uniform buffers
 		uint32_t ActivePipelines = 0;       // Number of unique shader/pso combinations
 
-		// --- Memory Tracking (Bytes) ---
-		uint64_t AllocatedVRAM = 0;         // Total memory requested from the GPU
-		uint64_t UsedVRAM = 0;              // Actual memory in use (sub-allocated)
-		uint64_t StagingBufferMemory = 0;   // Memory held in upload/staging buffers
-
 		// --- Frame Performance (Updated per frame) ---
 		uint32_t IndiciesRendered = 0;
 		uint32_t VerticesRendered = 0;
 		uint32_t DrawCallsPerFrame = 0;
 		uint32_t TrianglesPerFrame = 0;
 		uint32_t DescriptorSetBinds = 0;
+
+		GraphicsMemoryStats MemoryUsed;
 	};
 
 	class GraphicsBackendApi

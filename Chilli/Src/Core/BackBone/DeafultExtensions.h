@@ -426,6 +426,14 @@ namespace Chilli
 		std::vector<TransformComponent> OldTransformComponents;
 	};
 
+	struct SubGraphPass
+	{
+		const char* DebugName = nullptr;
+		std::function<void(BackBone::SystemContext&, RenderPassInfo&)> RenderFn;
+		PipelineStateInfo Info;
+		VertexInputShaderLayout Layout;
+	};
+
 	struct RenderGraphPass
 	{
 		const char* DebugName = nullptr;
@@ -433,6 +441,7 @@ namespace Chilli
 		std::function<void(BackBone::SystemContext&, RenderPassInfo&)> RenderFn;
 		PipelineStateInfo Info;
 		VertexInputShaderLayout Layout;
+		std::vector<SubGraphPass> SubPasses;
 		uint32_t SortOrder = 0;
 	};
 
@@ -557,6 +566,92 @@ namespace Chilli
 	private:
 		WindowExtensionConfig _Config;
 	};
+#pragma endregion 
+
+	// Line Renderer
+#pragma region Blaze
+
+	enum class BlazeMode : uint32_t
+	{
+		// 1. SCREEN SPACE (Pepper UI)
+	// No depth test, no depth write. Coordinates are usually 0->1 or Pixels.
+	// Used for: UI Borders, selection boxes, crosshairs.
+		OVERLAY = 0,
+
+		// 2. INTERACTIVE DEPTH (Geometry/World)
+		// Depth test ON, Depth write ON.
+		// Used for: Laser beams, fences, actual 3D objects made of lines.
+		WORLDSPACE = 1,
+
+		// 3. OCCLUDED / X-RAY (Debug/Analysis)
+		// Depth test ON (Compare), but Depth write OFF. 
+		// Often rendered with a specific "Ghost" color or bias.
+		// Used for: Seeing player skeletons through walls, debug paths.
+		XRAY = 2,
+
+		// 4. PERSISTENT OVERLAY (Gizmos)
+		// Depth test OFF, Depth write OFF, but rendered in 3D space.
+		// Used for: Transform gizmos (RGB axes) that must always be visible.
+		GiIZMO = 3
+	};
+
+	struct BlazeVertex
+	{
+		Vec3 Vertices;
+	};
+
+	struct BlazeInlineUniformDataStruct
+	{
+		uint32_t ModeFlag;
+		Vec4 Color;
+	};
+
+	struct BlazeMeshComponent
+	{
+		BackBone::AssetHandle<Buffer> VertexBuffer;
+
+		uint32_t LineCount;
+		BlazeMode Mode;
+		Vec4 Color;
+		float LineWidth = 1.0f;
+	};
+
+	struct BlazeResource
+	{
+		BackBone::AssetHandle<ShaderProgram> Shader;
+	};
+
+	struct BlazeExtensionConfig
+	{
+
+	};
+
+	class BlazeExtension : public BackBone::Extension
+	{
+	public:
+		BlazeExtension(const BlazeExtensionConfig& Config = BlazeExtensionConfig())
+			:_Config(Config)
+		{
+		}
+		~BlazeExtension() {}
+
+		virtual void Build(BackBone::App& App) override;
+
+		virtual const char* Name() const override { return "BlazeExtension"; }
+	private:
+		BlazeExtensionConfig _Config;
+	};
+
+	void OnBlazeSetup(BackBone::SystemContext& Ctxt);
+	void OnBlazeUpdate(BackBone::SystemContext& Ctxt);
+	void OnBlazeShutDown(BackBone::SystemContext& Ctxt);
+
+	void OnBlazeRenderOverlay(BackBone::SystemContext& Ctxt, RenderPassInfo& Info);
+	void OnBlazeRenderWorldSpace(BackBone::SystemContext& Ctxt, RenderPassInfo& Info);
+	void OnBlazeRenderXRay(BackBone::SystemContext& Ctxt, RenderPassInfo& Info);
+	void OnBlazeRenderGizmo(BackBone::SystemContext& Ctxt, RenderPassInfo& Info);
+
+
 #pragma endregion 
 
 	// The Base UI Library
@@ -1100,12 +1195,24 @@ namespace Chilli
 		~Command() {}
 
 		// Render Services Related
+		BackBone::AssetHandle<Mesh> CreateSphere(int XSegments, int YSegments);
+
+		// Dynamic Mesh Creation
+		BackBone::AssetHandle<Mesh> CreateMesh(uint32_t VertexCount,
+			uint32_t IndexCount, IndexBufferType  Type, VertexInputShaderLayout Layout);
+
 		BackBone::AssetHandle<Mesh> CreateMesh(const MeshCreateInfo& Info);
-		void MapMeshVertexBufferData(BackBone::AssetHandle<Mesh> Handle, void* Data, uint32_t Count, size_t Size, uint32_t Offset);
-		void MapMeshIndexBufferData(BackBone::AssetHandle<Mesh> Handle, void* Data, uint32_t Count, size_t Size, uint32_t Offset);
 		BackBone::AssetHandle<Mesh> CreateMesh(BasicShapes Shape);
+		BackBone::AssetHandle<Mesh> CreateMesh(BackBone::AssetHandle<RawMeshData> Data, const VertexInputShaderLayout& DesiredLayout);
+		BackBone::AssetHandle<MeshLoaderData> LoadMesh(const std::string& Path);
+
 		void DestroyMesh(BackBone::AssetHandle<Mesh> mesh, bool Free = false);
 		void FreeMesh(BackBone::AssetHandle<Mesh> mesh);
+
+		void MapMeshVertexBufferData(BackBone::AssetHandle<Mesh> Handle, uint32_t Binding, void* Data, uint32_t Count, size_t Size, uint32_t Offset);
+		void MapMeshIndexBufferData(BackBone::AssetHandle<Mesh> Handle, void* Data, uint32_t Count, size_t Size, uint32_t Offset);
+
+		void UpdateDynamicMesh(uint8_t* VertexData);
 
 		uint32_t CreateEntity();
 		void DestroyEntity(uint32_t EntityID);
@@ -1124,6 +1231,7 @@ namespace Chilli
 		void DestroyTexture(const BackBone::AssetHandle<Texture>& TextureHandle);
 
 		BackBone::AssetHandle<Material> CreateMaterial(BackBone::AssetHandle<ShaderProgram> Program);
+		BackBone::AssetHandle<Material> CreateMaterial();
 		void DestroyMaterial(const BackBone::AssetHandle<Material>& Mat);
 
 		BackBone::AssetHandle<ShaderModule> CreateShaderModule(const char* FilePath, ShaderStageType Type);

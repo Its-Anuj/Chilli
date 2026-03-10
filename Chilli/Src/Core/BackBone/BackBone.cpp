@@ -1,4 +1,3 @@
-#include "BackBone.h"
 #include "Ch_PCH.h"
 #include "BackBone.h"
 #include "DeafultExtensions.h"
@@ -56,7 +55,7 @@ namespace Chilli
 				auto& SystemFuncss = _SystemFunctions[int(Stage)];
 				for (auto& ScheduledSytem : SystemFuncss)
 					ScheduledSytem(Ctxt);
-			} 
+			}
 			{
 				auto& SystemFuncss = _SystemOverLayAfter[int(Stage)];
 				for (auto& ScheduledSytem : SystemFuncss)
@@ -77,50 +76,54 @@ namespace Chilli
 
 		void App::Run()
 		{
-			// Initialition
 			SystemScheduler.Run(ScheduleTimer::START_UP, Ctxt);
-			Registry.AddResource<GenericFrameData>();
-			auto WindowServie = ServiceRegistry.GetService<WindowManager>();
 
-			bool Is_Running = true;
-			float LastTime = 0.0f;
-
-			const int Count = 6000;
-			std::array<float, Count> FrameTimes;
-			int idx = 0;
+			// Ensure resource is present (though usually added in StartUp)
+			if (!Registry.GetResource<GenericFrameData>())
+				Registry.AddResource<GenericFrameData>();
 
 			auto FrameData = Registry.GetResource<GenericFrameData>();
+			FrameTimer Timer;
+			Timer.Start();
+
 			while (FrameData->IsRunning)
 			{
-				FrameData->Ts = GetWindowTime() - LastTime;
-				LastTime = GetWindowTime();
+				FrameData->Ts = Timer.Reset();
+				float dt = FrameData->Ts.GetSecond();
 
-				if (idx < Count)
-				{
-					FrameTimes[idx++] = FrameData->Ts.GetMilliSecond();
-				}
+				SystemScheduler.Run(ScheduleTimer::INPUT, Ctxt);
 
-				static bool Printed = false;
-				if (!Printed && idx > Count)
-				{
-					CH_CORE_TRACE("Frame Time Record Done!");
-					Printed = true;
-				}
+				// --- FIXED PIPELINE LOGIC ---
+				// Helper to run a fixed stage
+				auto ProcessFixedStage = [&](GenericFrameData::StageData& stage, ScheduleTimer timerEnum) {
+					stage.Accumulator += dt;
+					int safety = 0;
+					while (stage.Accumulator >= stage.Ticks && safety < 5) {
+						SystemScheduler.Run(timerEnum, Ctxt);
+						stage.Accumulator -= stage.Ticks;
+						safety++;
+					}
+					// Update Alpha for sub-frame interpolation
+					stage.Alpha = stage.Accumulator / stage.Ticks;
+					};
 
+				// 1. Physics (Fixed Network/Physics)
+				ProcessFixedStage(FrameData->FixedPhysicsData, ScheduleTimer::FIXED_NETWORK);
+
+				// 2. Simulation (Collision/Verlet)
+				ProcessFixedStage(FrameData->FixedSimulationData, ScheduleTimer::SIMULATION);
+
+				// 3. AI (Decision making - usually lower frequency)
+				ProcessFixedStage(FrameData->FixedAIData, ScheduleTimer::FIXED_AI);
+
+				// 4. Triggers (Gameplay logic)
+				ProcessFixedStage(FrameData->FixedTriggerData, ScheduleTimer::FIXED_TRIGGER);
+
+				// --- VARIABLE PIPELINE LOGIC ---
 				SystemScheduler.Run(ScheduleTimer::UPDATE, Ctxt);
-
 				SystemScheduler.Run(ScheduleTimer::RENDER, Ctxt);
-
-				if (FrameData->IsRunning == false)
-					CH_CORE_INFO("Window Close");
 			}
 
-			float AverageMs = 0.0f;
-			for (auto Data : FrameTimes)
-				AverageMs += Data / Count;
-			CH_CORE_TRACE("Average Ms Over {} Frames: {}", Count, AverageMs);
-			CH_CORE_TRACE("Average Frame Rate: {}", 1000 / AverageMs);
-			// ShutDown
 			SystemScheduler.Run(ScheduleTimer::SHUTDOWN, Ctxt);
 		}
 	}

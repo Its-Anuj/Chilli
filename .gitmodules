@@ -16,3 +16,12 @@
 [submodule "Chilli/Libs/SPIRV-Reflect"]
 	path = Chilli/Libs/SPIRV-Reflect
 	url = https://github.com/KhronosGroup/SPIRV-Reflect.git
+[submodule "Chilli/Libs/Cgltf"]
+	path = Chilli/Libs/Cgltf
+	url = https://github.com/jkuhlmann/cgltf.git
+[submodule "Chilli/Libs/TinyObjLoader"]
+	path = Chilli/Libs/TinyObjLoader
+	url = https://github.com/tinyobjloader/tinyobjloader.git
+[submodule "Chilli/Libs/UFBX"]
+	path = Chilli/Libs/UFBX
+	url = https://github.com/ufbx/ufbx.git

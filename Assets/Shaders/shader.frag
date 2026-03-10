@@ -4,6 +4,7 @@
 layout(location = 0) in vec2 fragUV;
 layout(location = 1) in vec3 fragNormal;
 layout(location = 2) in vec3 fragWorldPos;
+layout(location = 3) in vec3 InColor;
 
 layout(location = 0) out vec4 outColor;
 
@@ -42,4 +43,5 @@ void main()
     
     // Output final color with texture alpha
     outColor = vec4(FinalRGB, Albedo.a);
+   // outColor = vec4(InColor, 1.0);
 }

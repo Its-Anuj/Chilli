@@ -318,6 +318,14 @@ namespace Chilli
 		uint32_t FirstInstance; // ID of the first instance to draw
 	};
 
+	struct DrawArrayCmdPayload {
+		uint32_t ElementCount;    // Number of indices to draw
+		uint32_t InstanceCount; // Number of instances to draw (1 if not instancing)
+		uint32_t FirstElement;    // First index in the index buffer
+		int32_t  VertexOffset;  // Value added to index before indexing vertex buffer
+		uint32_t FirstInstance; // ID of the first instance to draw
+	};
+
 	struct SetFullPipelineStateCmdPayload
 	{
 		PipelineStateInfo Info;
@@ -602,6 +610,32 @@ namespace Chilli
 			PushCommand(RenderOpCode::PATCH_DYNAMIC_STATE, Payload);
 		}
 
+		void BindVertexBuffer(uint32_t* Buffers, uint32_t BindingCount)
+		{
+			const uint8_t Count = BindingCount;
+			size_t current_size = _Stream.size();
+			const uint16_t payload_size = sizeof(BindVertexBuffersCmdPayload) + (sizeof(uint32_t) * Count);
+
+			// Write Header
+			RenderCommandHeader header{ RenderOpCode::BIND_VERTEX_BUFFERS, payload_size };
+			_Stream.resize(current_size + sizeof(header) + payload_size);
+
+			uint8_t* Dst = _Stream.data() + current_size;
+
+			memcpy(Dst, &header, sizeof(header));
+
+			Dst += sizeof(header);
+
+			BindVertexBuffersCmdPayload BufferPayload;
+			BufferPayload.VertexBufferCount = BindingCount;
+			memcpy(Dst, &BufferPayload, sizeof(BufferPayload));
+
+			Dst += sizeof(BufferPayload);
+
+			// First Copy Data then set the inital point in BarrierPayload
+			memcpy(Dst, Buffers, sizeof(uint32_t) * Count);
+		}
+
 		void BindVertexBuffer(const std::vector<uint32_t>& Buffers)
 		{
 			const uint8_t Count = Buffers.size();
@@ -642,6 +676,17 @@ namespace Chilli
 			Payload.VertexOffset = VertexOffset;
 			Payload.FirstInstance = FirstInstance;
 			PushCommand<DrawIndexedCmdPayload>(RenderOpCode::DRAW_INDEXED, Payload);
+		}
+
+		void DrawArray(uint32_t ElementCount, uint32_t InstanceCount, uint32_t FirstElement, uint32_t VertexOffset, uint32_t FirstInstance)
+		{
+			DrawArrayCmdPayload Payload;
+			Payload.ElementCount = ElementCount;
+			Payload.FirstElement = FirstElement;
+			Payload.InstanceCount = InstanceCount;
+			Payload.VertexOffset = VertexOffset;
+			Payload.FirstInstance = FirstInstance;
+			PushCommand<DrawArrayCmdPayload>(RenderOpCode::DRAW_ARRAY, Payload);
 		}
 
 		void Dispatch(uint32_t GroupCountX, uint32_t GroupCountY, uint32_t GroupCountZ)

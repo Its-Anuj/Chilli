@@ -3,7 +3,6 @@
 
 namespace Chilli
 {
-
 	void Renderer::Init(const GraphcisBackendCreateSpec& Spec)
 	{
 		_Api = std::shared_ptr<GraphicsBackendApi>(GraphicsBackendApi::Create(Spec));
@@ -13,10 +12,23 @@ namespace Chilli
 		_MaxFramesInFlight = Spec.MaxFrameInFlight;
 		_FrameIndex = 0;
 		_FramePackets.resize(_MaxFramesInFlight);
+
+		auto VertexShader = _Api->CreateShaderModule("Assets/Shaders/shader_vert.spv",
+			Chilli::ShaderStageType::SHADER_STAGE_VERTEX);
+		auto FragShader = _Api->CreateShaderModule("Assets/Shaders/shader_frag.spv",
+			Chilli::ShaderStageType::SHADER_STAGE_FRAGMENT);
+
+		auto Program = _Api->MakeShaderProgram();
+		_Api->AttachShader(Program, VertexShader);
+		_Api->AttachShader(Program, FragShader);
+		_Api->LinkShaderProgram(Program);
+
+		_DeafultShaderProgram.RawProgramHandle = Program;
 	}
 
 	void Renderer::Terminate()
 	{
+		_Api->ClearShaderProgram(_DeafultShaderProgram.RawProgramHandle);
 		GraphicsBackendApi::Terminate(_Api.get(), false);
 	}
 

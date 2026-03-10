@@ -79,6 +79,7 @@ namespace Chilli
 		ColorAttachment ColorAttachments[CH_MAX_COLOR_ATTACHMENT_COUNT];
 
 		DepthAttachment DepthAttachment;
+		SampleCount Samples = IMAGE_SAMPLE_COUNT_1_BIT;
 	};
 
 	struct CompiledPass {
@@ -168,6 +169,11 @@ namespace Chilli
 			if (isBuffer) return AddBufferBarrier(false, handle, src, dst
 			);
 			return AddImageBarrier(false, handle, src, dst, isSwapChainImage);
+		}
+
+		void SetSampleCount(SampleCount Count)
+		{
+			_info.Samples = Count;
 		}
 
 		CompiledPass Build() {

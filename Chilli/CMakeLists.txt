@@ -16,6 +16,9 @@ include_directories("Libs/SpdLog/include/")
 include_directories("Libs/VMA/include/")
 include_directories("Libs/glm/glm/")
 include_directories("Libs/Stb/")
+include_directories("Libs/Cgltf/")
+include_directories("Libs/UFBX/")
+include_directories("Libs/TinyObjLoader/")
 include_directories("Libs/SPIRV-Reflect/")
 
 add_subdirectory("Src/Renderer/")
@@ -24,8 +27,10 @@ add_subdirectory("Libs/VMA/")
 add_subdirectory("Libs/glm/")
 
 add_library(SPIRV-Reflect STATIC  Libs/SPIRV-Reflect/spirv_reflect.c)
+add_library(ufbx STATIC  Libs/UFBX/ufbx.c)
 
 add_library(ChilliCore STATIC ${CHILLI_CORE_SOURCES})
+target_link_libraries(ChilliCore ufbx)
 
 target_precompile_headers(ChilliCore PRIVATE "Src/Core/Ch_PCH.h" )
 
