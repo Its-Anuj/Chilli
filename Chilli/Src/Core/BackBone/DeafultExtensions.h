@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <FastNoise/FastNoise.h>
 
 inline glm::vec3 ToGlmVec3(Chilli::Vec3 Data) { return glm::vec3(Data.x, Data.y, Data.z); }
 inline Chilli::Vec3 FromGlmVec3(glm::vec3 Data) { return Chilli::Vec3(Data.x, Data.y, Data.z); }
@@ -348,6 +349,92 @@ namespace Chilli
 		Vec4 AlbedoColor;
 	};
 
+	// Line Renderer
+#pragma region Blaze
+
+	enum class BlazeMode : uint32_t
+	{
+		// 1. SCREEN SPACE (Pepper UI)
+	// No depth test, no depth write. Coordinates are usually 0->1 or Pixels.
+	// Used for: UI Borders, selection boxes, crosshairs.
+		OVERLAY = 0,
+
+		// 2. INTERACTIVE DEPTH (Geometry/World)
+		// Depth test ON, Depth write ON.
+		// Used for: Laser beams, fences, actual 3D objects made of lines.
+		WORLDSPACE = 1,
+
+		// 3. OCCLUDED / X-RAY (Debug/Analysis)
+		// Depth test ON (Compare), but Depth write OFF. 
+		// Often rendered with a specific "Ghost" color or bias.
+		// Used for: Seeing player skeletons through walls, debug paths.
+		XRAY = 2,
+
+		// 4. PERSISTENT OVERLAY (Gizmos)
+		// Depth test OFF, Depth write OFF, but rendered in 3D space.
+		// Used for: Transform gizmos (RGB axes) that must always be visible.
+		GiIZMO = 3
+	};
+
+	struct BlazeVertex
+	{
+		Vec3 Vertices;
+	};
+
+	struct BlazeInlineUniformDataStruct
+	{
+		uint32_t ModeFlag;
+		Vec4 Color;
+	};
+
+	struct BlazeMeshComponent
+	{
+		BackBone::AssetHandle<Buffer> VertexBuffer;
+
+		uint32_t LineCount;
+		BlazeMode Mode;
+		Vec4 Color;
+		float LineWidth = 1.0f;
+	};
+
+	struct BlazeResource
+	{
+		BackBone::AssetHandle<ShaderProgram> Shader;
+	};
+
+	struct BlazeExtensionConfig
+	{
+		bool Enable = true;
+	};
+
+	class BlazeExtension : public BackBone::Extension
+	{
+	public:
+		BlazeExtension(const BlazeExtensionConfig& Config = BlazeExtensionConfig())
+			:_Config(Config)
+		{
+		}
+		~BlazeExtension() {}
+
+		virtual void Build(BackBone::App& App) override;
+
+		virtual const char* Name() const override { return "BlazeExtension"; }
+	private:
+		BlazeExtensionConfig _Config;
+	};
+
+	void OnBlazeSetup(BackBone::SystemContext& Ctxt);
+	void OnBlazeUpdate(BackBone::SystemContext& Ctxt);
+	void OnBlazeShutDown(BackBone::SystemContext& Ctxt);
+
+	void OnBlazeRenderOverlay(BackBone::SystemContext& Ctxt, RenderPassInfo& Info);
+	void OnBlazeRenderWorldSpace(BackBone::SystemContext& Ctxt, RenderPassInfo& Info);
+	void OnBlazeRenderXRay(BackBone::SystemContext& Ctxt, RenderPassInfo& Info);
+	void OnBlazeRenderGizmo(BackBone::SystemContext& Ctxt, RenderPassInfo& Info);
+
+
+#pragma endregion 
+
 #pragma region Render Extension
 	struct DefferedRenderingConfig
 	{
@@ -379,9 +466,11 @@ namespace Chilli
 
 	struct RenderExtensionConfig
 	{
+		bool Enable = true;
 		GraphcisBackendCreateSpec Spec;
 		DefferedRenderingConfig DefferedConfig{};
 		RendererType UsingType = RendererType::DEFFERED;
+		BlazeExtensionConfig BlazeConfig;
 
 		RenderExtensionConfig(const GraphcisBackendCreateSpec& spec = GraphcisBackendCreateSpec())
 		{
@@ -548,7 +637,7 @@ namespace Chilli
 
 	struct WindowExtensionConfig
 	{
-
+		bool Enable = true;
 	};
 
 	class WindowExtension : public BackBone::Extension
@@ -567,430 +656,6 @@ namespace Chilli
 		WindowExtensionConfig _Config;
 	};
 #pragma endregion 
-
-	// Line Renderer
-#pragma region Blaze
-
-	enum class BlazeMode : uint32_t
-	{
-		// 1. SCREEN SPACE (Pepper UI)
-	// No depth test, no depth write. Coordinates are usually 0->1 or Pixels.
-	// Used for: UI Borders, selection boxes, crosshairs.
-		OVERLAY = 0,
-
-		// 2. INTERACTIVE DEPTH (Geometry/World)
-		// Depth test ON, Depth write ON.
-		// Used for: Laser beams, fences, actual 3D objects made of lines.
-		WORLDSPACE = 1,
-
-		// 3. OCCLUDED / X-RAY (Debug/Analysis)
-		// Depth test ON (Compare), but Depth write OFF. 
-		// Often rendered with a specific "Ghost" color or bias.
-		// Used for: Seeing player skeletons through walls, debug paths.
-		XRAY = 2,
-
-		// 4. PERSISTENT OVERLAY (Gizmos)
-		// Depth test OFF, Depth write OFF, but rendered in 3D space.
-		// Used for: Transform gizmos (RGB axes) that must always be visible.
-		GiIZMO = 3
-	};
-
-	struct BlazeVertex
-	{
-		Vec3 Vertices;
-	};
-
-	struct BlazeInlineUniformDataStruct
-	{
-		uint32_t ModeFlag;
-		Vec4 Color;
-	};
-
-	struct BlazeMeshComponent
-	{
-		BackBone::AssetHandle<Buffer> VertexBuffer;
-
-		uint32_t LineCount;
-		BlazeMode Mode;
-		Vec4 Color;
-		float LineWidth = 1.0f;
-	};
-
-	struct BlazeResource
-	{
-		BackBone::AssetHandle<ShaderProgram> Shader;
-	};
-
-	struct BlazeExtensionConfig
-	{
-
-	};
-
-	class BlazeExtension : public BackBone::Extension
-	{
-	public:
-		BlazeExtension(const BlazeExtensionConfig& Config = BlazeExtensionConfig())
-			:_Config(Config)
-		{
-		}
-		~BlazeExtension() {}
-
-		virtual void Build(BackBone::App& App) override;
-
-		virtual const char* Name() const override { return "BlazeExtension"; }
-	private:
-		BlazeExtensionConfig _Config;
-	};
-
-	void OnBlazeSetup(BackBone::SystemContext& Ctxt);
-	void OnBlazeUpdate(BackBone::SystemContext& Ctxt);
-	void OnBlazeShutDown(BackBone::SystemContext& Ctxt);
-
-	void OnBlazeRenderOverlay(BackBone::SystemContext& Ctxt, RenderPassInfo& Info);
-	void OnBlazeRenderWorldSpace(BackBone::SystemContext& Ctxt, RenderPassInfo& Info);
-	void OnBlazeRenderXRay(BackBone::SystemContext& Ctxt, RenderPassInfo& Info);
-	void OnBlazeRenderGizmo(BackBone::SystemContext& Ctxt, RenderPassInfo& Info);
-
-
-#pragma endregion 
-
-	// The Base UI Library
-#pragma region Pepper
-
-	enum class AnchorX
-	{
-		LEFT,
-		RIGHT,
-		CENTER,
-		STRETCH
-	};
-
-	enum class AnchorY
-	{
-		TOP,
-		BOTTOM,
-		CENTER,
-		STRETCH
-	};
-
-	enum class ResizeEdge { None, Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight };
-
-	inline const char* ResizeEdgeToString(ResizeEdge edge) {
-		switch (edge) {
-		case ResizeEdge::None:        return "None";
-		case ResizeEdge::Left:        return "Left";
-		case ResizeEdge::Right:       return "Right";
-		case ResizeEdge::Top:         return "Top";
-		case ResizeEdge::Bottom:      return "Bottom";
-		case ResizeEdge::TopLeft:     return "TopLeft";
-		case ResizeEdge::TopRight:    return "TopRight";
-		case ResizeEdge::BottomLeft:  return "BottomLeft";
-		case ResizeEdge::BottomRight: return "BottomRight";
-		default:                      return "Unknown";
-		}
-	}
-
-	struct ResizeFactors {
-		float moveX, moveY; // Position shift weight
-		float sizeX, sizeY; // Dimension scale weight
-	};
-
-	// Index this using your ResizeEdge enum
-	static const ResizeFactors Factors[] = {
-		{0, 0,  0, 0}, // None
-		{1, 0, -1, 0}, // Left:   Shift X, Inverse Scale Width
-		{0, 0,  1, 0}, // Right:  No Shift, Direct Scale Width
-		{0, 0,  0, 1}, // Top:    No Shift, Direct Scale Height
-		{0, 1,  0,-1}, // Bottom: Shift Y, Inverse Scale Height
-		{1, 0, -1, 1}, // TopLeft
-		{0, 0,  1, 1}, // TopRight
-		{1, 1, -1,-1}, // BottomLeft
-		{0, 1,  1,-1}  // BottomRight
-	};
-
-	// Components
-	struct PepperTransform
-	{
-		Vec2 PercentageDimensions{ 0,0 };
-		Vec2 PercentagePosition{ 0,0 };
-		Vec2 ActualDimensions{ 0,0 };
-		Vec2 ActualPosition{ 0,0 };
-
-		Chilli::AnchorX AnchorX;
-		Chilli::AnchorY AnchorY;
-		IVec2 Anchor{ 0,0 };
-
-		IVec2 Pivot{ 0,0 };
-		int ZOrder = 0;
-	};
-
-	enum class PepperElementTypes
-	{
-		PANEL,
-		HEADER
-	};
-
-	enum PepperElementFlags
-	{
-		PEPPER_ELEMENT_RESIZEABLE = (1 << 0),
-		PEPPER_ELEMENT_MOVEABLE = (1 << 1),
-		PEPPER_ELEMENT_VISIBLE = (1 << 2),
-	};
-
-	class Pepper;
-	struct PepperElement;
-	struct PepperResource;
-
-	struct PepperMaterial
-	{
-	private:
-		BackBone::AssetHandle <Texture> TextureHandle;
-		BackBone::AssetHandle <Sampler> SamplerHandle;
-		Vec4 Color = { 1.0f, 1.0f, 1.0f, 1.0f };
-
-		uint32_t Version = 0;
-		uint32_t LastUploadedVersion = 0;
-
-		friend class Pepper;
-	};
-
-	struct PepperShaderMaterialData
-	{
-		// x for AlbedoTexture, y for AlbedoSampler
-		int TextureIndex;
-		int SamplerIndex;
-		int Padding[2];
-		Vec4 Color;
-	};
-
-
-	struct PepperElement
-	{
-		PepperElementTypes Type = PepperElementTypes::PANEL;
-		uint64_t Flags = PEPPER_ELEMENT_VISIBLE | PEPPER_ELEMENT_MOVEABLE | PEPPER_ELEMENT_RESIZEABLE;
-		char Name[32] = { 0 };
-		BackBone::Entity Parent = BackBone::npos;
-		PepperMaterial Material;
-	};
-
-	class Pepper
-	{
-	public:
-		Pepper(BackBone::SystemContext& Ctxt) :_Ctxt(Ctxt) {}
-
-		void SetMaterialColor(BackBone::Entity Entity, const Vec4& Color)
-		{
-			auto Mat = GetMaterial(Entity);
-			Mat->Color = Color;
-			Mat->Version++;
-		}
-
-		void SetMaterialTexture(BackBone::Entity Entity, BackBone::AssetHandle <Texture> AlbedoTextureHandle)
-		{
-			auto Mat = GetMaterial(Entity);
-			Mat->TextureHandle = AlbedoTextureHandle;
-			Mat->Version++;
-		}
-
-		void SetMaterialSampler(BackBone::Entity Entity, BackBone::AssetHandle <Sampler> SamplerHandle)
-		{
-			auto Mat = GetMaterial(Entity);
-			Mat->SamplerHandle = SamplerHandle;
-			Mat->Version++;
-		}
-
-		void SetElementPercentagePosition(BackBone::Entity Entity, const Vec2& Position)
-		{
-
-		}
-
-		void RemoveFlag(BackBone::Entity Entity, PepperElementFlags Flag)
-		{
-			auto Element = GetElement(Entity);
-			if (Element->Flags & Flag)
-				Element->Flags -= Flag;
-		}
-
-		void AddFlag(BackBone::Entity Entity, PepperElementFlags Flag)
-		{
-			auto Element = GetElement(Entity);
-			if (!(Element->Flags & Flag))
-				Element->Flags += Flag;
-		}
-
-		BackBone::AssetHandle<Texture> GetDeafultPepperTexture();
-
-		bool ShouldMaterialShaderDataUpdate(BackBone::Entity Entity);
-		PepperShaderMaterialData GetMaterialShaderData(BackBone::Entity Entity);
-
-	private:
-		PepperMaterial* GetMaterial(BackBone::Entity Entity);
-		PepperElement* GetElement(BackBone::Entity Entity);
-		PepperTransform* GetTransform(BackBone::Entity Entity);
-		PepperResource* GetPepperResource();
-
-	private:
-		BackBone::SystemContext _Ctxt;
-	};
-
-	struct PepperVertex
-	{
-		Vec3 Position;
-		Vec2 TexCoords;
-		uint32_t PepperMaterialIndex = 0;
-	};
-
-	// Systems
-	void OnPepperStartUp(BackBone::SystemContext& Ctxt);
-	void OnPepperUpdate(BackBone::SystemContext& Ctxt);
-	void OnPepperRender(BackBone::SystemContext& Ctxt, RenderPassInfo& Pass);
-	std::vector<PipelineBarrier> GetPepperPrePassPipelineBarrier(BackBone::SystemContext& Ctxt);
-	std::vector<PipelineBarrier> GetPepperPostPassPipelineBarrier(BackBone::SystemContext& Ctxt);
-
-	struct PepperExtensionConfig
-	{
-		uint32_t MaxFramesInFlight = 0;
-	};
-
-	struct PepperResource
-	{
-		static const uint32_t MeshQuadCount = 10000;
-
-		BackBone::AssetHandle<ImageData> ResizeCursorImageData;
-		BackBone::AssetHandle<Cursor> ResizeCursor;
-		BackBone::AssetHandle<Mesh> RenderMesh;
-		BackBone::AssetHandle<Texture> PepperDeafultTexture;
-		BackBone::AssetHandle<Sampler> PepperDeafultSampler;
-		BackBone::AssetHandle<Image> PepperDeafultImage;
-		BackBone::AssetHandle<ShaderProgram> PepperShaderProgram;
-		BackBone::AssetHandle<Material> ContextMaterial;
-		std::vector< BackBone::AssetHandle<Buffer>> PepperMaterialSSBO;
-		std::vector< PepperShaderMaterialData> PepperMaterialData;
-		std::vector<uint32_t> EntityToPCMap;
-		SparseSet<std::vector<BackBone::Entity>> ParentChildMap;
-		std::array<BackBone::AssetHandle<Cursor>, int(DeafultCursorTypes::Count) > DeafultCursors;
-
-		IVec2 OldWindowSize{ 0,0 };
-		IVec2 WindowSize{ 0,0 };
-		IVec2 OldCursorPos{ 0,0 };
-		IVec2 CursorPos{ 0,0 };
-
-		uint32_t QuadCount = 0;
-		std::vector<PepperVertex> QuadVertices;
-		std::vector<uint32_t> QuadIndicies;
-
-		struct {
-			glm::mat4 OthroMat = glm::mat4{ 1.0f };
-		} CameraManager;
-
-		// Which Canvas the mouse is on
-		BackBone::Entity ActiveMouseElement;
-
-		// Add these to PepperResource struct
-		BackBone::Entity ResizingEntity = BackBone::npos;
-		ResizeEdge ActiveEdge = ResizeEdge::None;
-	};
-
-	class PepperExtension : public BackBone::Extension
-	{
-	public:
-		PepperExtension(const PepperExtensionConfig& Config = PepperExtensionConfig())
-			:_Config(Config)
-		{
-		}
-		~PepperExtension() {}
-
-		virtual void Build(BackBone::App& App) override;
-
-		virtual const char* Name() const override { return "PepperExtension"; }
-	private:
-		PepperExtensionConfig _Config;
-	};
-#pragma endregion
-
-	struct DeafultExtensionConfig
-	{
-		RenderExtensionConfig RenderConfig{};
-		WindowExtensionConfig WindowConfig{};
-		PepperExtensionConfig PepperConfig{};
-	};
-
-	// ---- Basic Extensions ----
-	class DeafultExtension : public BackBone::Extension
-	{
-	public:
-		DeafultExtension(const DeafultExtensionConfig& Config = DeafultExtensionConfig())
-			:_Config(Config)
-		{
-		}
-		~DeafultExtension() {}
-
-		virtual void Build(BackBone::App& App) override;
-
-		virtual const char* Name() const override { return "DeafultExtension"; }
-	private:
-		DeafultExtensionConfig _Config;
-	};
-
-#pragma region Camera Extension
-	struct MainCameraTag {};
-	struct UICameraTag {};
-
-	// Main camera component (like Bevy's Camera3d)
-	struct CameraComponent {
-		float Fov = 60.0f;
-		float Near_Clip = 0.1f;
-		float Far_Clip = 1000.0f;
-		bool Is_Orthro = false;
-		Vec2 Orthro_Size = { 1.0f, 1.0f };
-	};
-
-	// Standard FPS/Flight style controls
-	struct Deafult3DCameraController
-	{
-		float Move_Speed = 10.0f;
-		float Look_Sensitivity = 0.1f;
-
-		// Internal state to track rotation without Gimbal Lock
-		float Pitch = 0.0f;
-		float Yaw = -90.0f;
-
-		bool Invert_Y = false;
-	};
-
-	// Standard Pan/Zoom style controls
-	struct Deafult2DCameraController
-	{
-		float Pan_Speed = 5.0f;
-		float Zoom_Speed = 0.5f;
-		float Min_Zoom = 0.1f;
-		float Max_Zoom = 10.0f;
-	};
-
-	// ---- Basic Extensions ----
-	class CameraExtension : public BackBone::Extension
-	{
-	public:
-		CameraExtension() {}
-		~CameraExtension() {}
-
-		virtual void Build(BackBone::App& App) override;
-
-		virtual const char* Name() const override { return "CameraExtension"; }
-	private:
-	};
-
-	namespace CameraBundle
-	{
-		Chilli::BackBone::Entity Create3D(Chilli::BackBone::SystemContext& Ctxt,
-			glm::vec3 Pos = { 0, 0, 5.0f },
-			bool Main_Cam = true);
-
-		// If Resolution is not provided it will use window coordinates
-		Chilli::BackBone::Entity Create2D(Chilli::BackBone::SystemContext& Ctxt,
-			bool Main_Cam = true, const IVec2& Resolution = { 0, 0 });
-	}
-#pragma endregion
 
 #pragma region Ember Extension
 
@@ -1186,6 +851,749 @@ namespace Chilli
 	std::vector<PipelineBarrier> GetEmberPostPassPipelineBarrier(BackBone::SystemContext& Ctxt);
 #pragma endregion
 
+	// The Base UI Library
+#pragma region Pepper
+
+	enum class AnchorX
+	{
+		LEFT,
+		RIGHT,
+		CENTER,
+		STRETCH
+	};
+
+	enum class AnchorY
+	{
+		TOP,
+		BOTTOM,
+		CENTER,
+		STRETCH
+	};
+
+	enum class ResizeEdge { None, Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight };
+
+	inline const char* ResizeEdgeToString(ResizeEdge edge) {
+		switch (edge) {
+		case ResizeEdge::None:        return "None";
+		case ResizeEdge::Left:        return "Left";
+		case ResizeEdge::Right:       return "Right";
+		case ResizeEdge::Top:         return "Top";
+		case ResizeEdge::Bottom:      return "Bottom";
+		case ResizeEdge::TopLeft:     return "TopLeft";
+		case ResizeEdge::TopRight:    return "TopRight";
+		case ResizeEdge::BottomLeft:  return "BottomLeft";
+		case ResizeEdge::BottomRight: return "BottomRight";
+		default:                      return "Unknown";
+		}
+	}
+
+	struct ResizeFactors {
+		float moveX, moveY; // Position shift weight
+		float sizeX, sizeY; // Dimension scale weight
+	};
+
+	// Index this using your ResizeEdge enum
+	static const ResizeFactors Factors[] = {
+		{0, 0,  0, 0}, // None
+		{1, 0, -1, 0}, // Left:   Shift X, Inverse Scale Width
+		{0, 0,  1, 0}, // Right:  No Shift, Direct Scale Width
+		{0, 0,  0, 1}, // Top:    No Shift, Direct Scale Height
+		{0, 1,  0,-1}, // Bottom: Shift Y, Inverse Scale Height
+		{1, 0, -1, 1}, // TopLeft
+		{0, 0,  1, 1}, // TopRight
+		{1, 1, -1,-1}, // BottomLeft
+		{0, 1,  1,-1}  // BottomRight
+	};
+
+	// Components
+	struct PepperTransform
+	{
+		Vec2 PercentageDimensions{ 0,0 };
+		Vec2 PercentagePosition{ 0,0 };
+		Vec2 ActualDimensions{ 0,0 };
+		Vec2 ActualPosition{ 0,0 };
+
+		Chilli::AnchorX AnchorX;
+		Chilli::AnchorY AnchorY;
+		IVec2 Anchor{ 0,0 };
+
+		IVec2 Pivot{ 0,0 };
+		int ZOrder = 0;
+	};
+
+	enum class PepperElementTypes
+	{
+		PANEL,
+		HEADER
+	};
+
+	enum PepperElementFlags
+	{
+		PEPPER_ELEMENT_RESIZEABLE = (1 << 0),
+		PEPPER_ELEMENT_MOVEABLE = (1 << 1),
+		PEPPER_ELEMENT_VISIBLE = (1 << 2),
+	};
+
+	class Pepper;
+	struct PepperElement;
+	struct PepperResource;
+
+	struct PepperMaterial
+	{
+	private:
+		BackBone::AssetHandle <Texture> TextureHandle;
+		BackBone::AssetHandle <Sampler> SamplerHandle;
+		Vec4 Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+		uint32_t Version = 0;
+		uint32_t LastUploadedVersion = 0;
+
+		friend class Pepper;
+	};
+
+	struct PepperShaderMaterialData
+	{
+		// x for AlbedoTexture, y for AlbedoSampler
+		int TextureIndex;
+		int SamplerIndex;
+		int Padding[2];
+		Vec4 Color;
+	};
+
+	struct PepperElement
+	{
+		PepperElementTypes Type = PepperElementTypes::PANEL;
+		uint64_t Flags = PEPPER_ELEMENT_VISIBLE | PEPPER_ELEMENT_MOVEABLE | PEPPER_ELEMENT_RESIZEABLE;
+		char Name[32] = { 0 };
+		BackBone::Entity Parent = BackBone::npos;
+		PepperMaterial Material;
+	};
+
+	class Pepper
+	{
+	public:
+		Pepper(BackBone::SystemContext& Ctxt) :_Ctxt(Ctxt) {}
+
+		void SetMaterialColor(BackBone::Entity Entity, const Vec4& Color)
+		{
+			auto Mat = GetMaterial(Entity);
+			Mat->Color = Color;
+			Mat->Version++;
+		}
+
+		void SetMaterialTexture(BackBone::Entity Entity, BackBone::AssetHandle <Texture> AlbedoTextureHandle)
+		{
+			auto Mat = GetMaterial(Entity);
+			Mat->TextureHandle = AlbedoTextureHandle;
+			Mat->Version++;
+		}
+
+		void SetMaterialSampler(BackBone::Entity Entity, BackBone::AssetHandle <Sampler> SamplerHandle)
+		{
+			auto Mat = GetMaterial(Entity);
+			Mat->SamplerHandle = SamplerHandle;
+			Mat->Version++;
+		}
+
+		void SetElementPercentagePosition(BackBone::Entity Entity, const Vec2& Position)
+		{
+
+		}
+
+		void RemoveFlag(BackBone::Entity Entity, PepperElementFlags Flag)
+		{
+			auto Element = GetElement(Entity);
+			if (Element->Flags & Flag)
+				Element->Flags -= Flag;
+		}
+
+		void AddFlag(BackBone::Entity Entity, PepperElementFlags Flag)
+		{
+			auto Element = GetElement(Entity);
+			if (!(Element->Flags & Flag))
+				Element->Flags += Flag;
+		}
+
+		BackBone::AssetHandle<Texture> GetDeafultPepperTexture();
+
+		bool ShouldMaterialShaderDataUpdate(BackBone::Entity Entity);
+		PepperShaderMaterialData GetMaterialShaderData(BackBone::Entity Entity);
+
+	private:
+		PepperMaterial* GetMaterial(BackBone::Entity Entity);
+		PepperElement* GetElement(BackBone::Entity Entity);
+		PepperTransform* GetTransform(BackBone::Entity Entity);
+		PepperResource* GetPepperResource();
+
+	private:
+		BackBone::SystemContext _Ctxt;
+	};
+
+	struct PepperVertex
+	{
+		Vec3 Position;
+		Vec2 TexCoords;
+		uint32_t PepperMaterialIndex = 0;
+	};
+
+	// Systems
+	void OnPepperStartUp(BackBone::SystemContext& Ctxt);
+	void OnPepperUpdate(BackBone::SystemContext& Ctxt);
+	void OnPepperRender(BackBone::SystemContext& Ctxt, RenderPassInfo& Pass);
+	std::vector<PipelineBarrier> GetPepperPrePassPipelineBarrier(BackBone::SystemContext& Ctxt);
+	std::vector<PipelineBarrier> GetPepperPostPassPipelineBarrier(BackBone::SystemContext& Ctxt);
+
+	struct PepperExtensionConfig
+	{
+		bool Enable = true;
+		uint32_t MaxFramesInFlight = 0;
+		EmberExtensionConfig EmberConfig;
+	};
+
+	struct PepperResource
+	{
+		static const uint32_t MeshQuadCount = 10000;
+
+		BackBone::AssetHandle<ImageData> ResizeCursorImageData;
+		BackBone::AssetHandle<Cursor> ResizeCursor;
+		BackBone::AssetHandle<Mesh> RenderMesh;
+		BackBone::AssetHandle<Texture> PepperDeafultTexture;
+		BackBone::AssetHandle<Sampler> PepperDeafultSampler;
+		BackBone::AssetHandle<Image> PepperDeafultImage;
+		BackBone::AssetHandle<ShaderProgram> PepperShaderProgram;
+		BackBone::AssetHandle<Material> ContextMaterial;
+		std::vector< BackBone::AssetHandle<Buffer>> PepperMaterialSSBO;
+		std::vector< PepperShaderMaterialData> PepperMaterialData;
+		std::vector<uint32_t> EntityToPCMap;
+		SparseSet<std::vector<BackBone::Entity>> ParentChildMap;
+		std::array<BackBone::AssetHandle<Cursor>, int(DeafultCursorTypes::Count) > DeafultCursors;
+
+		IVec2 OldWindowSize{ 0,0 };
+		IVec2 WindowSize{ 0,0 };
+		IVec2 OldCursorPos{ 0,0 };
+		IVec2 CursorPos{ 0,0 };
+
+		uint32_t QuadCount = 0;
+		std::vector<PepperVertex> QuadVertices;
+		std::vector<uint32_t> QuadIndicies;
+
+		struct {
+			glm::mat4 OthroMat = glm::mat4{ 1.0f };
+		} CameraManager;
+
+		// Which Canvas the mouse is on
+		BackBone::Entity ActiveMouseElement;
+
+		// Add these to PepperResource struct
+		BackBone::Entity ResizingEntity = BackBone::npos;
+		ResizeEdge ActiveEdge = ResizeEdge::None;
+	};
+
+	class PepperExtension : public BackBone::Extension
+	{
+	public:
+		PepperExtension(const PepperExtensionConfig& Config = PepperExtensionConfig())
+			:_Config(Config)
+		{
+		}
+		~PepperExtension() {}
+
+		virtual void Build(BackBone::App& App) override;
+
+		virtual const char* Name() const override { return "PepperExtension"; }
+	private:
+		PepperExtensionConfig _Config;
+	};
+#pragma endregion
+
+#pragma region Camera Extension
+	struct MainCameraTag {};
+	struct UICameraTag {};
+
+	// Main camera component (like Bevy's Camera3d)
+	struct CameraComponent {
+		float Fov = 60.0f;
+		float Near_Clip = 0.1f;
+		float Far_Clip = 1000.0f;
+		bool Is_Orthro = false;
+		Vec2 Orthro_Size = { 1.0f, 1.0f };
+	};
+
+	// Standard FPS/Flight style controls
+	struct Deafult3DCameraController
+	{
+		float Move_Speed = 10.0f;
+		float Look_Sensitivity = 0.1f;
+
+		// Internal state to track rotation without Gimbal Lock
+		float Pitch = 0.0f;
+		float Yaw = -90.0f;
+
+		bool Invert_Y = false;
+	};
+
+	// Standard Pan/Zoom style controls
+	struct Deafult2DCameraController
+	{
+		float Pan_Speed = 5.0f;
+		float Zoom_Speed = 0.5f;
+		float Min_Zoom = 0.1f;
+		float Max_Zoom = 10.0f;
+	};
+
+	// ---- Basic Extensions ----
+	class CameraExtension : public BackBone::Extension
+	{
+	public:
+		CameraExtension() {}
+		~CameraExtension() {}
+
+		virtual void Build(BackBone::App& App) override;
+
+		virtual const char* Name() const override { return "CameraExtension"; }
+	private:
+	};
+
+	namespace CameraBundle
+	{
+		Chilli::BackBone::Entity Create3D(Chilli::BackBone::SystemContext& Ctxt,
+			glm::vec3 Pos = { 0, 0, 5.0f },
+			bool Main_Cam = true);
+
+		// If Resolution is not provided it will use window coordinates
+		Chilli::BackBone::Entity Create2D(Chilli::BackBone::SystemContext& Ctxt,
+			bool Main_Cam = true, const IVec2& Resolution = { 0, 0 });
+	}
+#pragma endregion
+
+#pragma region Noise Generator
+
+	struct NoiseExtensionConfig
+	{
+		struct {
+			bool Enable = true;
+		} FastNoise2Config;
+	};
+
+	// The core types of noise your engine supports
+	enum class NoiseType {
+		Perlin,     // Classic, slightly grid-aligned (good for clouds)
+		Simplex,    // Smoother, less directional (good for rolling hills)
+		Cellular,   // Voronoi/Worley patterns (perfect for craters/crystals)
+		Value       // Blocky, Minecraft-style base noise
+	};
+
+	// A data-oriented config struct
+	struct NoiseConfig {
+		NoiseType Type = NoiseType::Simplex;
+		float Frequency = 0.01f;
+		int Seed = 1337;
+
+		// Fractal (fBm) Layering Settings
+		bool UseFractal = true;
+		bool UseWarp = true;
+		int Octaves = 4;         // Number of detail layers
+		float Gain = 0.5f;       // Amplitude multiplier per layer
+		float Lacunarity = 2.0f; // Frequency multiplier per layer
+		float WarpIntensity = 0.0f;
+	};
+
+	using NoiseHandle = uint32_t;
+	constexpr NoiseHandle InvalidNoiseHandle = 0;
+
+	class FastNoiseProvider {
+	private:
+		std::unordered_map<NoiseHandle, FastNoise::SmartNode<>> _generators;
+		std::unordered_map<NoiseHandle, NoiseConfig> _configs;
+		uint32_t _nextHandle = 1;
+
+		// Internal helper to get a node safely
+		FastNoise::SmartNode<> GetNode(NoiseHandle handle) {
+			auto it = _generators.find(handle);
+			return (it != _generators.end()) ? it->second : nullptr;
+		}
+
+	public:
+
+		~FastNoiseProvider();
+
+		NoiseHandle CreateGenerator(const NoiseConfig& config);
+
+		float GetSingle3D(NoiseHandle handle, float x, float y, float z);
+		float GetSingle2D(NoiseHandle handle, float x, float y);
+
+		// Position-based sampling (Unity style)
+		float GetAtPosition(NoiseHandle handle, const Vec3& pos) {
+			return GetSingle3D(handle, pos.x, pos.y, pos.z);
+		}
+
+		// Position-based sampling (Unity style)
+		float GetAtPosition(NoiseHandle handle, const Vec2& pos) {
+			return GetSingle2D(handle, pos.x, pos.y);
+		}
+
+		// Like Unity's Mathf.Lerp or Remap functions
+		float GetValue01(NoiseHandle handle, float x, float y) {
+			float val = GetSingle2D(handle, x, y);
+			return (val + 1.0f) * 0.5f; // FastNoise is -1 to 1, remap to 0 to 1
+		}
+
+		// Like Unity's Mathf.Lerp or Remap functions
+		float GetValue01(NoiseHandle handle, float x, float y, float z) {
+			float val = GetSingle3D(handle, x, y, z);
+			return (val + 1.0f) * 0.5f; // FastNoise is -1 to 1, remap to 0 to 1
+		}
+
+		// Returns a value scaled to a custom range (like Unity's Remap)
+		inline float GetValueRange(NoiseHandle h, float x, float y, float min, float max) {
+			float val01 = GetValue01(h, x, y);
+			return min + val01 * (max - min);
+		}
+
+		void GetGrid2D(NoiseHandle handle, std::vector<float>& outBuffer, int startX, int startY, int width, int height);
+		// 3D Grid Generation (For Volumetric/Voxel data)
+		void GetGrid3D(NoiseHandle handle, std::vector<float>& outBuffer,
+			int startX, int startY, int startZ,
+			int width, int height, int depth);
+		void GetGrid2D(NoiseHandle handle, float* outBuffer, int startX, int startY, int width, int height);
+
+		void DestroyGenerator(NoiseHandle handle) {
+			_generators.erase(handle);
+			_configs.erase(handle);
+		}
+	};
+#pragma endregion
+
+#pragma region SimPhysics
+
+	struct RigidBody
+	{
+		Chilli::Vec3 Velocity;
+		Chilli::Vec3 Acceleration = { 0.0f, 0.0f, 0.0f }; // store previous
+		Chilli::Vec3 Force = { 0.0f, 0.0f, 0.0f }; // accumulated forces
+
+		float Mass = 1.0f;
+		float Drag = 1.0f;
+		float        GravityScale = 1.0f;
+		float        Restitution = -1.0f;
+		bool IsStatic = false;
+	};
+	// ============================================================
+//  AABB
+// ============================================================
+	struct AABB
+	{
+		Vec3 Min, Max;
+
+		AABB() = default;
+		AABB(const Vec3& Min, const Vec3& Max) : Min(Min), Max(Max) {}
+
+		// Build from center + half extents
+		static AABB FromCenter(const Vec3& Center, const Vec3& HalfExtents)
+		{
+			return { Center - HalfExtents, Center + HalfExtents };
+		}
+
+		Vec3  GetCenter()      const { return (Max + Min) * 0.5f; }
+		Vec3  GetHalfExtents() const { return (Max - Min) * 0.5f; }
+
+		bool IsColliding(const AABB& Other) const
+		{
+			return (Min.x < Other.Max.x && Max.x > Other.Min.x)
+				&& (Min.y < Other.Max.y && Max.y > Other.Min.y)
+				&& (Min.z < Other.Max.z && Max.z > Other.Min.z);
+		}
+
+		bool Contains(const Vec3& Point) const
+		{
+			return (Point.x >= Min.x && Point.x <= Max.x)
+				&& (Point.y >= Min.y && Point.y <= Max.y)
+				&& (Point.z >= Min.z && Point.z <= Max.z);
+		}
+
+		// Closest point on or inside AABB to a given point
+		// Used by sphere vs AABB test
+		Vec3 ClosestPoint(const Vec3& Point) const
+		{
+			return {
+				std::max(Min.x, std::min(Point.x, Max.x)),
+				std::max(Min.y, std::min(Point.y, Max.y)),
+				std::max(Min.z, std::min(Point.z, Max.z))
+			};
+		}
+	};
+
+	// ============================================================
+	//  SPHERE
+	// ============================================================
+	struct Sphere
+	{
+		Vec3  Center;
+		float Radius = 0.5f;
+
+		Sphere() = default;
+		Sphere(const Vec3& Center, float Radius) : Center(Center), Radius(Radius) {}
+
+		bool IsColliding(const Sphere& Other) const
+		{
+			Vec3  Delta = Other.Center - Center;
+			float DistSq = Delta.x * Delta.x + Delta.y * Delta.y + Delta.z * Delta.z;
+			float RadiiSum = Radius + Other.Radius;
+			return DistSq < RadiiSum * RadiiSum;
+		}
+
+		bool IsColliding(const AABB& Box) const
+		{
+			Vec3  Closest = Box.ClosestPoint(Center);
+			Vec3  Delta = Center - Closest;
+			float DistSq = Delta.x * Delta.x + Delta.y * Delta.y + Delta.z * Delta.z;
+			return DistSq < Radius * Radius;
+		}
+
+		bool Contains(const Vec3& Point) const
+		{
+			Vec3  Delta = Point - Center;
+			float DistSq = Delta.x * Delta.x + Delta.y * Delta.y + Delta.z * Delta.z;
+			return DistSq <= Radius * Radius;
+		}
+	};
+
+	// ============================================================
+	//  CAPSULE
+	// ============================================================
+	struct Capsule
+	{
+		Vec3  Base;       // bottom sphere center
+		Vec3  Tip;        // top sphere center
+		float Radius = 0.5f;
+
+		Capsule() = default;
+		Capsule(const Vec3& Base, const Vec3& Tip, float Radius)
+			: Base(Base), Tip(Tip), Radius(Radius) {
+		}
+
+		// Closest point on the capsule LINE SEGMENT to an external point
+		// This is the core of all capsule tests
+		Vec3 ClosestPointOnSegment(const Vec3& Point) const
+		{
+			Vec3  AB = Tip - Base;
+			float LenSq = AB.x * AB.x + AB.y * AB.y + AB.z * AB.z;
+
+			if (LenSq < 0.0001f) return Base; // degenerate capsule, treat as sphere
+
+			// Project point onto segment, clamp to [0,1]
+			float T = ((Point.x - Base.x) * AB.x +
+				(Point.y - Base.y) * AB.y +
+				(Point.z - Base.z) * AB.z) / LenSq;
+
+			T = std::max(0.0f, std::min(1.0f, T));
+
+			return { Base.x + T * AB.x, Base.y + T * AB.y, Base.z + T * AB.z };
+		}
+
+		bool IsColliding(const Sphere& S) const
+		{
+			Vec3  Closest = ClosestPointOnSegment(S.Center);
+			Vec3  Delta = S.Center - Closest;
+			float DistSq = Delta.x * Delta.x + Delta.y * Delta.y + Delta.z * Delta.z;
+			float RadiiSum = Radius + S.Radius;
+			return DistSq < RadiiSum * RadiiSum;
+		}
+
+		bool IsColliding(const Capsule& Other) const
+		{
+			// Closest points between the two line segments
+			Vec3 ClosestA = ClosestPointOnSegment(Other.Base);
+			Vec3 ClosestB = Other.ClosestPointOnSegment(ClosestA);
+			ClosestA = ClosestPointOnSegment(ClosestB); // refine once
+
+			Vec3  Delta = ClosestB - ClosestA;
+			float DistSq = Delta.x * Delta.x + Delta.y * Delta.y + Delta.z * Delta.z;
+			float RadiiSum = Radius + Other.Radius;
+			return DistSq < RadiiSum * RadiiSum;
+		}
+
+		bool IsColliding(const AABB& Box) const
+		{
+			// Find closest point on box to capsule segment
+			Vec3 ClosestOnBox = Box.ClosestPoint(ClosestPointOnSegment(Box.GetCenter()));
+			Vec3 ClosestOnSeg = ClosestPointOnSegment(ClosestOnBox);
+
+			Vec3  Delta = ClosestOnBox - ClosestOnSeg;
+			float DistSq = Delta.x * Delta.x + Delta.y * Delta.y + Delta.z * Delta.z;
+			return DistSq < Radius * Radius;
+		}
+	};
+
+	enum class ColliderType
+	{
+		BOX,
+		SPHERE,
+		CAPSULE
+	};
+
+	struct Collider {
+		ColliderType Type;
+		bool IsTrigger = false;
+
+		// Only one of these is valid depending on Type
+		union
+		{
+			AABB Box;
+			Sphere Sphere;
+			Capsule Capsule;
+		};
+
+		// Add these to fix the error
+		Collider() = default;
+		~Collider() = default;
+		Collider(const Collider& other) = default;
+
+		Collider& operator=(const Collider& other) {
+			Type = other.Type;
+			IsTrigger = other.IsTrigger;
+
+			// Copy based on type
+			switch (Type) {
+			case ColliderType::BOX:
+				Box = other.Box;
+				break;
+			case ColliderType::SPHERE:
+				Sphere = other.Sphere;
+				break;
+			case ColliderType::CAPSULE:
+				Capsule = other.Capsule;
+				break;
+			}
+			return *this;
+		}
+
+		Collider(Collider&& other) noexcept = default;
+		Collider& operator=(Collider&& other) noexcept = default;
+	};
+
+	// We Sepreate Collision handling in 2 functions: Detection and Resolving detection gives CollisionResult which is used by resolving
+	struct CollisionResult
+	{
+		BackBone::Entity EntityA, EntityB;
+		Chilli::Vec3  Normal;
+		float Penetration;
+	};
+
+	struct SimPhysicsWorld
+	{
+		Chilli::Vec3 Gravity;
+		bool  Paused = false;
+	};
+
+	// Define function pointer type
+	using CollisionFn = bool(*)(
+		const Collider&, const TransformComponent&,
+		const Collider&, const TransformComponent&,
+		CollisionResult&);
+
+	// Forward declarations of all test functions
+	bool TestAABBvsAABB(const Collider& ColliderA, const TransformComponent& TransformA, const Collider& ColliderB, const TransformComponent& TransformB, CollisionResult& Result);
+	bool TestSphereVsSphere(const Collider& ColliderA, const TransformComponent& TransformA,
+		const Collider& ColliderB, const TransformComponent& TransformB,
+		CollisionResult& Out);
+
+	bool TestAABBvsSphere(const Collider& ColliderA, const TransformComponent& TransformA,
+		const Collider& ColliderB, const TransformComponent& TransformB,
+		CollisionResult& Out);
+
+	bool TestSphereVsCapsule(const Collider& ColliderA, const TransformComponent& TransformA,
+		const Collider& ColliderB, const TransformComponent& TransformB,
+		CollisionResult& Out);
+
+	bool TestCapsuleVsCapsule(const Collider& ColliderA, const TransformComponent& TransformA,
+		const Collider& ColliderB, const TransformComponent& TransformB,
+		CollisionResult& Out);
+
+	bool TestAABBvsCapsule(const Collider& ColliderA, const TransformComponent& TransformA,
+		const Collider& ColliderB, const TransformComponent& TransformB,
+		CollisionResult& Out);
+	inline bool TestUnsupported(const Collider&, const TransformComponent&, const Collider&, const TransformComponent&, CollisionResult&)
+	{
+		return false;
+	} // pair not implemented yet
+
+	struct SimPhysicsResources
+	{
+		std::vector<BackBone::Entity> CollisionEntities;
+		std::vector<CollisionResult> CollisionResults;
+
+		// Dispatch table — rows = A type, cols = B type
+		const CollisionFn CollisionMatrix[3][3] =
+		{
+			//                AABB              Sphere             Capsule
+			/* AABB    */  { TestAABBvsAABB,    TestAABBvsSphere,  TestUnsupported },
+			/* Sphere  */  { TestAABBvsSphere,  TestSphereVsSphere,TestUnsupported },
+			/* Capsule */  { TestUnsupported,   TestUnsupported,   TestUnsupported }
+		};
+	};
+
+	struct SimPhysicsExtensionConfig
+	{
+		Chilli::Vec3 Gravity = { 0.0f, -9.81f, 0.0f };
+		float        Tick = 1.0f / 60.0f;
+		int          CollisionSolverIterations = 4;  // renamed
+		float        DefaultRestitution = 0.3f;
+		float        DefaultDrag = 0.01f;
+		bool         Enabled = true;
+		float Slop = 0.01f;
+		float Aggressiveness = 0.4f;
+	};
+
+	// ---- Basic Extensions ----
+	class SimPhysicsExtension : public BackBone::Extension
+	{
+	public:
+		SimPhysicsExtension(const SimPhysicsExtensionConfig& Config = SimPhysicsExtensionConfig())
+			:_Config(Config)
+		{
+		}
+		~SimPhysicsExtension() {}
+
+		virtual void Build(BackBone::App& App) override;
+
+		virtual const char* Name() const override { return "SimPhysicsExtension"; }
+	private:
+		SimPhysicsExtensionConfig  _Config;
+	};
+
+#pragma endregion
+
+	struct DeafultExtensionConfig
+	{
+		RenderExtensionConfig RenderConfig{};
+		WindowExtensionConfig WindowConfig{};
+		PepperExtensionConfig PepperConfig{};
+		SimPhysicsExtensionConfig SimPhysicsConfig{ .Enabled = true };
+
+		struct {
+			bool EnableFastNoise2Provider = true;
+		} NoiseExtensionConfig;
+	};
+
+	// ---- Basic Extensions ----
+	class DeafultExtension : public BackBone::Extension
+	{
+	public:
+		DeafultExtension(const DeafultExtensionConfig& Config = DeafultExtensionConfig())
+			:_Config(Config)
+		{
+		}
+		~DeafultExtension() {}
+
+		virtual void Build(BackBone::App& App) override;
+
+		virtual const char* Name() const override { return "DeafultExtension"; }
+	private:
+		DeafultExtensionConfig _Config;
+	};
+
+
 #pragma region Command
 	class Command
 	{
@@ -1201,6 +1609,10 @@ namespace Chilli
 		BackBone::AssetHandle<Mesh> CreateMesh(uint32_t VertexCount,
 			uint32_t IndexCount, IndexBufferType  Type, VertexInputShaderLayout Layout);
 
+		std::vector<uint8_t> RebuildVertexBuffer(
+			const Chilli::RawMeshData& Raw,
+			const Chilli::VertexInputShaderLayout& Desired);
+
 		BackBone::AssetHandle<Mesh> CreateMesh(const MeshCreateInfo& Info);
 		BackBone::AssetHandle<Mesh> CreateMesh(BasicShapes Shape);
 		BackBone::AssetHandle<Mesh> CreateMesh(BackBone::AssetHandle<RawMeshData> Data, const VertexInputShaderLayout& DesiredLayout);
@@ -1211,6 +1623,31 @@ namespace Chilli
 
 		void MapMeshVertexBufferData(BackBone::AssetHandle<Mesh> Handle, uint32_t Binding, void* Data, uint32_t Count, size_t Size, uint32_t Offset);
 		void MapMeshIndexBufferData(BackBone::AssetHandle<Mesh> Handle, void* Data, uint32_t Count, size_t Size, uint32_t Offset);
+
+		void MakeNoiseTextureData(uint32_t Handle, uint8_t* Texture, uint32_t Width, uint32_t Height, bool ColorR = true, bool ColorG = true, bool ColorB = true);
+
+		void GeneratePlane(int ResolutionX, int ResolutionZ, std::vector<Chilli::Vertex>& OutVerts, std::vector<uint32_t>& OutIndices);
+		void GenerateSphere(int XSegments, int YSegments, std::vector<Chilli::Vertex>& OutVerts, std::vector<uint32_t>& OutIndices);
+		void Displace(std::vector<Chilli::Vertex>& ModelVerts, const std::vector<uint32_t>& Indices, float Strength, float Limit);
+		void RecalculateNormals(std::vector<Chilli::Vertex>& Verts, const std::vector<uint32_t>& Indices);
+
+		void DisplaceNoise(
+			std::vector<Chilli::Vertex>& Verts,
+			const std::vector<uint32_t>& Indices,
+			uint32_t                        Handle,
+			float                           Scale,
+			float                           Strength,
+			float                           OffsetX,
+			float                           OffsetY,
+			float                           OffsetZ,
+			float                           FloorY,
+			bool                            EnableX,
+			bool                            EnableY,
+			bool                            EnableZ);
+
+		std::vector<Chilli::Vertex> RawVertexToVertex(const std::vector<uint8_t>& RawVertices, const Chilli::VertexInputShaderLayout& Layout);
+
+		std::vector<uint32_t> RawIndicesToIndices(const std::vector<uint8_t>& RawIndices);
 
 		void UpdateDynamicMesh(uint8_t* VertexData);
 
@@ -1253,6 +1690,24 @@ namespace Chilli
 		// Window Services Related
 		uint32_t SpwanWindow(const WindowSpec& Spec);
 		void DestroyWindow(uint32_t Idx);
+
+		BackBone::GenericFrameData* GetGenericFrameData();
+
+		float GetPhysicsDeltaTime() {
+			return GetGenericFrameData()->FixedPhysicsData.Ticks;
+		}
+		
+		float GetNetWorkDeltaTime() {
+			return GetGenericFrameData()->FixedNetWorkData.Ticks;
+		}
+		
+		float GetTriggerDeltaTime() {
+			return GetGenericFrameData()->FixedTriggerData.Ticks;
+		}
+		
+		float GetAIDeltaTime() {
+			return GetGenericFrameData()->FixedAIData.Ticks;
+		}
 
 		template<typename _ResType>
 		void AddResource() { _Ctxt.Registry->AddResource<_ResType>(); }

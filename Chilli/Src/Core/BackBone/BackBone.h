@@ -494,6 +494,7 @@ namespace Chilli
 				float Alpha = 0.0f;
 			};
 			StageData FixedPhysicsData;
+			StageData FixedNetWorkData;
 			StageData FixedSimulationData;
 			StageData FixedAIData;
 			StageData FixedTriggerData;
@@ -528,7 +529,7 @@ namespace Chilli
 			INPUT,
 			
 			FIXED_NETWORK,
-			SIMULATION,   // Physics/Collision
+			FIXED_PHYSICS,   // Physics/Collision
 			FIXED_AI,
 			FIXED_TRIGGER, 
 			

@@ -1,6 +1,9 @@
 #pragma once
 
 #include <cstddef> // for size_t
+#include <cmath> // for size_t
+#include <utility> // for size_t
+#include <algorithm>
 
 namespace Chilli
 {
@@ -524,30 +527,198 @@ namespace Chilli
 	inline IVec4::operator DVec4() const { return DVec4(static_cast<double>(x), static_cast<double>(y), static_cast<double>(z), static_cast<double>(w)); }
 
 #pragma endregion
-
-	struct AABB
+	inline float Clamp(float v, float min, float max)
 	{
-		Vec3 Min, Max;
+		if (v < min) return min;
+		if (v > max) return max;
+		return v;
+	}
 
-		AABB() = default;
-		AABB(const Vec3& min, const Vec3& max) : Min(min), Max(max) {}
+	inline double Clamp(double v, double min, double max)
+	{
+		if (v < min) return min;
+		if (v > max) return max;
+		return v;
+	}
 
-		bool IsColliding(const AABB& Other) const
-		{
-			return (Min.x < Other.Max.x && Max.x > Other.Min.x
-				&& (Min.y < Other.Max.y && Max.y > Other.Min.y)
-				&& (Min.z < Other.Max.z && Max.z > Other.Min.z));
-		}
+	// --- Vec2, IVec2, DVec2 ---
+	inline float Length(const Vec2& v) { return std::sqrt(v.x * v.x + v.y * v.y); }
+	inline double Length(const DVec2& v) { return std::sqrt(v.x * v.x + v.y * v.y); }
+	inline float Length(const IVec2& v) { return std::sqrt(float(v.x * v.x + v.y * v.y)); }
 
-		bool Contains(const Vec3& point) const
-		{
-			return (point.x >= Min.x && point.x <= Max.x) &&
-				(point.y >= Min.y && point.y <= Max.y) &&
-				(point.z >= Min.z && point.z <= Max.z);
-		}
+	inline Vec2 Normalize(const Vec2& v) { float l = Length(v); return l > 0 ? Vec2(v.x / l, v.y / l) : Vec2(0, 0); }
+	inline DVec2 Normalize(const DVec2& v) { double l = Length(v); return l > 0 ? DVec2(v.x / l, v.y / l) : DVec2(0, 0); }
+	inline Vec2 Normalize(const IVec2& v) { float l = Length(v); return l > 0 ? Vec2(v.x / l, v.y / l) : Vec2(0, 0); }
 
-		const Vec3& GetCenter() const { return (Max + Min) / 2.0f; }
-	};
+	inline float Dot(const Vec2& a, const Vec2& b) { return a.x * b.x + a.y * b.y; }
+	inline double Dot(const DVec2& a, const DVec2& b) { return a.x * b.x + a.y * b.y; }
+	inline int Dot(const IVec2& a, const IVec2& b) { return a.x * b.x + a.y * b.y; }
+
+	inline float Distance(const Vec2& a, const Vec2& b) { return Length(Vec2(a.x - b.x, a.y - b.y)); }
+	inline double Distance(const DVec2& a, const DVec2& b) { return Length(DVec2(a.x - b.x, a.y - b.y)); }
+	inline float Distance(const IVec2& a, const IVec2& b) { return Length(IVec2(a.x - b.x, a.y - b.y)); }
+
+	inline float Cross(const Vec2& a, const Vec2& b) { return a.x * b.y - a.y * b.x; }
+	inline double Cross(const DVec2& a, const DVec2& b) { return a.x * b.y - a.y * b.x; }
+	inline int Cross(const IVec2& a, const IVec2& b) { return a.x * b.y - a.y * b.x; }
+
+	inline float AngleBetween(const Vec2& a, const Vec2& b)
+	{
+		float d = Dot(a, b) / (Length(a) * Length(b));
+		d = Clamp(d, -1.0f, 1.0f);
+		return std::acos(d);
+	}
+	inline double AngleBetween(const DVec2& a, const DVec2& b)
+	{
+		double d = Dot(a, b) / (Length(a) * Length(b));
+		d = Clamp(d, -1.0, 1.0);
+		return std::acos(d);
+	}
+	inline float AngleBetween(const IVec2& a, const IVec2& b)
+	{
+		float d = Dot(a, b) / (Length(a) * Length(b));
+		d = Clamp(d, -1.0f, 1.0f);
+		return std::acos(d);
+	}
+
+	// --- Vec3, IVec3, DVec3 ---
+	inline float Length(const Vec3& v) { return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z); }
+	inline double Length(const DVec3& v) { return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z); }
+	inline float Length(const IVec3& v) { return std::sqrt(float(v.x * v.x + v.y * v.y + v.z * v.z)); }
+
+	inline Vec3 Normalize(const Vec3& v) { float l = Length(v); return l > 0 ? Vec3(v.x / l, v.y / l, v.z / l) : Vec3(0, 0, 0); }
+	inline DVec3 Normalize(const DVec3& v) { double l = Length(v); return l > 0 ? DVec3(v.x / l, v.y / l, v.z / l) : DVec3(0, 0, 0); }
+	inline Vec3 Normalize(const IVec3& v) { float l = Length(v); return l > 0 ? Vec3(v.x / l, v.y / l, v.z / l) : Vec3(0, 0, 0); }
+
+	inline float Dot(const Vec3& a, const Vec3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+	inline double Dot(const DVec3& a, const DVec3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+	inline int Dot(const IVec3& a, const IVec3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+
+	inline float Distance(const Vec3& a, const Vec3& b) { return Length(Vec3(a.x - b.x, a.y - b.y, a.z - b.z)); }
+	inline double Distance(const DVec3& a, const DVec3& b) { return Length(DVec3(a.x - b.x, a.y - b.y, a.z - b.z)); }
+	inline float Distance(const IVec3& a, const IVec3& b) { return Length(IVec3(a.x - b.x, a.y - b.y, a.z - b.z)); }
+
+	inline Vec3 Cross(const Vec3& a, const Vec3& b)
+	{
+		return Vec3(
+			a.y * b.z - a.z * b.y,
+			a.z * b.x - a.x * b.z,
+			a.x * b.y - a.y * b.x
+		);
+	}
+
+	inline DVec3 Cross(const DVec3& a, const DVec3& b)
+	{
+		return DVec3(
+			a.y * b.z - a.z * b.y,
+			a.z * b.x - a.x * b.z,
+			a.x * b.y - a.y * b.x
+		);
+	}
+
+	inline IVec3 Cross(const IVec3& a, const IVec3& b)
+	{
+		return IVec3(
+			a.y * b.z - a.z * b.y,
+			a.z * b.x - a.x * b.z,
+			a.x * b.y - a.y * b.x
+		);
+	}
+
+	inline float AngleBetween(const Vec3& a, const Vec3& b)
+	{
+		float d = Dot(a, b) / (Length(a) * Length(b));
+		d = Clamp(d, -1.0f, 1.0f);
+		return std::acos(d);
+	}
+
+	inline double AngleBetween(const DVec3& a, const DVec3& b)
+	{
+		double d = Dot(a, b) / (Length(a) * Length(b));
+		d = Clamp(d, -1.0, 1.0);
+		return std::acos(d);
+	}
+
+	inline float AngleBetween(const IVec3& a, const IVec3& b)
+	{
+		float d = Dot(a, b) / (Length(a) * Length(b));
+		d = Clamp(d, -1.0f, 1.0f);
+		return std::acos(d);
+	}
+
+	// --- Vec4, IVec4, DVec4 ---
+	inline float Length(const Vec4& v) { return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w); }
+	inline double Length(const DVec4& v) { return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w); }
+	inline float Length(const IVec4& v) { return std::sqrt(float(v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w)); }
+
+	inline Vec4 Normalize(const Vec4& v)
+	{
+		float l = Length(v);
+		return l > 0 ? Vec4(v.x / l, v.y / l, v.z / l, v.w / l) : Vec4(0, 0, 0, 0);
+	}
+
+	inline DVec4 Normalize(const DVec4& v)
+	{
+		double l = Length(v);
+		return l > 0 ? DVec4(v.x / l, v.y / l, v.z / l, v.w / l) : DVec4(0, 0, 0, 0);
+	}
+
+	inline Vec4 Normalize(const IVec4& v)
+	{
+		float l = Length(v);
+		return l > 0 ? Vec4(v.x / l, v.y / l, v.z / l, v.w / l) : Vec4(0, 0, 0, 0);
+	}
+
+	inline float Dot(const Vec4& a, const Vec4& b)
+	{
+		return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+	}
+
+	inline double Dot(const DVec4& a, const DVec4& b)
+	{
+		return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+	}
+
+	inline int Dot(const IVec4& a, const IVec4& b)
+	{
+		return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+	}
+
+	inline float Distance(const Vec4& a, const Vec4& b)
+	{
+		return Length(Vec4(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w));
+	}
+
+	inline double Distance(const DVec4& a, const DVec4& b)
+	{
+		return Length(DVec4(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w));
+	}
+
+	inline float Distance(const IVec4& a, const IVec4& b)
+	{
+		return Length(IVec4(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w));
+	}
+
+	inline float AngleBetween(const Vec4& a, const Vec4& b)
+	{
+		float d = Dot(a, b) / (Length(a) * Length(b));
+		d = Clamp(d, -1.0f, 1.0f);
+		return std::acos(d);
+	}
+
+	inline double AngleBetween(const DVec4& a, const DVec4& b)
+	{
+		double d = Dot(a, b) / (Length(a) * Length(b));
+		d = Clamp(d, -1.0, 1.0);
+		return std::acos(d);
+	}
+
+	inline float AngleBetween(const IVec4& a, const IVec4& b)
+	{
+		float d = Dot(a, b) / (Length(a) * Length(b));
+		d = Clamp(d, -1.0f, 1.0f);
+		return std::acos(d);
+	}
 
 	// Binary search function
 	// T: type of array elements (must be comparable with < and ==)
@@ -577,5 +748,6 @@ namespace Chilli
 
 		return -1; // not found
 	}
+
 
 }

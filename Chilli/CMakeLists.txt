@@ -11,6 +11,7 @@ include_directories("Src/Core/BackBone/")
 include_directories("Src/Renderer/")
 
 # Library includes
+include_directories("Libs/FastNoise2/include/")
 include_directories("Libs/GLFW/include/")
 include_directories("Libs/SpdLog/include/")
 include_directories("Libs/VMA/include/")
@@ -24,13 +25,14 @@ include_directories("Libs/SPIRV-Reflect/")
 add_subdirectory("Src/Renderer/")
 add_subdirectory("Libs/GLFW/")
 add_subdirectory("Libs/VMA/")
+add_subdirectory("Libs/FastNoise2/")
 add_subdirectory("Libs/glm/")
 
 add_library(SPIRV-Reflect STATIC  Libs/SPIRV-Reflect/spirv_reflect.c)
 add_library(ufbx STATIC  Libs/UFBX/ufbx.c)
 
 add_library(ChilliCore STATIC ${CHILLI_CORE_SOURCES})
-target_link_libraries(ChilliCore ufbx)
+target_link_libraries(ChilliCore ufbx FastNoise2)
 
 target_precompile_headers(ChilliCore PRIVATE "Src/Core/Ch_PCH.h" )
 

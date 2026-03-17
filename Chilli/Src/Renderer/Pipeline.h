@@ -622,6 +622,7 @@ namespace Chilli
 			return *this;
 		}
 
+		PipelineBuilder& SetPolygonMode(PolygonMode Mode) { _state.ShaderFillMode = Mode; return *this; }
 		PipelineBuilder& SetLineWidth(float width) { _state.LineWidth = width; return *this; }
 		PipelineBuilder& SetRasterizerDiscard(bool discard) { _state.RasterizerDiscardEnable = discard; return *this; }
 

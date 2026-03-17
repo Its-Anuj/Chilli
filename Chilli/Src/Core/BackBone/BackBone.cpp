@@ -76,11 +76,11 @@ namespace Chilli
 
 		void App::Run()
 		{
-			SystemScheduler.Run(ScheduleTimer::START_UP, Ctxt);
-
 			// Ensure resource is present (though usually added in StartUp)
 			if (!Registry.GetResource<GenericFrameData>())
 				Registry.AddResource<GenericFrameData>();
+
+			SystemScheduler.Run(ScheduleTimer::START_UP, Ctxt);
 
 			auto FrameData = Registry.GetResource<GenericFrameData>();
 			FrameTimer Timer;
@@ -108,10 +108,10 @@ namespace Chilli
 					};
 
 				// 1. Physics (Fixed Network/Physics)
-				ProcessFixedStage(FrameData->FixedPhysicsData, ScheduleTimer::FIXED_NETWORK);
+				ProcessFixedStage(FrameData->FixedNetWorkData, ScheduleTimer::FIXED_NETWORK);
 
 				// 2. Simulation (Collision/Verlet)
-				ProcessFixedStage(FrameData->FixedSimulationData, ScheduleTimer::SIMULATION);
+				ProcessFixedStage(FrameData->FixedPhysicsData, ScheduleTimer::FIXED_PHYSICS);
 
 				// 3. AI (Decision making - usually lower frequency)
 				ProcessFixedStage(FrameData->FixedAIData, ScheduleTimer::FIXED_AI);
@@ -121,6 +121,7 @@ namespace Chilli
 
 				// --- VARIABLE PIPELINE LOGIC ---
 				SystemScheduler.Run(ScheduleTimer::UPDATE, Ctxt);
+				SystemScheduler.Run(ScheduleTimer::ANIMATION, Ctxt);
 				SystemScheduler.Run(ScheduleTimer::RENDER, Ctxt);
 			}
 

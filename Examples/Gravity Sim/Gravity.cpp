@@ -63,15 +63,6 @@ void SimulationSetup(Chilli::BackBone::SystemContext& Ctxt)
 	SamplerSpec.Mode = Chilli::SamplerMode::REPEAT;
 	Data->Sampler = Command.CreateSampler(SamplerSpec);
 
-	Command.AddLoader<Chilli::ImageLoader>();
-	Command.RegisterStore<Chilli::RawMeshData>();
-	Command.RegisterStore<Chilli::MeshLoaderData>();
-	Command.AddLoader<Chilli::CGLFTMeshLoader>();
-	Command.AddLoader<Chilli::TinyObjMeshLoader>();
-
-	auto MeshLoaderData = Command.LoadMesh("Assets/Models/Monkey.obj");
-	auto& MeshData = MeshLoaderData.ValPtr->Meshes[0];
-
 	Chilli::VertexInputShaderLayout OurDesiredLayout;
 	OurDesiredLayout.BeginBinding(0);
 	OurDesiredLayout.AddAttribute(Chilli::ShaderObjectTypes::FLOAT3, "InPosition", int(Chilli::MeshAttribute::POSITION));
@@ -79,15 +70,33 @@ void SimulationSetup(Chilli::BackBone::SystemContext& Ctxt)
 	OurDesiredLayout.AddAttribute(Chilli::ShaderObjectTypes::FLOAT2, "InTexCoords", int(Chilli::MeshAttribute::TEXCOORD));
 	OurDesiredLayout.AddAttribute(Chilli::ShaderObjectTypes::FLOAT3, "InColor", int(Chilli::MeshAttribute::COLOR));
 
-	auto TorusMesh = Command.CreateMesh(MeshData, OurDesiredLayout);
+	std::vector<Chilli::Vertex> Vertices;
+	std::vector<uint32_t> Indices;
+	Command.GenerateSphere(32, 32, Vertices, Indices);
+
+	// 4. Clean up the generator
+
+	Chilli::MeshCreateInfo Info{};
+	Info.VertCount = Vertices.size();
+	Info.Vertices = Vertices.data();
+	Info.IndexCount = Indices.size();
+	Info.Indicies = Indices.data();
+	Info.IndexType = Chilli::IndexBufferType::UINT32_T;
+	Info.MeshLayout = OurDesiredLayout;
+	Info.IndexBufferState = Chilli::BufferState::STATIC_DRAW;
+
+	auto TorusMesh = Command.CreateMesh(Info);
+
+	uint32_t Width = 1;
+	uint32_t Height = 1;
 
 	uint32_t WhiteColor = 0xFFFFFFFF;
 	Chilli::ImageSpec ImageSpec{};
 	ImageSpec.Format = Chilli::ImageFormat::RGBA8;
 	ImageSpec.ImageData = &WhiteColor;
 	ImageSpec.MipLevel = 1;
-	ImageSpec.Resolution.Width = 1;
-	ImageSpec.Resolution.Height = 1;
+	ImageSpec.Resolution.Width = Width;
+	ImageSpec.Resolution.Height = Height;
 	ImageSpec.Resolution.Depth = 1;
 	ImageSpec.Sample = Chilli::IMAGE_SAMPLE_COUNT_1_BIT;
 	ImageSpec.State = Chilli::ResourceState::ShaderRead;
@@ -95,7 +104,7 @@ void SimulationSetup(Chilli::BackBone::SystemContext& Ctxt)
 	ImageSpec.Usage = Chilli::IMAGE_USAGE_SAMPLED_IMAGE;
 
 	Data->Image = Command.AllocateImage(ImageSpec);
-	Command.MapImageData(Data->Image, &WhiteColor, 1, 1);
+	Command.MapImageData(Data->Image, &WhiteColor, Width, Height);
 
 	auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
 
@@ -104,7 +113,7 @@ void SimulationSetup(Chilli::BackBone::SystemContext& Ctxt)
 	Data->Texture = Command.CreateTexture(Data->Image, TextureSpec);
 
 	Data->EarthMaterial = Command.CreateMaterial(GeometryShaderProgram);
-	MaterialSystem->SetAlbedoColor(Data->EarthMaterial, { 1.0f, 0.0f, 1.0f, 1.0f });
+	MaterialSystem->SetAlbedoColor(Data->EarthMaterial, { 1.0f, 1.0f, 1.0f, 1.0f });
 	MaterialSystem->SetAlbedoTexture(Data->EarthMaterial, Data->Texture);
 	MaterialSystem->SetAlbedoSampler(Data->EarthMaterial, Data->Sampler);
 
@@ -127,12 +136,14 @@ void SimulationSetup(Chilli::BackBone::SystemContext& Ctxt)
 		.Radius = 1
 		});
 	Command.AddComponent<Chilli::TransformComponent>(Data->Earth, Chilli::TransformComponent{
-		{0.0f, 10.0f, 0} });
+		{0, 0, 0}, {10.0f, 10.0f, 10.0f}, {90.0f, 0.0f, 0.0f} });
 	Command.AddComponent<Chilli::MeshComponent>(Data->Earth, Chilli::MeshComponent{
-		.MeshHandle = Data->SphereMesh,
+		.MeshHandle = TorusMesh,
 		.MaterialHandle = Data->EarthMaterial
 		});
-
+	Command.AddComponent<Chilli::RigidBody>(Data->Earth, Chilli::RigidBody{
+		.Mass = 1000.0f
+		});
 	Data->Moon = Command.CreateEntity();
 
 	Command.AddComponent<CelestialBody>(Data->Moon, CelestialBody{
@@ -170,83 +181,6 @@ void SimulationSetup(Chilli::BackBone::SystemContext& Ctxt)
 	SceneManager->SetActiveScene(&Data->Scene);
 }
 
-#define GRAVITATIONAL_CONSTANT 1
-
-Chilli::Vec3 Normalize(Chilli::Vec3 Vector)
-{
-	float DistanceSq = (Vector.x * Vector.x) + (Vector.y * Vector.y) + (Vector.z * Vector.z);
-	float Distance = sqrt(DistanceSq);
-	return { Vector.x / Distance, Vector.y / Distance, Vector.z / Distance };
-}
-
-Chilli::Vec3 CalculateGravitationalForce(double MassA, double MassB, const Chilli::Vec3& BodyA, const Chilli::Vec3& BodyB)
-{
-	// 1. Get the directional difference (Vector from A pointing to B)
-	Chilli::Vec3 Offset = BodyB - BodyA;
-
-	// 2. Calculate Distance SQUARED
-	float DistanceSq = (Offset.x * Offset.x) + (Offset.y * Offset.y) + (Offset.z * Offset.z);
-
-	// Failsafe: Prevent division by zero if bodies perfectly overlap
-	if (DistanceSq < 0.0001f) {
-		return Chilli::Vec3{ 0.0f, 0.0f, 0.0f };
-	}
-
-	// 3. We DO need the actual distance now to "Normalize" the direction vector
-	float Distance = sqrt(DistanceSq);
-
-	// 4. Normalize the direction (make its length exactly 1.0)
-	Chilli::Vec3 Direction = Normalize(Offset);
-
-	// 5. Calculate scalar force magnitude
-	float ForceMagnitude = (float)(GRAVITATIONAL_CONSTANT * MassA * MassB) / DistanceSq;
-
-	// 6. Return the final Force Vector (Direction scaled by Force)
-	return Chilli::Vec3{
-		Direction.x * ForceMagnitude,
-		Direction.y * ForceMagnitude,
-		Direction.z * ForceMagnitude
-	};
-}
-
-void SimulationUpdate(Chilli::BackBone::SystemContext& Ctxt)
-{
-	auto Command = Chilli::Command(Ctxt);
-	auto Data = Command.GetResource<Simulation>();
-	auto FrameData = Command.GetResource<Chilli::BackBone::GenericFrameData>();
-	auto dt = FrameData->FixedPhysicsData.Ticks;
-
-	for (auto [Entity, Transform, BodyData] : Chilli::BackBone::QueryWithEntities<Chilli::TransformComponent, CelestialBody>(*Ctxt.Registry))
-	{
-		Transform->SetScale({ (float)BodyData->Radius * 2 });
-
-		for (auto [OtherEntity, OtherTransform, OtherBodyData] : Chilli::BackBone::QueryWithEntities <Chilli::TransformComponent, CelestialBody>(*Ctxt.Registry))
-		{
-			if (Entity == OtherEntity)
-				continue;
-			auto ForceOnThis = CalculateGravitationalForce(BodyData->Mass, OtherBodyData->Mass, Transform->GetPosition(), OtherTransform->GetPosition());
-
-			auto Acceleration = ForceOnThis / BodyData->Mass;
-			BodyData->Velocity += {dt* Acceleration.x, dt* Acceleration.y, dt* Acceleration.z};
-		}
-	}
-}
-
-void PhysicsUpdate(Chilli::BackBone::SystemContext& Ctxt)
-{
-	auto Command = Chilli::Command(Ctxt);
-	auto FrameData = Command.GetResource<Chilli::BackBone::GenericFrameData>();
-	auto dt = FrameData->FixedPhysicsData.Ticks;
-
-	for (auto [Entity, Transform, BodyData] : Chilli::BackBone::QueryWithEntities<Chilli::TransformComponent, CelestialBody>(*Ctxt.Registry))
-	{
-		auto CurrentPos = Transform->GetPosition();
-
-		// Position = OldPosition + (Velocity * dt)
-		Transform->SetPosition(CurrentPos + (BodyData->Velocity * dt));
-	}
-}
-
 void SimulationShutDown(Chilli::BackBone::SystemContext& Ctxt)
 {
 	auto Command = Chilli::Command(Ctxt);
@@ -272,8 +206,6 @@ int main()
 			.RenderConfig = RenderConfig
 		}), true, &App);
 	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::START_UP, SimulationSetup);
-	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::SIMULATION, SimulationUpdate);
-	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::SIMULATION, PhysicsUpdate);
 	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::SHUTDOWN, SimulationShutDown);
 
 

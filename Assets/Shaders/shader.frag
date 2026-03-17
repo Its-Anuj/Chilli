@@ -37,11 +37,10 @@ void main()
     // Standard Lambertian Diffuse
     float DiffuseIntensity = max(dot(N, L), 0.0);
     vec3 DiffusePart = DiffuseIntensity * FakeLightColor;
-
-    // Combine
+    // Combine lighting with albedo
     vec3 FinalRGB = (FakeAmbient + DiffusePart) * Albedo.rgb;
     
-    // Output final color with texture alpha
+    // Use the calculated light and the original alpha
     outColor = vec4(FinalRGB, Albedo.a);
    // outColor = vec4(InColor, 1.0);
 }

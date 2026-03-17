@@ -1,5 +1,21 @@
 ﻿#include "DeafultExtensions.h"
 #include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
 #include "Ch_PCH.h"
 #include "DeafultExtensions.h"
 #include "Window/Window.h"
@@ -45,6 +61,13 @@ namespace Chilli
 
 		Ctxt.ServiceRegistry->RegisterService<Renderer>(std::make_shared<Renderer>());
 		Ctxt.ServiceRegistry->RegisterService<AssetLoader>(std::make_shared<AssetLoader>(Ctxt));
+
+		Command.AddLoader<Chilli::ImageLoader>();
+		Command.RegisterStore<Chilli::RawMeshData>();
+		Command.RegisterStore<Chilli::MeshLoaderData>();
+		Command.AddLoader<Chilli::CGLFTMeshLoader>();
+		Command.AddLoader<Chilli::TinyObjMeshLoader>();
+
 		auto RenderService = Ctxt.ServiceRegistry->GetService<Renderer>();
 		RenderService->Init(Config->Spec);
 
@@ -530,6 +553,7 @@ namespace Chilli
 				0xFFFFFFFF,               // mask: Enable all 32 possible samples (standard)
 				false                     // alphaToCoverage: Keep false unless doing foliage/fences
 			)
+			//.SetPolygonMode(PolygonMode::Wireframe)
 			.Build();
 		GeometryGraphPass.Layout = GeometryLayout;
 		GeometryGraphPass.SortOrder = 0;
@@ -687,6 +711,7 @@ namespace Chilli
 	{
 		App.Registry.AddResource<RenderGraph>();
 		App.Registry.AddResource<RenderExtensionConfig>();
+		auto Command = Chilli::Command(App.Ctxt);
 
 		auto Config = App.Registry.GetResource<RenderExtensionConfig>();
 		*Config = _Config;
@@ -701,6 +726,7 @@ namespace Chilli
 		App.AssetRegistry.RegisterStore<ShaderModule>();
 		App.AssetRegistry.RegisterStore<ShaderProgram>();
 		App.AssetRegistry.RegisterStore<Material>();
+		App.AssetRegistry.RegisterStore<ImageData>();
 		App.ServiceRegistry.RegisterService<SceneManager>(std::make_shared<SceneManager>(App.Ctxt.Registry));
 
 		App.SystemScheduler.AddSystemOverLayBefore(BackBone::ScheduleTimer::START_UP, OnRenderExtensionsSetup);
@@ -716,8 +742,8 @@ namespace Chilli
 		App.SystemScheduler.AddSystemOverLayBefore(BackBone::ScheduleTimer::SHUTDOWN, OnRenderExtensionFinishRendering);
 		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::SHUTDOWN, OnRenderExtensionsCleanUp);
 
-		BlazeExtensionConfig BlazeConfig;
-		App.Extensions.AddExtension(std::make_unique<BlazeExtension>(BlazeConfig), true, &App);
+		if (Config->BlazeConfig.Enable)
+			App.Extensions.AddExtension(std::make_unique<BlazeExtension>(Config->BlazeConfig), true, &App);
 	}
 #pragma endregion
 
@@ -898,6 +924,15 @@ namespace Chilli
 		App.Extensions.AddExtension(std::make_unique<CameraExtension>(), true, &App);
 		App.Extensions.AddExtension(std::make_unique<PepperExtension>(_Config.PepperConfig), true, &App);
 		App.Extensions.AddExtension(std::make_unique<RenderExtension>(_Config.RenderConfig), true, &App);
+
+		if (_Config.SimPhysicsConfig.Enabled)
+		{
+			App.Extensions.AddExtension(std::make_unique<SimPhysicsExtension>(_Config.SimPhysicsConfig), true, &App);
+		}
+		if (_Config.NoiseExtensionConfig.EnableFastNoise2Provider)
+		{
+			App.ServiceRegistry.RegisterService<FastNoiseProvider>(std::make_shared<FastNoiseProvider>());
+		}
 		// Services etc...
 	}
 
@@ -1004,45 +1039,7 @@ namespace Chilli
 		std::vector<Chilli::Vertex> Vertices;
 		std::vector<uint32_t> Indices;
 
-		const unsigned int X_SEGMENTS = XSegments;
-		const unsigned int Y_SEGMENTS = YSegments;
-		const float PI = 3.14159265359f;
-
-		for (unsigned int y = 0; y <= Y_SEGMENTS; ++y)
-		{
-			for (unsigned int x = 0; x <= X_SEGMENTS; ++x)
-			{
-				float xSegment = (float)x / (float)X_SEGMENTS;
-				float ySegment = (float)y / (float)Y_SEGMENTS;
-
-				// Calculate spherical coordinates
-				float xPos = std::cos(xSegment * 2.0f * PI) * std::sin(ySegment * PI);
-				float yPos = std::cos(ySegment * PI); // Top is 1, bottom is -1
-				float zPos = std::sin(xSegment * 2.0f * PI) * std::sin(ySegment * PI);
-
-				Chilli::Vertex v;
-				v.Position = { xPos * 0.5f, yPos * 0.5f, zPos * 0.5f }; // 0.5 radius
-				v.Normal = { xPos, yPos, zPos }; // On a unit sphere, position = normal
-				v.UV = { xSegment, ySegment };
-
-				Vertices.push_back(v);
-			}
-		}
-
-		// Generate Indices
-		for (unsigned int y = 0; y < Y_SEGMENTS; ++y)
-		{
-			for (unsigned int x = 0; x < X_SEGMENTS; ++x)
-			{
-				Indices.push_back((y + 1) * (X_SEGMENTS + 1) + x);
-				Indices.push_back(y * (X_SEGMENTS + 1) + x);
-				Indices.push_back(y * (X_SEGMENTS + 1) + (x + 1));
-
-				Indices.push_back((y + 1) * (X_SEGMENTS + 1) + x);
-				Indices.push_back(y * (X_SEGMENTS + 1) + (x + 1));
-				Indices.push_back((y + 1) * (X_SEGMENTS + 1) + (x + 1));
-			}
-		}
+		GenerateSphere(XSegments, YSegments, Vertices, Indices);
 
 		VertexInputShaderLayout Layout;
 		Layout.BeginBinding(0);
@@ -1170,6 +1167,207 @@ namespace Chilli
 		this->MapBufferData(Mesh->IBHandle, Data, Size, Offset);
 	}
 
+	void Command::MakeNoiseTextureData(uint32_t Handle, uint8_t* Texture, uint32_t Width, uint32_t Height, bool ColorR, bool ColorG, bool ColorB)
+	{
+		auto NoiseProvider = GetService<Chilli::FastNoiseProvider>();
+		NoiseProvider->GetGrid2D(Handle, (float*)Texture, 0, 0, Width, Height);
+
+		for (int i = (Width * Height) - 1; i >= 0; i--)
+		{
+			float Color = ((float*)Texture)[i];
+			uint8_t ActualColor = (uint8_t)((Color + 1.0f) * 0.5f * 255.0f);
+
+			if (ColorR)
+				Texture[i * sizeof(float) + 0] = ActualColor;
+			else
+				Texture[i * sizeof(float) + 0] = 0;
+
+			if (ColorG)
+				Texture[i * sizeof(float) + 1] = ActualColor;
+			else
+				Texture[i * sizeof(float) + 1] = 0;
+
+			if (ColorB)
+				Texture[i * sizeof(float) + 2] = ActualColor;
+			else
+				Texture[i * sizeof(float) + 2] = 0;
+
+			Texture[i * sizeof(float) + 3] = 255;
+		}
+	}
+
+	void Command::GeneratePlane(int ResolutionX, int ResolutionZ, std::vector<Chilli::Vertex>& OutVerts, std::vector<uint32_t>& OutIndices)
+	{
+		OutVerts.clear();
+		OutIndices.clear();
+
+		float StepX = 1.0f / ResolutionX;
+		float StepZ = 1.0f / ResolutionZ;
+
+		for (int z = 0; z <= ResolutionZ; z++)
+		{
+			for (int x = 0; x <= ResolutionX; x++)
+			{
+				Chilli::Vertex V;
+				V.Position = { x * StepX, 0.0f, z * StepZ };
+				V.Normal = { 0.0f, 1.0f, 0.0f };
+				V.UV = { (float)x / ResolutionX, (float)z / ResolutionZ };
+				OutVerts.push_back(V);
+			}
+		}
+
+		for (int z = 0; z < ResolutionZ; z++)
+		{
+			for (int x = 0; x < ResolutionX; x++)
+			{
+				uint32_t TopLeft = z * (ResolutionX + 1) + x;
+				uint32_t TopRight = TopLeft + 1;
+				uint32_t BottomLeft = (z + 1) * (ResolutionX + 1) + x;
+				uint32_t BottomRight = BottomLeft + 1;
+
+				OutIndices.push_back(TopLeft);
+				OutIndices.push_back(BottomLeft);
+				OutIndices.push_back(TopRight);
+
+				OutIndices.push_back(TopRight);
+				OutIndices.push_back(BottomLeft);
+				OutIndices.push_back(BottomRight);
+			}
+		}
+	}
+
+	void Command::GenerateSphere(int XSegments, int YSegments, std::vector<Chilli::Vertex>& Vertices, std::vector<uint32_t>& Indices)
+	{
+		const unsigned int X_SEGMENTS = XSegments;
+		const unsigned int Y_SEGMENTS = YSegments;
+		const float PI = 3.14159265359f;
+
+		for (unsigned int y = 0; y <= Y_SEGMENTS; ++y)
+		{
+			for (unsigned int x = 0; x <= X_SEGMENTS; ++x)
+			{
+				float xSegment = (float)x / (float)X_SEGMENTS;
+				float ySegment = (float)y / (float)Y_SEGMENTS;
+
+				// Calculate spherical coordinates
+				float xPos = std::cos(xSegment * 2.0f * PI) * std::sin(ySegment * PI);
+				float yPos = std::cos(ySegment * PI); // Top is 1, bottom is -1
+				float zPos = std::sin(xSegment * 2.0f * PI) * std::sin(ySegment * PI);
+
+				Chilli::Vertex v;
+				v.Position = { xPos * 0.5f, yPos * 0.5f, zPos * 0.5f }; // 0.5 radius
+				v.Normal = { xPos, yPos, zPos }; // On a unit sphere, position = normal
+				v.UV = { xSegment, ySegment };
+
+				Vertices.push_back(v);
+			}
+		}
+
+		// Generate Indices
+		for (unsigned int y = 0; y < Y_SEGMENTS; ++y)
+		{
+			for (unsigned int x = 0; x < X_SEGMENTS; ++x)
+			{
+				Indices.push_back((y + 1) * (X_SEGMENTS + 1) + x);
+				Indices.push_back(y * (X_SEGMENTS + 1) + x);
+				Indices.push_back(y * (X_SEGMENTS + 1) + (x + 1));
+
+				Indices.push_back((y + 1) * (X_SEGMENTS + 1) + x);
+				Indices.push_back(y * (X_SEGMENTS + 1) + (x + 1));
+				Indices.push_back((y + 1) * (X_SEGMENTS + 1) + (x + 1));
+			}
+		}
+	}
+
+	void Command::Displace(std::vector<Chilli::Vertex>& ModelVerts, const std::vector<uint32_t>& Indices, float Strength, float Limit)
+	{
+		for (auto& Vertex : ModelVerts)
+		{
+			float t = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+			float Displacement = Chilli::Clamp(t * Strength, 0.0f, Limit);
+
+			Vertex.Position.x += Vertex.Normal.x * Displacement;
+			Vertex.Position.y += Vertex.Normal.y * Displacement;
+			Vertex.Position.z += Vertex.Normal.z * Displacement;
+		}
+
+		for (auto& V : ModelVerts)
+			V.Normal = Chilli::Vec3(0.0f);
+
+		for (size_t i = 0; i < Indices.size(); i += 3)
+		{
+			auto& V0 = ModelVerts[Indices[i]];
+			auto& V1 = ModelVerts[Indices[i + 1]];
+			auto& V2 = ModelVerts[Indices[i + 2]];
+
+			Chilli::Vec3 Edge1 = V1.Position - V0.Position;
+			Chilli::Vec3 Edge2 = V2.Position - V0.Position;
+			Chilli::Vec3 FaceNormal = Chilli::Cross(Edge1, Edge2);
+
+			V0.Normal += FaceNormal;
+			V1.Normal += FaceNormal;
+			V2.Normal += FaceNormal;
+		}
+
+		for (auto& V : ModelVerts)
+			V.Normal = Chilli::Normalize(V.Normal);
+	}
+
+	void Command::RecalculateNormals(std::vector<Chilli::Vertex>& Verts, const std::vector<uint32_t>& Indices)
+	{
+		for (auto& V : Verts)
+			V.Normal = Chilli::Vec3(0.0f);
+
+		for (size_t i = 0; i < Indices.size(); i += 3)
+		{
+			auto& V0 = Verts[Indices[i]];
+			auto& V1 = Verts[Indices[i + 1]];
+			auto& V2 = Verts[Indices[i + 2]];
+
+			Chilli::Vec3 FaceNormal = Chilli::Cross(V1.Position - V0.Position, V2.Position - V0.Position);
+			V0.Normal += FaceNormal;
+			V1.Normal += FaceNormal;
+			V2.Normal += FaceNormal;
+		}
+
+		for (auto& V : Verts)
+			V.Normal = Chilli::Normalize(V.Normal);
+	}
+
+	void Command::DisplaceNoise(std::vector<Chilli::Vertex>& Verts, const std::vector<uint32_t>& Indices, uint32_t Handle, float Scale, float Strength, float OffsetX, float OffsetY, float OffsetZ, float FloorY, bool EnableX, bool EnableY, bool EnableZ)
+	{
+		auto NoiseProvider = GetService<Chilli::FastNoiseProvider>();
+
+		for (size_t i = 0; i < Verts.size(); i++)
+		{
+			float Noise = NoiseProvider->GetValue01(
+				Handle,
+				Verts[i].Position.x * Scale + OffsetX,
+				Verts[i].Position.y * Scale + OffsetY,
+				Verts[i].Position.z * Scale + OffsetZ
+			);
+
+			float Displacement = (Noise - 0.5f) * Strength;
+
+			if (EnableX) Verts[i].Position.x += Verts[i].Normal.x * Displacement;
+			if (EnableY) Verts[i].Position.y += Verts[i].Normal.y * Displacement;
+			if (EnableZ) Verts[i].Position.z += Verts[i].Normal.z * Displacement;
+
+			Verts[i].Position.y = std::max(Verts[i].Position.y, FloorY);
+		}
+
+		RecalculateNormals(Verts, Indices);
+	}
+
+	std::vector<Chilli::Vertex> Command::RawVertexToVertex(const std::vector<uint8_t>& RawVertices, const Chilli::VertexInputShaderLayout& Layout)
+	{
+		uint32_t vertexStride = Layout.Bindings[0].Stride;
+		std::vector<Chilli::Vertex> Vertices;
+		Vertices.resize(RawVertices.size() / vertexStride);
+		memcpy(Vertices.data(), RawVertices.data(), RawVertices.size());
+		return Vertices;
+	}
+
 	BackBone::AssetHandle<Mesh> Command::CreateMesh(BasicShapes Shape)
 	{
 		std::vector<Chilli::Vertex> Vertices;
@@ -1247,7 +1445,7 @@ namespace Chilli
 	}
 
 	// This is the "Bridge" function you need
-	std::vector<uint8_t> RebuildVertexBuffer(
+	std::vector<uint8_t> Command::RebuildVertexBuffer(
 		const Chilli::RawMeshData& Raw,
 		const Chilli::VertexInputShaderLayout& Desired)
 	{
@@ -1344,6 +1542,14 @@ namespace Chilli
 	void Command::FreeMesh(BackBone::AssetHandle<Mesh> mesh)
 	{
 		DestroyMesh(mesh, true);
+	}
+
+	std::vector<uint32_t> Command::RawIndicesToIndices(const std::vector<uint8_t>& RawIndices)
+	{
+		std::vector<uint32_t> Indices;
+		Indices.resize(RawIndices.size() / sizeof(uint32_t));
+		memcpy(Indices.data(), RawIndices.data(), RawIndices.size());
+		return Indices;
 	}
 
 	uint32_t Command::CreateEntity()
@@ -1669,6 +1875,12 @@ namespace Chilli
 		RenderCommandService->DestroyTexture(TextureStore->Get(TextureHandle)->RawTextureHandle);
 		TextureStore->Remove(TextureHandle);
 	}
+
+	inline BackBone::GenericFrameData* Command::GetGenericFrameData()
+	{
+		return GetResource<BackBone::GenericFrameData>();
+	}
+
 #pragma endregion
 
 #pragma region Camera Extension
@@ -3012,5 +3224,509 @@ namespace Chilli
 
 #pragma endregion
 
+#pragma region Noise Generator Service
+
+	FastNoiseProvider::~FastNoiseProvider()
+	{
+		if (_configs.size() > 0)
+		{
+
+		}
+	}
+
+	NoiseHandle FastNoiseProvider::CreateGenerator(const NoiseConfig& config)
+	{
+		// 1. Base Pattern
+		FastNoise::SmartNode<> node;
+		switch (config.Type) {
+		case NoiseType::Perlin:   node = FastNoise::New<FastNoise::Perlin>(); break;
+		case NoiseType::Simplex:  node = FastNoise::New<FastNoise::Simplex>(); break;
+		case NoiseType::Value:    node = FastNoise::New<FastNoise::Value>(); break;
+		case NoiseType::Cellular: {
+			auto cell = FastNoise::New<FastNoise::CellularDistance>();
+			cell->SetDistanceFunction(FastNoise::DistanceFunction::Euclidean);
+			node = cell;
+			break;
+		}
+		}
+
+		// 2. Fractal Layering
+		if (config.UseFractal) {
+			auto fractal = FastNoise::New<FastNoise::FractalFBm>();
+			fractal->SetSource(node);
+			fractal->SetOctaveCount(config.Octaves);
+			fractal->SetGain(config.Gain);
+			fractal->SetLacunarity(config.Lacunarity);
+			node = fractal;
+		}
+
+		// 3. Domain Warping (The "Swirl" Logic)
+		if (config.UseWarp) {
+			auto warper = FastNoise::New<FastNoise::DomainWarpGradient>();
+			warper->SetSource(node);
+			warper->SetWarpAmplitude(config.WarpIntensity);
+			node = warper;
+		}
+
+		NoiseHandle handle = _nextHandle++;
+		_generators[handle] = node;
+		_configs[handle] = config;
+		return handle;
+	}
+
+	float FastNoiseProvider::GetSingle3D(NoiseHandle handle, float x, float y, float z)
+	{
+		auto it = _generators.find(handle);
+		if (it != _generators.end()) {
+			const auto& config = _configs[handle];
+
+			// FastNoise2 scales coordinates by frequency
+			return it->second->GenSingle3D(
+				x * config.Frequency,
+				y * config.Frequency,
+				z * config.Frequency,
+				config.Seed
+			);
+		}
+		return 0.0f; // Safe fallback for invalid handles
+	}
+
+	float FastNoiseProvider::GetSingle2D(NoiseHandle handle, float x, float y)
+	{
+		auto it = _generators.find(handle);
+		if (it != _generators.end()) {
+			const auto& config = _configs[handle];
+
+			// FastNoise2 scales coordinates by frequency
+			return it->second->GenSingle2D(
+				x * config.Frequency,
+				y * config.Frequency,
+				config.Seed
+			);
+		}
+		return 0.0f; // Safe fallback for invalid handles
+	}
+
+	void FastNoiseProvider::GetGrid2D(NoiseHandle handle, std::vector<float>& outBuffer, int startX, int startY, int width, int height)
+	{
+		auto it = _generators.find(handle);
+		if (it != _generators.end()) {
+			const auto& config = _configs[handle];
+
+			// Safety check: ensure buffer won't overflow
+			size_t requiredSize = static_cast<size_t>(width * height);
+			if (outBuffer.size() < requiredSize) {
+				outBuffer.resize(requiredSize);
+			}
+
+			// SIMD Generation
+			it->second->GenUniformGrid2D(
+				outBuffer.data(),
+				startX, startY,
+				width, height,
+				config.Frequency,
+				config.Frequency,
+				config.Seed
+			);
+		}
+	}
+
+	void FastNoiseProvider::GetGrid2D(NoiseHandle handle, float* outBuffer, int startX, int startY, int width, int height)
+	{
+		auto it = _generators.find(handle);
+		if (it != _generators.end()) {
+			const auto& config = _configs[handle];
+
+			// Safety check: ensure buffer won't overflow
+			size_t requiredSize = static_cast<size_t>(width * height);
+
+			// SIMD Generation
+			it->second->GenUniformGrid2D(
+				outBuffer,
+				startX, startY,
+				width, height,
+				config.Frequency,
+				config.Frequency,
+				config.Seed
+			);
+		}
+	}
+
+	void FastNoiseProvider::GetGrid3D(NoiseHandle handle, std::vector<float>& outBuffer, int startX, int startY, int startZ, int width, int height, int depth)
+	{
+		if (auto node = GetNode(handle)) {
+			const auto& cfg = _configs[handle];
+			size_t totalSize = (size_t)width * height * depth;
+			if (outBuffer.size() < totalSize) outBuffer.resize(totalSize);
+
+			// GenUniformGrid3D uses SIMD to fill a volume of data
+			node->GenUniformGrid3D(outBuffer.data(),
+				(float)startX, (float)startY, (float)startZ,
+				width, height, depth,
+				cfg.Frequency, cfg.Frequency, cfg.Frequency,
+				cfg.Seed);
+		}
+	}
+#pragma endregion
+
+#pragma region SimPhysics
+
+	bool TestAABBvsAABB(const Collider& ColliderA, const TransformComponent& TransformA, const Collider& ColliderB, const TransformComponent& TransformB, CollisionResult& Out)
+	{
+		auto A = ColliderA.Box;
+		auto B = ColliderB.Box;
+
+		if (!A.IsColliding(B)) return false;
+
+		Vec3 CenterA = A.GetCenter();
+		Vec3 CenterB = B.GetCenter();
+		Vec3 Delta = CenterB - CenterA;
+		Vec3 Combined = A.GetHalfExtents() + B.GetHalfExtents();
+
+		float OX = Combined.x - std::abs(Delta.x);
+		float OY = Combined.y - std::abs(Delta.y);
+		float OZ = Combined.z - std::abs(Delta.z);
+
+		if (OX < OY && OX < OZ) { Out.Penetration = OX; Out.Normal = { Delta.x < 0 ? -1.0f : 1.0f, 0, 0 }; }
+		else if (OY < OZ) { Out.Penetration = OY; Out.Normal = { 0, Delta.y < 0 ? -1.0f : 1.0f, 0 }; }
+		else { Out.Penetration = OZ; Out.Normal = { 0, 0, Delta.z < 0 ? -1.0f : 1.0f }; }
+
+		return true;
+	}
+
+	bool TestSphereVsSphere(const Collider& ColliderA, const TransformComponent& TransformA,
+		const Collider& ColliderB, const TransformComponent& TransformB,
+		CollisionResult& Out)
+	{
+		auto A = ColliderA.Sphere;
+		auto B = ColliderB.Sphere;
+
+		if (!A.IsColliding(B)) return false;
+
+		Vec3 Delta = B.Center - A.Center;
+
+		float Dist = std::sqrt(
+			Delta.x * Delta.x +
+			Delta.y * Delta.y +
+			Delta.z * Delta.z);
+
+		float RadiiSum = A.Radius + B.Radius;
+
+		if (Dist > 0.0001f)
+			Out.Normal = Delta / Dist;
+		else
+			Out.Normal = { 0,1,0 };
+
+		Out.Penetration = RadiiSum - Dist;
+
+		return true;
+	}
+
+	bool TestAABBvsSphere(const Collider& ColliderA, const TransformComponent& TransformA,
+		const Collider& ColliderB, const TransformComponent& TransformB,
+		CollisionResult& Out)
+	{
+		auto Box = ColliderA.Box;
+		auto S = ColliderB.Sphere;
+
+		if (!S.IsColliding(Box)) return false;
+
+		Vec3 Closest = Box.ClosestPoint(S.Center);
+		Vec3 Delta = S.Center - Closest;
+
+		float Dist = std::sqrt(
+			Delta.x * Delta.x +
+			Delta.y * Delta.y +
+			Delta.z * Delta.z);
+
+		if (Dist > 0.0001f)
+			Out.Normal = Delta / Dist;
+		else
+			Out.Normal = { 0,1,0 };
+
+		Out.Penetration = S.Radius - Dist;
+
+		return true;
+	}
+
+	bool TestSphereVsCapsule(const Collider& ColliderA, const TransformComponent& TransformA,
+		const Collider& ColliderB, const TransformComponent& TransformB,
+		CollisionResult& Out)
+	{
+		auto S = ColliderA.Sphere;
+		auto C = ColliderB.Capsule;
+
+		if (!C.IsColliding(S)) return false;
+
+		Vec3 Closest = C.ClosestPointOnSegment(S.Center);
+		Vec3 Delta = S.Center - Closest;
+
+		float Dist = std::sqrt(
+			Delta.x * Delta.x +
+			Delta.y * Delta.y +
+			Delta.z * Delta.z);
+
+		float RadiiSum = S.Radius + C.Radius;
+
+		if (Dist > 0.0001f)
+			Out.Normal = Delta / Dist;
+		else
+			Out.Normal = { 0,1,0 };
+
+		Out.Penetration = RadiiSum - Dist;
+
+		return true;
+	}
+
+	bool TestCapsuleVsCapsule(const Collider& ColliderA, const TransformComponent& TransformA,
+		const Collider& ColliderB, const TransformComponent& TransformB,
+		CollisionResult& Out)
+	{
+		auto A = ColliderA.Capsule;
+		auto B = ColliderB.Capsule;
+
+		if (!A.IsColliding(B)) return false;
+
+		Vec3 ClosestA = A.ClosestPointOnSegment(B.Base);
+		Vec3 ClosestB = B.ClosestPointOnSegment(ClosestA);
+		ClosestA = A.ClosestPointOnSegment(ClosestB);
+
+		Vec3 Delta = ClosestB - ClosestA;
+
+		float Dist = std::sqrt(
+			Delta.x * Delta.x +
+			Delta.y * Delta.y +
+			Delta.z * Delta.z);
+
+		float RadiiSum = A.Radius + B.Radius;
+
+		if (Dist > 0.0001f)
+			Out.Normal = Delta / Dist;
+		else
+			Out.Normal = { 0,1,0 };
+
+		Out.Penetration = RadiiSum - Dist;
+
+		return true;
+	}
+
+	bool TestAABBvsCapsule(const Collider& ColliderA, const TransformComponent& TransformA,
+		const Collider& ColliderB, const TransformComponent& TransformB,
+		CollisionResult& Out)
+	{
+		auto Box = ColliderA.Box;
+		auto C = ColliderB.Capsule;
+
+		if (!C.IsColliding(Box)) return false;
+
+		Vec3 ClosestOnBox = Box.ClosestPoint(
+			C.ClosestPointOnSegment(Box.GetCenter()));
+
+		Vec3 ClosestOnSeg = C.ClosestPointOnSegment(ClosestOnBox);
+
+		Vec3 Delta = ClosestOnBox - ClosestOnSeg;
+
+		float Dist = std::sqrt(
+			Delta.x * Delta.x +
+			Delta.y * Delta.y +
+			Delta.z * Delta.z);
+
+		if (Dist > 0.0001f)
+			Out.Normal = Delta / Dist;
+		else
+			Out.Normal = { 0,1,0 };
+
+		Out.Penetration = C.Radius - Dist;
+
+		return true;
+	}
+
+	void OnSimPhysicsStartUp(BackBone::SystemContext& Ctxt)
+	{
+		auto Command = Chilli::Command(Ctxt);
+
+		Command.GetResource<Chilli::BackBone::GenericFrameData>()->FixedPhysicsData.Ticks = Command.GetResource<Chilli::SimPhysicsExtensionConfig>()->Tick;
+	}
+
+	void OnSimPhysicsIntegrateForce(BackBone::SystemContext& Ctxt)
+	{
+		auto Command = Chilli::Command(Ctxt);
+		auto World = Command.GetResource<SimPhysicsWorld>();
+		auto Config = Command.GetResource< SimPhysicsExtensionConfig>();
+
+		for (auto [Transform, RigidBody] : BackBone::Query<TransformComponent, RigidBody>(*Ctxt.Registry))
+		{
+			if (RigidBody->IsStatic) continue;
+
+			// ------------------------------------------------
+			//  Build force accumulator
+			//  Any system can add to RB.Force before this runs
+			//  e.g. explosion, wind, jump impulse
+			// ------------------------------------------------
+
+			// Gravity as a force — F = m * g * scale
+			Chilli::Vec3 GravityForce = World->Gravity * RigidBody->Mass * RigidBody->GravityScale;
+			RigidBody->Force += GravityForce;
+
+			// Drag as a force — opposes velocity
+			Chilli::Vec3 DragForce = RigidBody->Velocity * -RigidBody->Drag;
+			RigidBody->Force += DragForce;
+
+			// F = ma — derive acceleration from total force
+			Chilli::Vec3 NewAcceleration = RigidBody->Force / RigidBody->Mass;
+
+			// ------------------------------------------------
+			//  Velocity Verlet integration
+			// ------------------------------------------------
+
+			float DT = Config->Tick;
+
+			// Step 1 — position uses OLD acceleration
+			Transform->Move(RigidBody->Velocity * Config->Tick + RigidBody->Acceleration * (0.5f * DT * DT));
+
+			// Step 2 — velocity averages old and new acceleration
+			RigidBody->Velocity += (RigidBody->Acceleration + NewAcceleration) * (0.5f * DT);
+
+			// Step 3 — store new acceleration for next frame
+			RigidBody->Acceleration = NewAcceleration;
+
+			// Step 4 — reset force accumulator for next step
+			RigidBody->Force = { 0.0f, 0.0f, 0.0f };
+		}
+	}
+
+	void OnSimPhysicsCollisionDetection(BackBone::SystemContext& Ctxt)
+	{
+		auto Command = Chilli::Command(Ctxt);
+		auto Resource = Command.GetResource< SimPhysicsResources>();
+		auto Config = Command.GetResource< SimPhysicsExtensionConfig>();
+
+		Resource->CollisionEntities.clear();
+
+		for (auto [Entity, Transform, Collider, RigidBody] : BackBone::QueryWithEntities<TransformComponent, Collider, RigidBody>(*Ctxt.Registry))
+		{
+			Resource->CollisionEntities.push_back(Entity);
+		}
+
+		for (int i = 0; i < Resource->CollisionEntities.size(); i++)
+		{
+			for (int j = i + 1; j < Resource->CollisionEntities.size(); j++)
+			{
+				auto* ColliderA = Command.GetComponent<Collider>(Resource->CollisionEntities[i]);
+				auto* ColliderB = Command.GetComponent<Collider>(Resource->CollisionEntities[j]);
+				auto* TransformA = Command.GetComponent<TransformComponent>(Resource->CollisionEntities[i]);
+				auto* TransformB = Command.GetComponent<TransformComponent>(Resource->CollisionEntities[j]);
+
+				// Skip if any component is missing
+				if (!ColliderA || !ColliderB || !TransformA || !TransformB) continue;
+
+				int TypeA = (int)ColliderA->Type;
+				int TypeB = (int)ColliderB->Type;
+
+				CollisionResult Result;
+				Result.EntityA = Resource->CollisionEntities[i];
+				Result.EntityB = Resource->CollisionEntities[j];
+
+				// Dispatch to correct test via matrix
+				if (Resource->CollisionMatrix[TypeA][TypeB](*ColliderA, *TransformA, *ColliderB, *TransformB, Result))
+					Resource->CollisionResults.push_back(Result);
+			}
+		}
+	}
+
+	void OnSimPhysicsCollisionResolve(BackBone::SystemContext& Ctxt)
+	{
+		auto Command = Chilli::Command(Ctxt);
+		auto Resource = Command.GetResource< SimPhysicsResources>();
+		auto Config = Command.GetResource< SimPhysicsExtensionConfig>();
+
+		for (int x = 0; x < Config->CollisionSolverIterations; x++)
+		{
+			for (size_t i = 0; i < Resource->CollisionResults.size(); i++)
+			{
+				auto& Result = Resource->CollisionResults[i];
+
+				auto* TransformA = Command.GetComponent<TransformComponent>(Result.EntityA);
+				auto* TransformB = Command.GetComponent<TransformComponent>(Result.EntityB);
+				auto* RigidBodyA = Command.GetComponent<RigidBody>(Result.EntityA);
+				auto* RigidBodyB = Command.GetComponent<RigidBody>(Result.EntityB);
+
+				auto VelA = RigidBodyA->Velocity;
+				auto VelB = RigidBodyB->Velocity;
+
+				// Normal Vector to VelA and VelB
+				auto Normal = Result.Normal;
+				// How Fast is A Moving Relative to B
+				auto RelVel = VelA - VelB;
+				// Can Produce 3 results depends on the sign
+				auto VelDotProduct = Chilli::Dot(RelVel, Normal);
+
+				bool ApplyImpulse = false;
+
+				// Moving Apart
+				if (VelDotProduct > 0)
+				{
+				}
+				// Moving towards each other
+				else if (VelDotProduct < 0)
+				{// do nothing
+					ApplyImpulse = true;
+				}
+				else
+				{
+					// Not approaching (perpendicular OR already separating)
+					// BUT if they're overlapping, still apply positional correction
+					// (Baumgarte stabilization)
+					ApplyImpulse = false;
+				}
+
+				if (RigidBodyA->Restitution == -1.0f)
+					RigidBodyA->Restitution = Config->DefaultRestitution;
+				if (RigidBodyB->Restitution == -1.0f)
+					RigidBodyB->Restitution = Config->DefaultRestitution;
+
+				float InvMassA = 1 / RigidBodyA->Mass;
+				float InvMassB = 1 / RigidBodyB->Mass;
+				float ImpulseScalar = 0.0f;
+
+				if (ApplyImpulse)
+				{
+					auto RestitutionFactor = std::min(RigidBodyA->Restitution, RigidBodyB->Restitution);
+					ImpulseScalar = -(1 + RestitutionFactor) * (VelDotProduct);
+					ImpulseScalar = ImpulseScalar / (InvMassA + InvMassB);
+
+					RigidBodyA->Velocity -= (Normal * ImpulseScalar) * InvMassA;
+					RigidBodyB->Velocity += (Normal * ImpulseScalar) * InvMassB;
+				}
+
+				if (Result.Penetration > Config->Slop) {
+					auto correction = Normal * (Result.Penetration - Config->Slop) / (InvMassA + InvMassB) * Config->Aggressiveness;
+					TransformA->Move(correction * InvMassA);  // Light objects move more
+					TransformB->Move(-correction * InvMassB);  // Light objects move more
+				}
+			}
+		}
+	}
+
+	void SimPhysicsExtension::Build(BackBone::App& App)
+	{
+		App.Registry.AddResource<SimPhysicsWorld>();
+		App.Registry.AddResource<SimPhysicsExtensionConfig>();
+		App.Registry.AddResource<SimPhysicsResources>();
+		App.Registry.Register<RigidBody>();
+		App.Registry.Register<Collider>();
+
+		auto Config = App.Registry.GetResource< SimPhysicsExtensionConfig>();
+		auto World = App.Registry.GetResource< SimPhysicsWorld>();
+		*Config = _Config;
+		World->Gravity = Config->Gravity;
+
+		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::START_UP, OnSimPhysicsStartUp);
+		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::FIXED_PHYSICS, OnSimPhysicsIntegrateForce);
+		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::FIXED_PHYSICS, OnSimPhysicsCollisionDetection);
+		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::FIXED_PHYSICS, OnSimPhysicsCollisionResolve);
+	}
+
+#pragma endregion
 }
 

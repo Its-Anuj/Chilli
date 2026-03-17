@@ -25,3 +25,6 @@
 [submodule "Chilli/Libs/UFBX"]
 	path = Chilli/Libs/UFBX
 	url = https://github.com/ufbx/ufbx.git
+[submodule "Chilli/Libs/FastNoise2"]
+	path = Chilli/Libs/FastNoise2
+	url = https://github.com/Auburn/FastNoise2.git
