@@ -28,3 +28,6 @@
 [submodule "Chilli/Libs/FastNoise2"]
 	path = Chilli/Libs/FastNoise2
 	url = https://github.com/Auburn/FastNoise2.git
+[submodule "Chilli/Libs/JoltPhysics"]
+	path = Chilli/Libs/JoltPhysics
+	url = https://github.com/jrouwe/JoltPhysics.git

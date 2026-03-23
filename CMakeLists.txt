@@ -16,6 +16,7 @@ set(Chilli_EXAMPLE_GRAVITY_COMPILE ON)
 
 # Check For Vulkan
 find_package(Vulkan REQUIRED)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDebug")
 
 if (NOT Vulkan_FOUND)
     message(FATAL_ERROR "Vulkan SDK not found. Please install 1.3.275")

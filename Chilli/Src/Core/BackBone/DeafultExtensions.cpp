@@ -1,21 +1,5 @@
 ﻿#include "DeafultExtensions.h"
 #include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
 #include "Ch_PCH.h"
 #include "DeafultExtensions.h"
 #include "Window/Window.h"
@@ -26,6 +10,19 @@
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
+
+#if CHILLI_ENABLE_JOLT == true
+#include <Jolt/RegisterTypes.h>
+#include <Jolt/Core/Factory.h>
+#include <Jolt/Core/TempAllocator.h>
+#include <Jolt/Core/JobSystemThreadPool.h>
+#include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyActivationListener.h>
+#include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#endif
 
 namespace Chilli
 {
@@ -76,6 +73,45 @@ namespace Chilli
 
 		CH_CORE_TRACE("Graphcis Backend Using: {}", RenderService->GetName());
 		auto RenderCommandService = Ctxt.ServiceRegistry->GetService<RenderCommand>();
+
+		auto Resource = Command.GetResource<RenderResource>();
+
+		Command.GetResource<RenderResource>()->DeafultShaderProgram = Command.GetStore<ShaderProgram>()->Add(RenderService->GetDeafultShaderProgram());
+
+		Chilli::SamplerSpec SamplerSpec;
+		SamplerSpec.Filter = Chilli::SamplerFilter::NEAREST;
+		SamplerSpec.Mode = Chilli::SamplerMode::REPEAT;
+		Resource->DeafultSampler = Command.CreateSampler(SamplerSpec);
+
+		uint32_t Width = 1;
+		uint32_t Height = 1;
+
+		uint32_t WhiteColor = 0xFFFFFFFF;
+		Chilli::ImageSpec ImageSpec{};
+		ImageSpec.Format = Chilli::ImageFormat::RGBA8;
+		ImageSpec.ImageData = &WhiteColor;
+		ImageSpec.MipLevel = 1;
+		ImageSpec.Resolution.Width = Width;
+		ImageSpec.Resolution.Height = Height;
+		ImageSpec.Resolution.Depth = 1;
+		ImageSpec.Sample = Chilli::IMAGE_SAMPLE_COUNT_1_BIT;
+		ImageSpec.State = Chilli::ResourceState::ShaderRead;
+		ImageSpec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
+		ImageSpec.Usage = Chilli::IMAGE_USAGE_SAMPLED_IMAGE;
+
+		Resource->DeafultImage = Command.AllocateImage(ImageSpec);
+		Command.MapImageData(Resource->DeafultImage, &WhiteColor, Width, Height);
+
+		Chilli::TextureSpec TextureSpec;
+		TextureSpec.Format = Chilli::ImageFormat::RGBA8;
+		Resource->DeafultTexture = Command.CreateTexture(Resource->DeafultImage, TextureSpec);
+
+		auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
+
+		Resource->DeafultMaterial = Command.CreateMaterial(Command.GetDeafultShaderProgram());
+		MaterialSystem->SetAlbedoColor(Resource->DeafultMaterial, { 1.0f, 1.0f, 1.0f, 1.0f });
+		MaterialSystem->SetAlbedoTexture(Resource->DeafultMaterial, Resource->DeafultTexture);
+		MaterialSystem->SetAlbedoSampler(Resource->DeafultMaterial, Resource->DeafultSampler);
 	}
 
 	void OnRenderExtensionsCleanUp(BackBone::SystemContext& Ctxt)
@@ -200,12 +236,27 @@ namespace Chilli
 		auto RenderCommandService = Command.GetService<RenderCommand>();
 		auto RenderService = Command.GetService<Renderer>();
 		auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
+		auto RenderResource = Command.GetResource<Chilli::RenderResource>();
 
 		for (auto [Entity, Transform, MeshComp] : BackBone::QueryWithEntities<TransformComponent, MeshComponent>(*Ctxt.Registry))
 		{
-			auto ActiveShader = MaterialSystem->GetShaderProgramID(MeshComp->MaterialHandle);
+			uint32_t RawMaterialHandle = 1;
+			BackBone::AssetHandle<Material> ActiveMaterial = MeshComp->MaterialHandle;
+			BackBone::AssetHandle<ShaderProgram> ActiveShader;
+
+			if (MeshComp->MaterialHandle.IsValid() == false)
+			{
+				RawMaterialHandle = MaterialSystem->GetRawMaterialHandle(RenderResource->DeafultMaterial);
+				ActiveShader = RenderResource->DeafultShaderProgram;
+				ActiveMaterial = RenderResource->DeafultMaterial;
+			}
+			else
+			{
+				RawMaterialHandle = MaterialSystem->GetRawMaterialHandle(MeshComp->MaterialHandle);
+				ActiveShader = MaterialSystem->GetShaderProgramID(MeshComp->MaterialHandle);
+			}
+
 			auto ActiveMesh = MeshComp->MeshHandle.ValPtr;
-			auto RawMaterialHandle = MaterialSystem->GetRawMaterialHandle(MeshComp->MaterialHandle);
 
 			RenderService->BindShaderProgram(ActiveShader.ValPtr->RawProgramHandle);
 			RenderService->BindMaterailData(RawMaterialHandle);
@@ -222,10 +273,10 @@ namespace Chilli
 			RenderService->BindVertexBuffer(Buffers, BindingCount);
 			RenderService->BindIndexBuffer(ActiveMesh->IBHandle.ValPtr->RawBufferHandle, ActiveMesh->IBType);
 
-			if (MaterialSystem->ShouldMaterialShaderDataUpdate(MeshComp->MaterialHandle))
+			if (MaterialSystem->ShouldMaterialShaderDataUpdate(ActiveMaterial))
 			{
-				MaterialShaderData MaterialData = MaterialSystem->GetMaterialShaderData(MeshComp->MaterialHandle);
-				RenderService->UpdateMaterialShaderData(MaterialSystem->GetRawMaterialHandle(MeshComp->MaterialHandle), MaterialData);
+				MaterialShaderData MaterialData = MaterialSystem->GetMaterialShaderData(ActiveMaterial);
+				RenderService->UpdateMaterialShaderData(MaterialSystem->GetRawMaterialHandle(ActiveMaterial), MaterialData);
 			}
 
 			if (Transform->IsDirty())
@@ -927,7 +978,7 @@ namespace Chilli
 
 		if (_Config.SimPhysicsConfig.Enabled)
 		{
-			App.Extensions.AddExtension(std::make_unique<SimPhysicsExtension>(_Config.SimPhysicsConfig), true, &App);
+			App.Extensions.AddExtension(std::make_unique<JoltPhysicsExtension>(_Config.SimPhysicsConfig), true, &App);
 		}
 		if (_Config.NoiseExtensionConfig.EnableFastNoise2Provider)
 		{
@@ -3369,362 +3420,532 @@ namespace Chilli
 	}
 #pragma endregion
 
-#pragma region SimPhysics
+#pragma region JoltPhysics
 
-	bool TestAABBvsAABB(const Collider& ColliderA, const TransformComponent& TransformA, const Collider& ColliderB, const TransformComponent& TransformB, CollisionResult& Out)
+	/// Class that determines if two object layers can collide
+	class ObjectLayerPairFilterImpl : public JPH::ObjectLayerPairFilter
 	{
-		auto A = ColliderA.Box;
-		auto B = ColliderB.Box;
-
-		if (!A.IsColliding(B)) return false;
-
-		Vec3 CenterA = A.GetCenter();
-		Vec3 CenterB = B.GetCenter();
-		Vec3 Delta = CenterB - CenterA;
-		Vec3 Combined = A.GetHalfExtents() + B.GetHalfExtents();
-
-		float OX = Combined.x - std::abs(Delta.x);
-		float OY = Combined.y - std::abs(Delta.y);
-		float OZ = Combined.z - std::abs(Delta.z);
-
-		if (OX < OY && OX < OZ) { Out.Penetration = OX; Out.Normal = { Delta.x < 0 ? -1.0f : 1.0f, 0, 0 }; }
-		else if (OY < OZ) { Out.Penetration = OY; Out.Normal = { 0, Delta.y < 0 ? -1.0f : 1.0f, 0 }; }
-		else { Out.Penetration = OZ; Out.Normal = { 0, 0, Delta.z < 0 ? -1.0f : 1.0f }; }
-
-		return true;
-	}
-
-	bool TestSphereVsSphere(const Collider& ColliderA, const TransformComponent& TransformA,
-		const Collider& ColliderB, const TransformComponent& TransformB,
-		CollisionResult& Out)
-	{
-		auto A = ColliderA.Sphere;
-		auto B = ColliderB.Sphere;
-
-		if (!A.IsColliding(B)) return false;
-
-		Vec3 Delta = B.Center - A.Center;
-
-		float Dist = std::sqrt(
-			Delta.x * Delta.x +
-			Delta.y * Delta.y +
-			Delta.z * Delta.z);
-
-		float RadiiSum = A.Radius + B.Radius;
-
-		if (Dist > 0.0001f)
-			Out.Normal = Delta / Dist;
-		else
-			Out.Normal = { 0,1,0 };
-
-		Out.Penetration = RadiiSum - Dist;
-
-		return true;
-	}
-
-	bool TestAABBvsSphere(const Collider& ColliderA, const TransformComponent& TransformA,
-		const Collider& ColliderB, const TransformComponent& TransformB,
-		CollisionResult& Out)
-	{
-		auto Box = ColliderA.Box;
-		auto S = ColliderB.Sphere;
-
-		if (!S.IsColliding(Box)) return false;
-
-		Vec3 Closest = Box.ClosestPoint(S.Center);
-		Vec3 Delta = S.Center - Closest;
-
-		float Dist = std::sqrt(
-			Delta.x * Delta.x +
-			Delta.y * Delta.y +
-			Delta.z * Delta.z);
-
-		if (Dist > 0.0001f)
-			Out.Normal = Delta / Dist;
-		else
-			Out.Normal = { 0,1,0 };
-
-		Out.Penetration = S.Radius - Dist;
-
-		return true;
-	}
-
-	bool TestSphereVsCapsule(const Collider& ColliderA, const TransformComponent& TransformA,
-		const Collider& ColliderB, const TransformComponent& TransformB,
-		CollisionResult& Out)
-	{
-		auto S = ColliderA.Sphere;
-		auto C = ColliderB.Capsule;
-
-		if (!C.IsColliding(S)) return false;
-
-		Vec3 Closest = C.ClosestPointOnSegment(S.Center);
-		Vec3 Delta = S.Center - Closest;
-
-		float Dist = std::sqrt(
-			Delta.x * Delta.x +
-			Delta.y * Delta.y +
-			Delta.z * Delta.z);
-
-		float RadiiSum = S.Radius + C.Radius;
-
-		if (Dist > 0.0001f)
-			Out.Normal = Delta / Dist;
-		else
-			Out.Normal = { 0,1,0 };
-
-		Out.Penetration = RadiiSum - Dist;
-
-		return true;
-	}
-
-	bool TestCapsuleVsCapsule(const Collider& ColliderA, const TransformComponent& TransformA,
-		const Collider& ColliderB, const TransformComponent& TransformB,
-		CollisionResult& Out)
-	{
-		auto A = ColliderA.Capsule;
-		auto B = ColliderB.Capsule;
-
-		if (!A.IsColliding(B)) return false;
-
-		Vec3 ClosestA = A.ClosestPointOnSegment(B.Base);
-		Vec3 ClosestB = B.ClosestPointOnSegment(ClosestA);
-		ClosestA = A.ClosestPointOnSegment(ClosestB);
-
-		Vec3 Delta = ClosestB - ClosestA;
-
-		float Dist = std::sqrt(
-			Delta.x * Delta.x +
-			Delta.y * Delta.y +
-			Delta.z * Delta.z);
-
-		float RadiiSum = A.Radius + B.Radius;
-
-		if (Dist > 0.0001f)
-			Out.Normal = Delta / Dist;
-		else
-			Out.Normal = { 0,1,0 };
-
-		Out.Penetration = RadiiSum - Dist;
-
-		return true;
-	}
-
-	bool TestAABBvsCapsule(const Collider& ColliderA, const TransformComponent& TransformA,
-		const Collider& ColliderB, const TransformComponent& TransformB,
-		CollisionResult& Out)
-	{
-		auto Box = ColliderA.Box;
-		auto C = ColliderB.Capsule;
-
-		if (!C.IsColliding(Box)) return false;
-
-		Vec3 ClosestOnBox = Box.ClosestPoint(
-			C.ClosestPointOnSegment(Box.GetCenter()));
-
-		Vec3 ClosestOnSeg = C.ClosestPointOnSegment(ClosestOnBox);
-
-		Vec3 Delta = ClosestOnBox - ClosestOnSeg;
-
-		float Dist = std::sqrt(
-			Delta.x * Delta.x +
-			Delta.y * Delta.y +
-			Delta.z * Delta.z);
-
-		if (Dist > 0.0001f)
-			Out.Normal = Delta / Dist;
-		else
-			Out.Normal = { 0,1,0 };
-
-		Out.Penetration = C.Radius - Dist;
-
-		return true;
-	}
-
-	void OnSimPhysicsStartUp(BackBone::SystemContext& Ctxt)
-	{
-		auto Command = Chilli::Command(Ctxt);
-
-		Command.GetResource<Chilli::BackBone::GenericFrameData>()->FixedPhysicsData.Ticks = Command.GetResource<Chilli::SimPhysicsExtensionConfig>()->Tick;
-	}
-
-	void OnSimPhysicsIntegrateForce(BackBone::SystemContext& Ctxt)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		auto World = Command.GetResource<SimPhysicsWorld>();
-		auto Config = Command.GetResource< SimPhysicsExtensionConfig>();
-
-		for (auto [Transform, RigidBody] : BackBone::Query<TransformComponent, RigidBody>(*Ctxt.Registry))
+	public:
+		ObjectLayerPairFilterImpl(const JoltPhysicsExtensionConfig* Config)
+			:_Config(Config)
 		{
-			if (RigidBody->IsStatic) continue;
 
-			// ------------------------------------------------
-			//  Build force accumulator
-			//  Any system can add to RB.Force before this runs
-			//  e.g. explosion, wind, jump impulse
-			// ------------------------------------------------
-
-			// Gravity as a force — F = m * g * scale
-			Chilli::Vec3 GravityForce = World->Gravity * RigidBody->Mass * RigidBody->GravityScale;
-			RigidBody->Force += GravityForce;
-
-			// Drag as a force — opposes velocity
-			Chilli::Vec3 DragForce = RigidBody->Velocity * -RigidBody->Drag;
-			RigidBody->Force += DragForce;
-
-			// F = ma — derive acceleration from total force
-			Chilli::Vec3 NewAcceleration = RigidBody->Force / RigidBody->Mass;
-
-			// ------------------------------------------------
-			//  Velocity Verlet integration
-			// ------------------------------------------------
-
-			float DT = Config->Tick;
-
-			// Step 1 — position uses OLD acceleration
-			Transform->Move(RigidBody->Velocity * Config->Tick + RigidBody->Acceleration * (0.5f * DT * DT));
-
-			// Step 2 — velocity averages old and new acceleration
-			RigidBody->Velocity += (RigidBody->Acceleration + NewAcceleration) * (0.5f * DT);
-
-			// Step 3 — store new acceleration for next frame
-			RigidBody->Acceleration = NewAcceleration;
-
-			// Step 4 — reset force accumulator for next step
-			RigidBody->Force = { 0.0f, 0.0f, 0.0f };
-		}
-	}
-
-	void OnSimPhysicsCollisionDetection(BackBone::SystemContext& Ctxt)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		auto Resource = Command.GetResource< SimPhysicsResources>();
-		auto Config = Command.GetResource< SimPhysicsExtensionConfig>();
-
-		Resource->CollisionEntities.clear();
-
-		for (auto [Entity, Transform, Collider, RigidBody] : BackBone::QueryWithEntities<TransformComponent, Collider, RigidBody>(*Ctxt.Registry))
-		{
-			Resource->CollisionEntities.push_back(Entity);
 		}
 
-		for (int i = 0; i < Resource->CollisionEntities.size(); i++)
+		virtual bool ShouldCollide(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const override
 		{
-			for (int j = i + 1; j < Resource->CollisionEntities.size(); j++)
+			if (inObject1 >= int(Layers::NUM_LAYERS) || inObject2 >= int(Layers::NUM_LAYERS))
+				return false;
+
+			return _Config->CollisionMatrix[(uint16_t)inObject1][(uint16_t)inObject2];
+		}
+	private:
+		const JoltPhysicsExtensionConfig* _Config;
+	};
+
+	namespace JoltBroadPhaseLayers
+	{
+		static constexpr JPH::BroadPhaseLayer STATIC(0);
+		static constexpr JPH::BroadPhaseLayer DYNAMIC(1);
+		static constexpr JPH::BroadPhaseLayer SENSOR(2);
+		static constexpr JPH::uint NUM_LAYERS(3);
+	};
+
+	class BPLayerInterfaceImpl final : public JPH::BroadPhaseLayerInterface
+	{
+	public:
+		BPLayerInterfaceImpl(const JoltPhysicsExtensionConfig* Config)
+			: _Config(Config) {
+		}  // no array to init — config already has the map
+
+		JPH::uint GetNumBroadPhaseLayers() const override
+		{
+			return JoltBroadPhaseLayers::NUM_LAYERS;
+		}
+
+		JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const override
+		{
+			if (inLayer >= (JPH::ObjectLayer)Layers::NUM_LAYERS)
+				return JoltBroadPhaseLayers::DYNAMIC;
+
+			return (JPH::BroadPhaseLayer)((uint16_t)_Config->LayerToBP[inLayer]);
+		}
+
+#if defined(JPH_EXTERNAL_PROFILE) || defined(JPH_PROFILE_ENABLED)
+		const char* GetBroadPhaseLayerName(JPH::BroadPhaseLayer inLayer) const override
+		{
+			switch ((JPH::BroadPhaseLayer::Type)inLayer)
 			{
-				auto* ColliderA = Command.GetComponent<Collider>(Resource->CollisionEntities[i]);
-				auto* ColliderB = Command.GetComponent<Collider>(Resource->CollisionEntities[j]);
-				auto* TransformA = Command.GetComponent<TransformComponent>(Resource->CollisionEntities[i]);
-				auto* TransformB = Command.GetComponent<TransformComponent>(Resource->CollisionEntities[j]);
+			case (JPH::BroadPhaseLayer::Type)JoltBroadPhaseLayers::STATIC:  return "STATIC";
+			case (JPH::BroadPhaseLayer::Type)JoltBroadPhaseLayers::DYNAMIC: return "DYNAMIC";
+			case (JPH::BroadPhaseLayer::Type)JoltBroadPhaseLayers::SENSOR:  return "SENSOR";
+			default: JPH_ASSERT(false); return "INVALID";
+			}
+		}
+#endif
 
-				// Skip if any component is missing
-				if (!ColliderA || !ColliderB || !TransformA || !TransformB) continue;
+	private:
+		const JoltPhysicsExtensionConfig* _Config;
+		// no _ObjectToBroadPhase array needed — _Config->LayerToBP already does this
+	};
 
-				int TypeA = (int)ColliderA->Type;
-				int TypeB = (int)ColliderB->Type;
+	/// Class that determines if an object layer can collide with a broadphase layer
+	class ObjectVsBroadPhaseLayerFilterImpl : public JPH::ObjectVsBroadPhaseLayerFilter
+	{
+	public:
+		ObjectVsBroadPhaseLayerFilterImpl(const JoltPhysicsExtensionConfig* Config)
+			: _Config(Config) {
+		}
 
-				CollisionResult Result;
-				Result.EntityA = Resource->CollisionEntities[i];
-				Result.EntityB = Resource->CollisionEntities[j];
+		bool ShouldCollide(JPH::ObjectLayer Layer, JPH::BroadPhaseLayer BPLayer) const override
+		{
+			// Check if this object layer collides with ANY layer that maps to this BP bucket
+			for (int OtherLayer = 0; OtherLayer < int(Layers::NUM_LAYERS); OtherLayer++)
+			{
+				if ((JPH::BroadPhaseLayer)((uint16_t)_Config->LayerToBP[OtherLayer]) == BPLayer &&
+					_Config->CollisionMatrix[Layer][OtherLayer])
+					return true;
+			}
+			return false;
+		}
 
-				// Dispatch to correct test via matrix
-				if (Resource->CollisionMatrix[TypeA][TypeB](*ColliderA, *TransformA, *ColliderB, *TransformB, Result))
-					Resource->CollisionResults.push_back(Result);
+	private:
+		const JoltPhysicsExtensionConfig* _Config;
+	};
+
+	struct JoltContactListenerParamter
+	{
+		BackBone::SystemContext& Ctxt;
+		JPH::PhysicsSystem* PhysicsSystem;
+
+		JoltContactListenerParamter(BackBone::SystemContext& ctxt) : Ctxt(ctxt) {}
+	};
+
+	struct JoltPhysicsResourceImpl;
+
+	// An example contact listener
+	class JoltContactListenerImpl : public JPH::ContactListener
+	{
+	public:
+		JoltContactListenerImpl(JoltContactListenerParamter Impl)
+			:_Parameter(Impl)
+		{
+
+		}
+
+		~JoltContactListenerImpl() {
+		}
+
+		// See: ContactListener
+		virtual JPH::ValidateResult	OnContactValidate(const JPH::Body& inBody1,
+			const JPH::Body& inBody2, JPH::RVec3Arg inBaseOffset, const JPH::CollideShapeResult& inCollisionResult) override;
+
+		virtual void			OnContactAdded(const JPH::Body& inBody1,
+			const JPH::Body& inBody2, const JPH::ContactManifold& inManifold,
+			JPH::ContactSettings& ioSettings) override;
+
+		virtual void			OnContactPersisted(const JPH::Body& inBody1,
+			const JPH::Body& inBody2, const JPH::ContactManifold& inManifold,
+			JPH::ContactSettings& ioSettings) override;
+
+		virtual void OnContactRemoved(const JPH::SubShapeIDPair& inSubShapePair) override;
+
+	private:
+		JoltContactListenerParamter _Parameter;
+	};
+
+	struct JoltBodyShapeMetaData
+	{
+		bool Active = false;
+		JPH::BodyID BodyID;
+		uint32_t RigidBodyVersion = 0;
+		uint32_t ColliderVersion = 0;
+	};
+
+	struct JoltPhysicsResourceImpl
+	{
+		//std::unique_ptr<JPH::Factory> Factory;
+		JPH::PhysicsSystem PhysicsSystem;
+		JPH::BodyInterface* BodyInterFace;
+		SparseSet<JoltBodyShapeMetaData> BodiesMetaData;
+		std::unique_ptr<JPH::TempAllocatorImpl> TempAllocator;
+		std::unique_ptr<JPH::JobSystemThreadPool> JobSystem;
+		std::unique_ptr<BPLayerInterfaceImpl >Broad_Phase_Layer_Interface;
+		std::unique_ptr<ObjectVsBroadPhaseLayerFilterImpl >Object_Vs_BroadPhase_Layer_Filter;
+		std::unique_ptr<ObjectLayerPairFilterImpl >Object_Vs_Object_Layer_Filter;
+		std::unique_ptr<JoltContactListenerImpl > ContactListener;
+		BackBone::SystemContext& Ctxt;
+
+		JoltPhysicsResourceImpl(BackBone::SystemContext& ctxt) : Ctxt(ctxt) {}
+	};
+
+	void OnJoltSetup(BackBone::SystemContext& Ctxt)
+	{
+		auto Command = Chilli::Command(Ctxt);
+		auto Resource = Command.GetResource< JoltPhysicsResource>();
+		auto Config = Command.GetResource<JoltPhysicsExtensionConfig>();
+		Resource->Data = new JoltPhysicsResourceImpl(Ctxt);
+		auto JoltData = (JoltPhysicsResourceImpl*)Resource->Data;
+
+		JPH::RegisterDefaultAllocator();
+		JPH::Factory::sInstance = new JPH::Factory();
+
+		JPH::RegisterTypes();
+		JoltData->TempAllocator = std::make_unique<JPH::TempAllocatorImpl>(Config->UpFrontMemoryAllocated);
+		JoltData->JobSystem = std::make_unique<JPH::JobSystemThreadPool>(Config->MaxPhysicsJobs, Config->MaxPhysicsBarriers,
+			Config->NumThreads);
+
+		JoltData->Broad_Phase_Layer_Interface = std::make_unique< BPLayerInterfaceImpl>(Config);
+		JoltData->Object_Vs_BroadPhase_Layer_Filter = std::make_unique< ObjectVsBroadPhaseLayerFilterImpl>(Config);
+		JoltData->Object_Vs_Object_Layer_Filter = std::make_unique< ObjectLayerPairFilterImpl>(Config);
+
+		JoltData->PhysicsSystem.Init(Config->MaxRigidBodies, Config->NumBodyMutexes, Config->MaxBodyPairs,
+			Config->MaxContactConstraints,
+			(const BPLayerInterfaceImpl&)*JoltData->Broad_Phase_Layer_Interface.get(),
+			(const ObjectVsBroadPhaseLayerFilterImpl&)*JoltData->Object_Vs_BroadPhase_Layer_Filter.get(),
+			(const ObjectLayerPairFilterImpl&)*JoltData->Object_Vs_Object_Layer_Filter.get());
+		JoltData->PhysicsSystem.SetGravity({ 0.0f, -9.81f, 0.0f });
+		JoltData->BodyInterFace = &JoltData->PhysicsSystem.GetBodyInterface();
+
+		JoltContactListenerParamter Parameter{ Ctxt };
+		Parameter.PhysicsSystem = &JoltData->PhysicsSystem;
+
+		JoltData->ContactListener = std::make_unique< JoltContactListenerImpl>(Parameter);
+
+		JoltData->PhysicsSystem.SetContactListener(JoltData->ContactListener.get());
+		JoltData->PhysicsSystem.OptimizeBroadPhase();
+
+		CH_CORE_INFO("Jolt Physics Extension Setup!");
+		CH_CORE_INFO("Gravity set to: {}", JoltData->PhysicsSystem.GetGravity().GetY());  // Should be -9.81
+	}
+
+	void OnJoltClearEvents(BackBone::SystemContext& Ctxt)
+	{
+		auto Command = Chilli::Command(Ctxt);
+
+		Command.ClearEvent<CollisionEnterEvent>();
+		Command.ClearEvent<CollisionExitEvent>();
+		Command.ClearEvent<CollisionStayEvent>();
+	}
+
+	void OnJoltHandleConversions(BackBone::SystemContext& Ctxt)
+	{
+		auto Command = Chilli::Command(Ctxt);
+		auto Resource = Command.GetResource< JoltPhysicsResource>();
+		auto Config = Command.GetResource<JoltPhysicsExtensionConfig>();
+		auto JoltData = (JoltPhysicsResourceImpl*)Resource->Data;
+
+		for (auto [Entity, Transform, RigidBody, Collider] : BackBone::QueryWithEntities<TransformComponent,
+			RigidBody, Collider>(*Ctxt.Registry))
+		{
+			auto MetaDataPtr = JoltData->BodiesMetaData.Get(Entity);
+
+			// FIX #1: Handle first-time creation
+			if (MetaDataPtr == nullptr)
+			{
+				// Entity doesn't exist in metadata - create it
+				JoltBodyShapeMetaData NewMetaData;
+				NewMetaData.Active = false;
+				NewMetaData.RigidBodyVersion = 0;
+				NewMetaData.ColliderVersion = 0;
+
+				JoltData->BodiesMetaData.Insert(Entity, NewMetaData);
+				MetaDataPtr = JoltData->BodiesMetaData.Get(Entity);
+
+				// FIX #2: Check insert didn't fail
+				if (MetaDataPtr == nullptr)
+				{
+					CH_CORE_ERROR("Failed to allocate metadata for entity!");
+					continue;
+				}
+			}
+
+			bool Create = false;
+			if (MetaDataPtr->Active == false)
+				Create = true;
+
+			if (Create)
+			{
+				JPH::ShapeSettings::ShapeResult ShapeResult;
+
+				if (Collider->Type == ColliderType::BOX)
+				{
+					auto BoxHalfExtents = JPH::RVec3(Collider->Shape.AABB.HalfExtent.x,
+						Collider->Shape.AABB.HalfExtent.y, Collider->Shape.AABB.HalfExtent.z);
+
+					JPH::BoxShapeSettings floor_shape_settings(BoxHalfExtents);
+					floor_shape_settings.SetEmbedded();
+					ShapeResult = floor_shape_settings.Create();
+				}
+
+				JPH::ShapeRefC ShapeRef = ShapeResult.Get(); // We don't expect an error here, but you can check floor_shape_result for HasError() / GetError()
+
+				if (ShapeResult.HasError())
+				{
+					CH_CORE_INFO("ERORR: {}", ShapeResult.GetError().c_str());
+				}
+
+				auto InPosition = JPH::RVec3(Transform->GetPosition().x, Transform->GetPosition().y,
+					Transform->GetPosition().z);
+				JPH::EMotionType MotionType = JPH::EMotionType::Static;
+
+				if (RigidBody->MotionType == MotionType::DYNAMIC)
+					MotionType = JPH::EMotionType::Dynamic;
+				if (RigidBody->MotionType == MotionType::KINEMATIC)
+					MotionType = JPH::EMotionType::Kinematic;
+
+				// Create the settings for the body itself. Note that here you can also set other properties like the restitution / friction.
+				JPH::BodyCreationSettings BodySettings(ShapeRef, InPosition,
+					JPH::Quat::sIdentity(), MotionType, (JPH::ObjectLayer)RigidBody->Layer);
+
+				// FIX #9: Set mass if dynamic
+				if (MotionType == JPH::EMotionType::Dynamic && RigidBody->Mass > 0)
+				{
+					// Override mass calculation with custom mass
+					BodySettings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+					BodySettings.mMassPropertiesOverride.mMass = RigidBody->Mass;
+				}
+
+				if (RigidBody->Restitution == -1.0f)
+					RigidBody->Restitution = Config->DeafultRestitution;
+				if (RigidBody->Friction == -1.0f)
+					RigidBody->Friction = Config->DeafultFriction;
+
+				// FIX #10: Set other properties
+				BodySettings.mIsSensor = Collider->IsTrigger;
+				BodySettings.mFriction = RigidBody->Friction;
+				BodySettings.mRestitution = RigidBody->Restitution;
+				BodySettings.mGravityFactor = RigidBody->GravityFactor;
+				BodySettings.mUserData = (uint64_t)Entity;
+
+				// Create the actual rigid body
+				JPH::Body* Body = JoltData->BodyInterFace->CreateBody(BodySettings); // Note that if we run out of bodies this can return nullptr
+
+				// FIX #3: Check if body creation failed
+				if (Body == nullptr)
+				{
+					CH_CORE_ERROR("Failed to create floor body - max bodies reached!");
+					MetaDataPtr->Active = false;
+					continue;
+				}
+
+				// Add it to the world
+				JoltData->BodyInterFace->AddBody(Body->GetID(),
+					MotionType == JPH::EMotionType::Dynamic
+					? JPH::EActivation::Activate
+					: JPH::EActivation::DontActivate);
+
+				if (RigidBody->Velocity != Chilli::Vec3(0, 0, 0))
+				{
+					auto Velocity = JPH::Vec3(RigidBody->Velocity.x, RigidBody->Velocity.y,
+						RigidBody->Velocity.z);
+					JoltData->BodyInterFace->SetLinearVelocity(Body->GetID(), Velocity);
+				}
+
+				MetaDataPtr->BodyID = Body->GetID();
+				MetaDataPtr->Active = true;
 			}
 		}
 	}
 
-	void OnSimPhysicsCollisionResolve(BackBone::SystemContext& Ctxt)
+	void OnJoltUpdate(BackBone::SystemContext& Ctxt)
 	{
 		auto Command = Chilli::Command(Ctxt);
-		auto Resource = Command.GetResource< SimPhysicsResources>();
-		auto Config = Command.GetResource< SimPhysicsExtensionConfig>();
+		auto Resource = Command.GetResource< JoltPhysicsResource>();
+		auto FrameData = Command.GetResource< BackBone::GenericFrameData>();
+		auto Config = Command.GetResource<JoltPhysicsExtensionConfig>();
+		auto JoltData = (JoltPhysicsResourceImpl*)Resource->Data;
 
-		for (int x = 0; x < Config->CollisionSolverIterations; x++)
+		for (auto [Entity, Transform, RigidBody, Collider] : BackBone::QueryWithEntities<TransformComponent,
+			RigidBody, Collider>(*Ctxt.Registry))
 		{
-			for (size_t i = 0; i < Resource->CollisionResults.size(); i++)
+			auto MetaDataPtr = JoltData->BodiesMetaData.Get(Entity);
+
+			if (RigidBody->Force != Chilli::Vec3(0, 0, 0))
 			{
-				auto& Result = Resource->CollisionResults[i];
+				auto Impulse = JPH::Vec3(RigidBody->Force.x, RigidBody->Force.y,
+					RigidBody->Force.z);
+				JoltData->BodyInterFace->AddImpulse(MetaDataPtr->BodyID, Impulse);
+			}
+			RigidBody->Force = Vec3(0, 0, 0);
+		}
 
-				auto* TransformA = Command.GetComponent<TransformComponent>(Result.EntityA);
-				auto* TransformB = Command.GetComponent<TransformComponent>(Result.EntityB);
-				auto* RigidBodyA = Command.GetComponent<RigidBody>(Result.EntityA);
-				auto* RigidBodyB = Command.GetComponent<RigidBody>(Result.EntityB);
+		// If you take larger steps than 1 / 60th of a second you need to do multiple collision steps in order to keep the simulation stable. Do 1 collision step per 1 / 60th of a second (round up).
+		const int cCollisionSteps = 1;
 
-				auto VelA = RigidBodyA->Velocity;
-				auto VelB = RigidBodyB->Velocity;
+		// Step the world
+		JoltData->PhysicsSystem.Update(FrameData->FixedPhysicsData.Ticks, cCollisionSteps, JoltData->TempAllocator.get(), JoltData->JobSystem.get());
+	}
 
-				// Normal Vector to VelA and VelB
-				auto Normal = Result.Normal;
-				// How Fast is A Moving Relative to B
-				auto RelVel = VelA - VelB;
-				// Can Produce 3 results depends on the sign
-				auto VelDotProduct = Chilli::Dot(RelVel, Normal);
+	void OnJoltSyncBack(BackBone::SystemContext& Ctxt)
+	{
+		auto Command = Chilli::Command(Ctxt);
+		auto Resource = Command.GetResource< JoltPhysicsResource>();
+		auto Config = Command.GetResource<JoltPhysicsExtensionConfig>();
+		auto JoltData = (JoltPhysicsResourceImpl*)Resource->Data;
 
-				bool ApplyImpulse = false;
-
-				// Moving Apart
-				if (VelDotProduct > 0)
+		for (auto [Entity, Transform, RigidBody, Collider] : BackBone::QueryWithEntities<TransformComponent,
+			RigidBody, Collider>(*Ctxt.Registry))
+		{
+			auto MetaDataPtr = JoltData->BodiesMetaData.Get(Entity);
+			if (MetaDataPtr != nullptr)
+			{
+				if (MetaDataPtr->Active == true)
 				{
-				}
-				// Moving towards each other
-				else if (VelDotProduct < 0)
-				{// do nothing
-					ApplyImpulse = true;
-				}
-				else
-				{
-					// Not approaching (perpendicular OR already separating)
-					// BUT if they're overlapping, still apply positional correction
-					// (Baumgarte stabilization)
-					ApplyImpulse = false;
-				}
+					auto JoltPosition = JoltData->BodyInterFace->GetCenterOfMassPosition(MetaDataPtr->BodyID);
+					auto JoltVelocity = JoltData->BodyInterFace->GetLinearVelocity(MetaDataPtr->BodyID);
 
-				if (RigidBodyA->Restitution == -1.0f)
-					RigidBodyA->Restitution = Config->DefaultRestitution;
-				if (RigidBodyB->Restitution == -1.0f)
-					RigidBodyB->Restitution = Config->DefaultRestitution;
-
-				float InvMassA = 1 / RigidBodyA->Mass;
-				float InvMassB = 1 / RigidBodyB->Mass;
-				float ImpulseScalar = 0.0f;
-
-				if (ApplyImpulse)
-				{
-					auto RestitutionFactor = std::min(RigidBodyA->Restitution, RigidBodyB->Restitution);
-					ImpulseScalar = -(1 + RestitutionFactor) * (VelDotProduct);
-					ImpulseScalar = ImpulseScalar / (InvMassA + InvMassB);
-
-					RigidBodyA->Velocity -= (Normal * ImpulseScalar) * InvMassA;
-					RigidBodyB->Velocity += (Normal * ImpulseScalar) * InvMassB;
-				}
-
-				if (Result.Penetration > Config->Slop) {
-					auto correction = Normal * (Result.Penetration - Config->Slop) / (InvMassA + InvMassB) * Config->Aggressiveness;
-					TransformA->Move(correction * InvMassA);  // Light objects move more
-					TransformB->Move(-correction * InvMassB);  // Light objects move more
+					RigidBody->Velocity = { JoltVelocity.GetX(), JoltVelocity.GetY(), JoltVelocity.GetZ() };
+					Transform->SetPosition({ JoltPosition.GetX(), JoltPosition.GetY(), JoltPosition.GetZ() });
 				}
 			}
 		}
 	}
 
-	void SimPhysicsExtension::Build(BackBone::App& App)
+	void OnJoltTerminate(BackBone::SystemContext& Ctxt)
 	{
-		App.Registry.AddResource<SimPhysicsWorld>();
-		App.Registry.AddResource<SimPhysicsExtensionConfig>();
-		App.Registry.AddResource<SimPhysicsResources>();
-		App.Registry.Register<RigidBody>();
+		auto Command = Chilli::Command(Ctxt);
+		auto Resource = Command.GetResource< JoltPhysicsResource>();
+		auto JoltData = (JoltPhysicsResourceImpl*)Resource->Data;
+
+		for (auto& MetaData : JoltData->BodiesMetaData)
+		{
+			MetaData.Active = false;
+
+			// Remove and destroy the floor
+			JoltData->BodyInterFace->RemoveBody(MetaData.BodyID);
+			JoltData->BodyInterFace->DestroyBody(MetaData.BodyID);
+		}
+
+		JoltData->BodiesMetaData.Clear();
+
+		JPH::UnregisterTypes();
+		delete JPH::Factory::sInstance;
+		JPH::Factory::sInstance = nullptr;
+
+		delete Resource->Data;
+	}
+
+	void OnJoltHandleEvents(BackBone::SystemContext& Ctxt)
+	{
+		auto Command = Chilli::Command(Ctxt);
+		auto EventService = Command.GetService<EventHandler>();
+
+		for (auto& Event : *EventService->GetEventStorage<CollisionEnterEvent>())
+		{
+			auto* ColliderA = Command.GetComponent<Collider>(Event.GetEntity1());
+			auto* ColliderB = Command.GetComponent<Collider>(Event.GetEntity2());
+
+			// A gets told it hit B
+			if (ColliderA)
+				ColliderA->OnEnter(Event.GetEntity2(), Ctxt);
+
+			// B gets told it hit A
+			if (ColliderB)
+				ColliderB->OnEnter(Event.GetEntity1(), Ctxt);
+		}
+
+		for (auto& Event : *EventService->GetEventStorage<CollisionStayEvent>())
+		{
+			auto* ColliderA = Command.GetComponent<Collider>(Event.GetEntity1());
+			auto* ColliderB = Command.GetComponent<Collider>(Event.GetEntity2());
+
+			if (ColliderA && ColliderA->OnStay)
+				ColliderA->OnStay(Event.GetEntity2(), Ctxt);
+
+			if (ColliderB && ColliderB->OnStay)
+				ColliderB->OnStay(Event.GetEntity1(), Ctxt);
+		}
+
+		for (auto& Event : *EventService->GetEventStorage<CollisionExitEvent>())
+		{
+			auto* ColliderA = Command.GetComponent<Collider>(Event.GetEntity1());
+			auto* ColliderB = Command.GetComponent<Collider>(Event.GetEntity2());
+
+			if (ColliderA && ColliderA->OnExit)
+				ColliderA->OnExit(Event.GetEntity2(), Ctxt);
+
+			if (ColliderB && ColliderB->OnExit)
+				ColliderB->OnExit(Event.GetEntity1(), Ctxt);
+		}
+	}
+
+	void JoltPhysicsExtension::Build(BackBone::App& App)
+	{
+		App.Registry.AddResource<JoltPhysicsExtensionConfig>();
+		App.Registry.AddResource<JoltPhysicsResource>();
 		App.Registry.Register<Collider>();
+		App.Registry.Register<RigidBody>();
+		auto Command = Chilli::Command(App.Ctxt);
 
-		auto Config = App.Registry.GetResource< SimPhysicsExtensionConfig>();
-		auto World = App.Registry.GetResource< SimPhysicsWorld>();
+		Command.RegisterEvent<CollisionEnterEvent>();
+		Command.RegisterEvent<CollisionStayEvent>();
+		Command.RegisterEvent<CollisionExitEvent>();
+
+		auto Config = App.Registry.GetResource<JoltPhysicsExtensionConfig>();
 		*Config = _Config;
-		World->Gravity = Config->Gravity;
 
-		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::START_UP, OnSimPhysicsStartUp);
-		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::FIXED_PHYSICS, OnSimPhysicsIntegrateForce);
-		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::FIXED_PHYSICS, OnSimPhysicsCollisionDetection);
-		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::FIXED_PHYSICS, OnSimPhysicsCollisionResolve);
+		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::START_UP, OnJoltSetup);
+
+		App.SystemScheduler.AddSystemOverLayBefore(BackBone::ScheduleTimer::FIXED_PHYSICS, OnJoltHandleConversions);
+		App.SystemScheduler.AddSystemOverLayBefore(BackBone::ScheduleTimer::FIXED_PHYSICS, OnJoltClearEvents);
+
+		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::FIXED_PHYSICS, OnJoltUpdate);
+		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::FIXED_PHYSICS, OnJoltSyncBack);
+		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::FIXED_PHYSICS, OnJoltHandleEvents);
+
+		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::SHUTDOWN, OnJoltTerminate);
+	}
+
+	JPH::ValidateResult JoltContactListenerImpl::OnContactValidate(const JPH::Body& inBody1, const JPH::Body& inBody2, JPH::RVec3Arg inBaseOffset, const JPH::CollideShapeResult& inCollisionResult)
+	{
+		auto Entity1 = (BackBone::Entity)inBody1.GetUserData();
+		auto Entity2 = (BackBone::Entity)inBody2.GetUserData();
+
+		CH_CORE_INFO("Contact Validate!, {} with {}", Entity1, Entity2);
+		// Allows you to ignore a contact before it is created (using layers to not make objects collide is cheaper!)
+		return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
+	}
+
+	void JoltContactListenerImpl::OnContactAdded(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings)
+	{
+		auto Entity1 = (BackBone::Entity)inBody1.GetUserData();
+		auto Entity2 = (BackBone::Entity)inBody2.GetUserData();
+
+		auto Command = Chilli::Command(_Parameter.Ctxt);
+		CollisionEnterEvent Enter(Entity1, Entity2);
+		Command.AddEvent< CollisionEnterEvent>(Enter);
+	}
+
+	void JoltContactListenerImpl::OnContactPersisted(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings)
+	{
+		auto Entity1 = (BackBone::Entity)inBody1.GetUserData();
+		auto Entity2 = (BackBone::Entity)inBody2.GetUserData();
+
+		auto Command = Chilli::Command(_Parameter.Ctxt);
+		CollisionStayEvent Enter(Entity1, Entity2);
+		Command.AddEvent< CollisionStayEvent>(Enter);
+	}
+
+	void JoltContactListenerImpl::OnContactRemoved(const JPH::SubShapeIDPair& inSubShapePair)
+	{
+		auto& Interface = _Parameter.PhysicsSystem->GetBodyLockInterfaceNoLock();
+
+		JPH::BodyLockRead lock1(Interface, inSubShapePair.GetBody1ID());
+		JPH::BodyLockRead lock2(Interface, inSubShapePair.GetBody2ID());
+
+		if (lock1.Succeeded() && lock2.Succeeded())
+		{
+			const JPH::Body& body1 = lock1.GetBody();
+			const JPH::Body& body2 = lock2.GetBody();
+
+			auto Entity1 = (BackBone::Entity)body1.GetUserData();
+			auto Entity2 = (BackBone::Entity)body2.GetUserData();
+
+			auto Command = Chilli::Command(_Parameter.Ctxt);
+			CollisionExitEvent Enter(Entity1, Entity2);
+			Command.AddEvent< CollisionExitEvent>(Enter);
+		}
 	}
 
 #pragma endregion

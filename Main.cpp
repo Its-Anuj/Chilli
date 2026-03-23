@@ -236,11 +236,10 @@ int main()
 
 	App.SystemScheduler.AddSystemOverLayBefore(Chilli::BackBone::ScheduleTimer::START_UP, OnWindowCreate);
 
-	App.Extensions.AddExtension(std::make_unique<Chilli::DeafultExtension>(
-		Chilli::DeafultExtensionConfig{
-			.RenderConfig = RenderConfig
-		}), true, &App);
+	Chilli::DeafultExtensionConfig DeafultConfig;
+	DeafultConfig.RenderConfig = RenderConfig;
 
+	App.Extensions.AddExtension(std::make_unique<Chilli::DeafultExtension>(DeafultConfig), true, &App);
 	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::START_UP, OnGameCreate);
 
 	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::UPDATE, OnGamePlay);

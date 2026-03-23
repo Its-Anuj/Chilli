@@ -28,7 +28,6 @@ namespace Chilli
 
 	void Renderer::Terminate()
 	{
-		_Api->ClearShaderProgram(_DeafultShaderProgram.RawProgramHandle);
 		GraphicsBackendApi::Terminate(_Api.get(), false);
 	}
 

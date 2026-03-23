@@ -17,6 +17,10 @@
 
 #include "Log.h"
 
-#include <memory>    // for std::uninitialized_copy, std::allocator_traits
-#include <algorithm> // for std::max, std::swap
 #include <stdexcept> // for std::out_of_range
+
+#if CHILLI_ENABLE_JOLT == true
+#include "Jolt/Jolt.h"
+#else
+
+#endif

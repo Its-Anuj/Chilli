@@ -32,52 +32,46 @@ void SimulationSetup(Chilli::BackBone::SystemContext& Ctxt)
 	auto Data = Command.GetResource<Simulation>();
 
 	auto CubeMesh = Command.CreateMesh(Chilli::BasicShapes::CUBE);
-	auto SphereMesh = Command.CreateMesh(Chilli::BasicShapes::SPHERE);
 
 	Data->Cube = Command.CreateEntity();
 	Command.AddComponent<Chilli::TransformComponent>(Data->Cube, Chilli::TransformComponent{});
-
-	Chilli::RigidBody CubeRigidBody;
-	CubeRigidBody.GravityFactor = 1.0f;
-	CubeRigidBody.Mass = 10.0f;
-	CubeRigidBody.Layer = Chilli::Layers::DYNAMIC;
-	CubeRigidBody.MotionType = Chilli::MotionType::DYNAMIC;
-	CubeRigidBody.Velocity = { 0, -0, 0 };
-
-	Command.AddComponent<Chilli::RigidBody>(Data->Cube, CubeRigidBody);
-
-	Chilli::Collider CubeCollider;
-	CubeCollider.Type = Chilli::ColliderType::BOX;
-	CubeCollider.IsTrigger = false;
-	CubeCollider.Shape.AABB.HalfExtent = { 0.5f, 0.5f, 0.5f };
-
-	Command.AddComponent<Chilli::Collider>(Data->Cube, CubeCollider);
-
+	Command.AddComponent<Chilli::RigidBody>(Data->Cube, Chilli::RigidBody{
+		.Mass = 1,
+		.IsStatic = false 
+		});
 	Command.AddComponent<Chilli::MeshComponent>(Data->Cube, Chilli::MeshComponent{
-		.MeshHandle = SphereMesh
+		.MeshHandle = CubeMesh
 		});
 
 	Data->Ground = Command.CreateEntity();
 	Command.AddComponent<Chilli::TransformComponent>(Data->Ground, Chilli::TransformComponent{
-		{0.0f, -5.0f, 0.0f}, {10.0f, 1.0f, 10.0f } });
+		{0.0f, -5.0f, 0.0f}, {10.0f, 0.2f, 10.0f } });
 
+	Command.AddComponent<Chilli::RigidBody>(Data->Ground, Chilli::RigidBody{
+		.Mass = 10.0f,
+		.IsStatic = true
+		});
 	Command.AddComponent<Chilli::MeshComponent>(Data->Ground, Chilli::MeshComponent{
 		.MeshHandle = CubeMesh
 		});
 
-	Chilli::RigidBody PlatformRigidBody;
-	PlatformRigidBody.GravityFactor = 1.0f;
-	PlatformRigidBody.Mass = 10.0f;
-	PlatformRigidBody.Layer = Chilli::Layers::STATIC;
-	PlatformRigidBody.MotionType = Chilli::MotionType::STATIC;
+	Chilli::Collider CubeCollider;
+	CubeCollider.Type = Chilli::ColliderType::BOX;
+	CubeCollider.IsTrigger = false;
+	CubeCollider.Box = Chilli::AABB::FromCenter(
+		Chilli::Vec3{ 0.0f, 0.0f, 0.0f },   // center — matches transform position
+		Chilli::Vec3{ 0.5f, 0.5f, 0.5f }    // half extents — 1x1x1 cube
+	);
 
-	Command.AddComponent<Chilli::RigidBody>(Data->Ground, PlatformRigidBody);
-
+	// Platform collider — wide and flat, centered at origin
 	Chilli::Collider PlatformCollider;
 	PlatformCollider.Type = Chilli::ColliderType::BOX;
 	PlatformCollider.IsTrigger = false;
-	PlatformCollider.Shape.AABB.HalfExtent = { 5, 0.5f, 5 };
-
+	PlatformCollider.Box = Chilli::AABB::FromCenter(
+		Chilli::Vec3{ 0.0f, 0.0f, 0.0f },   // center — matches transform position
+		Chilli::Vec3{ 5.0f, 0.1f, 5.0f }    // half extents — 10 wide, 0.2 tall, 10 deep
+	);
+	Command.AddComponent<Chilli::Collider>(Data->Cube, CubeCollider);
 	Command.AddComponent<Chilli::Collider>(Data->Ground, PlatformCollider);
 
 	Data->Camera = Chilli::CameraBundle::Create3D(Ctxt, { 0.0f, 0.0f, 5 });
@@ -87,16 +81,6 @@ void SimulationSetup(Chilli::BackBone::SystemContext& Ctxt)
 
 	auto SceneManager = Command.GetService<Chilli::SceneManager>();
 	SceneManager->SetActiveScene(&Data->Scene);
-}
-
-void OnCubeMovement(Chilli::BackBone::SystemContext& Ctxt)
-{
-	auto Command = Chilli::Command(Ctxt);
-	auto Data = Command.GetResource<Simulation>();
-
-	auto PlayerRigidBody = Command.GetComponent<Chilli::RigidBody>(Data->Cube);
-	if (Command.GetService<Chilli::Input>()->IsKeyDown(Chilli::Input_key_P))
-		PlayerRigidBody->AddImpulse({ 0.0f, 0.0f, 20.0f });
 }
 
 void SimulationShutDown(Chilli::BackBone::SystemContext& Ctxt)
@@ -111,7 +95,7 @@ int main()
 
 	Chilli::Log::Init();
 
-	Chilli::BackBone::App App; 
+	Chilli::BackBone::App App;
 
 	Chilli::RenderExtensionConfig RenderConfig{};
 	RenderConfig.Spec.VSync = true;
@@ -119,12 +103,11 @@ int main()
 
 	App.SystemScheduler.AddSystemOverLayBefore(Chilli::BackBone::ScheduleTimer::START_UP, OnWindowCreate);
 
-	Chilli::DeafultExtensionConfig DeafultConfig;
-	DeafultConfig.RenderConfig = RenderConfig;
-
-	App.Extensions.AddExtension(std::make_unique<Chilli::DeafultExtension>(DeafultConfig), true, &App);
+	App.Extensions.AddExtension(std::make_unique<Chilli::DeafultExtension>(
+		Chilli::DeafultExtensionConfig{
+			.RenderConfig = RenderConfig
+		}), true, &App);
 	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::START_UP, SimulationSetup);
-	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::FIXED_PHYSICS, OnCubeMovement);
 	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::SHUTDOWN, SimulationShutDown);
 
 

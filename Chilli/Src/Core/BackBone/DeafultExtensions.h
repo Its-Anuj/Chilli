@@ -77,6 +77,7 @@ namespace Chilli
 		}
 
 		template<typename _EventType>
+			requires std::derived_from<_EventType, Event>
 		void Register()
 		{
 			EventID id = GetEventID<_EventType>();
@@ -87,6 +88,7 @@ namespace Chilli
 		}
 
 		template<typename _EventType>
+			requires std::derived_from<_EventType, Event>
 		PerEventStorage<_EventType>* GetEventStorage()
 		{
 			EventID id = GetEventID<_EventType>();
@@ -97,6 +99,7 @@ namespace Chilli
 		}
 
 		template<typename _EventType>
+			requires std::derived_from<_EventType, Event>
 		void Add(const _EventType& e)
 		{
 			auto* storage = GetEventStorage<_EventType>();
@@ -104,6 +107,7 @@ namespace Chilli
 		}
 
 		template<typename _EventType>
+			requires std::derived_from<_EventType, Event>
 		void Clear()
 		{
 			EventID id = GetEventID<_EventType>();
@@ -124,6 +128,7 @@ namespace Chilli
 	};
 
 	template<typename _EventType>
+		requires std::derived_from<_EventType, Event>
 	struct EventReader {
 		PerEventStorage<_EventType>* storage = nullptr;
 
@@ -171,7 +176,7 @@ namespace Chilli
 	};
 
 	template<typename _EventType>
-		requires std::derived_from<Event, _EventType>
+		requires std::derived_from<_EventType, Event>
 	struct EventWriter {
 		PerEventStorage<_EventType>* storage = nullptr;
 		EventWriter(const EventHandler& Handler) :storage(Handler.GetEventStorage<_EventType>()) {}
@@ -513,6 +518,11 @@ namespace Chilli
 			uint32_t PipelineCount = 0;
 		} RenderDebugInfo;
 		std::vector<TransformComponent> OldTransformComponents;
+		BackBone::AssetHandle<ShaderProgram> DeafultShaderProgram;
+		BackBone::AssetHandle<Material> DeafultMaterial;
+		BackBone::AssetHandle<Image> DeafultImage;
+		BackBone::AssetHandle<Texture> DeafultTexture;
+		BackBone::AssetHandle<Sampler> DeafultSampler;
 	};
 
 	struct SubGraphPass
@@ -1264,164 +1274,67 @@ namespace Chilli
 	};
 #pragma endregion
 
-#pragma region SimPhysics
+#pragma region JoltPhysics
+
+	// Layer that objects can be in, determines which other objects it can collide with
+	// Typically you at least want to have 1 layer for moving bodies and 1 layer for static bodies, but you can have more
+	// layers if you want. E.g. you could have a layer for high detail collision (which is not used by the physics simulation
+	// but only if you do collision testing).
+	enum class Layers : uint16_t
+	{
+		DEFAULT = 0,
+		STATIC = 1,
+		DYNAMIC = 2,
+		PLAYER = 3,
+		ENEMIES = 4,
+		PROJECTILE = 5,
+		SENSOR = 6,
+		DEBRIS = 7,			
+		CUSTOM_0,
+		CUSTOM_1,
+		CUSTOM_2,
+		CUSTOM_3,
+		CUSTOM_4,
+		CUSTOM_5,
+		CUSTOM_6,
+		CUSTOM_7,
+		NUM_LAYERS 
+	};
+
+	enum class BroadPhaseLayers : uint16_t
+	{
+		STATIC, 
+		DYNAMIC,
+		SENSOR,
+		NUM_LAYERS
+	};
+
+	enum class MotionType
+	{
+		STATIC, DYNAMIC, KINEMATIC
+	};
+
+	struct JoltBackend
+	{
+
+	};
 
 	struct RigidBody
 	{
-		Chilli::Vec3 Velocity;
-		Chilli::Vec3 Acceleration = { 0.0f, 0.0f, 0.0f }; // store previous
-		Chilli::Vec3 Force = { 0.0f, 0.0f, 0.0f }; // accumulated forces
+		float Mass;
+		float GravityFactor = 0.0f;
+		float Restitution = -1.0f;
+		float Friction = -1.0f;
 
-		float Mass = 1.0f;
-		float Drag = 1.0f;
-		float        GravityScale = 1.0f;
-		float        Restitution = -1.0f;
-		bool IsStatic = false;
-	};
-	// ============================================================
-//  AABB
-// ============================================================
-	struct AABB
-	{
-		Vec3 Min, Max;
+		Layers Layer = Layers::STATIC;
+		MotionType MotionType;
 
-		AABB() = default;
-		AABB(const Vec3& Min, const Vec3& Max) : Min(Min), Max(Max) {}
+		Vec3 Velocity{ 0,0,0 };
+		Vec3 Force{ 0,0,0 };
 
-		// Build from center + half extents
-		static AABB FromCenter(const Vec3& Center, const Vec3& HalfExtents)
+		void AddImpulse(const Vec3& Impulse)
 		{
-			return { Center - HalfExtents, Center + HalfExtents };
-		}
-
-		Vec3  GetCenter()      const { return (Max + Min) * 0.5f; }
-		Vec3  GetHalfExtents() const { return (Max - Min) * 0.5f; }
-
-		bool IsColliding(const AABB& Other) const
-		{
-			return (Min.x < Other.Max.x && Max.x > Other.Min.x)
-				&& (Min.y < Other.Max.y && Max.y > Other.Min.y)
-				&& (Min.z < Other.Max.z && Max.z > Other.Min.z);
-		}
-
-		bool Contains(const Vec3& Point) const
-		{
-			return (Point.x >= Min.x && Point.x <= Max.x)
-				&& (Point.y >= Min.y && Point.y <= Max.y)
-				&& (Point.z >= Min.z && Point.z <= Max.z);
-		}
-
-		// Closest point on or inside AABB to a given point
-		// Used by sphere vs AABB test
-		Vec3 ClosestPoint(const Vec3& Point) const
-		{
-			return {
-				std::max(Min.x, std::min(Point.x, Max.x)),
-				std::max(Min.y, std::min(Point.y, Max.y)),
-				std::max(Min.z, std::min(Point.z, Max.z))
-			};
-		}
-	};
-
-	// ============================================================
-	//  SPHERE
-	// ============================================================
-	struct Sphere
-	{
-		Vec3  Center;
-		float Radius = 0.5f;
-
-		Sphere() = default;
-		Sphere(const Vec3& Center, float Radius) : Center(Center), Radius(Radius) {}
-
-		bool IsColliding(const Sphere& Other) const
-		{
-			Vec3  Delta = Other.Center - Center;
-			float DistSq = Delta.x * Delta.x + Delta.y * Delta.y + Delta.z * Delta.z;
-			float RadiiSum = Radius + Other.Radius;
-			return DistSq < RadiiSum * RadiiSum;
-		}
-
-		bool IsColliding(const AABB& Box) const
-		{
-			Vec3  Closest = Box.ClosestPoint(Center);
-			Vec3  Delta = Center - Closest;
-			float DistSq = Delta.x * Delta.x + Delta.y * Delta.y + Delta.z * Delta.z;
-			return DistSq < Radius * Radius;
-		}
-
-		bool Contains(const Vec3& Point) const
-		{
-			Vec3  Delta = Point - Center;
-			float DistSq = Delta.x * Delta.x + Delta.y * Delta.y + Delta.z * Delta.z;
-			return DistSq <= Radius * Radius;
-		}
-	};
-
-	// ============================================================
-	//  CAPSULE
-	// ============================================================
-	struct Capsule
-	{
-		Vec3  Base;       // bottom sphere center
-		Vec3  Tip;        // top sphere center
-		float Radius = 0.5f;
-
-		Capsule() = default;
-		Capsule(const Vec3& Base, const Vec3& Tip, float Radius)
-			: Base(Base), Tip(Tip), Radius(Radius) {
-		}
-
-		// Closest point on the capsule LINE SEGMENT to an external point
-		// This is the core of all capsule tests
-		Vec3 ClosestPointOnSegment(const Vec3& Point) const
-		{
-			Vec3  AB = Tip - Base;
-			float LenSq = AB.x * AB.x + AB.y * AB.y + AB.z * AB.z;
-
-			if (LenSq < 0.0001f) return Base; // degenerate capsule, treat as sphere
-
-			// Project point onto segment, clamp to [0,1]
-			float T = ((Point.x - Base.x) * AB.x +
-				(Point.y - Base.y) * AB.y +
-				(Point.z - Base.z) * AB.z) / LenSq;
-
-			T = std::max(0.0f, std::min(1.0f, T));
-
-			return { Base.x + T * AB.x, Base.y + T * AB.y, Base.z + T * AB.z };
-		}
-
-		bool IsColliding(const Sphere& S) const
-		{
-			Vec3  Closest = ClosestPointOnSegment(S.Center);
-			Vec3  Delta = S.Center - Closest;
-			float DistSq = Delta.x * Delta.x + Delta.y * Delta.y + Delta.z * Delta.z;
-			float RadiiSum = Radius + S.Radius;
-			return DistSq < RadiiSum * RadiiSum;
-		}
-
-		bool IsColliding(const Capsule& Other) const
-		{
-			// Closest points between the two line segments
-			Vec3 ClosestA = ClosestPointOnSegment(Other.Base);
-			Vec3 ClosestB = Other.ClosestPointOnSegment(ClosestA);
-			ClosestA = ClosestPointOnSegment(ClosestB); // refine once
-
-			Vec3  Delta = ClosestB - ClosestA;
-			float DistSq = Delta.x * Delta.x + Delta.y * Delta.y + Delta.z * Delta.z;
-			float RadiiSum = Radius + Other.Radius;
-			return DistSq < RadiiSum * RadiiSum;
-		}
-
-		bool IsColliding(const AABB& Box) const
-		{
-			// Find closest point on box to capsule segment
-			Vec3 ClosestOnBox = Box.ClosestPoint(ClosestPointOnSegment(Box.GetCenter()));
-			Vec3 ClosestOnSeg = ClosestPointOnSegment(ClosestOnBox);
-
-			Vec3  Delta = ClosestOnBox - ClosestOnSeg;
-			float DistSq = Delta.x * Delta.x + Delta.y * Delta.y + Delta.z * Delta.z;
-			return DistSq < Radius * Radius;
+			Force += Impulse;
 		}
 	};
 
@@ -1432,148 +1345,325 @@ namespace Chilli
 		CAPSULE
 	};
 
-	struct Collider {
+	struct CollisionEnterEvent : public Event
+	{
+	public:
+		CollisionEnterEvent(BackBone::Entity Entity1, BackBone::Entity Entity2)
+		{
+			this->Entity1 = Entity1;
+			this->Entity2 = Entity2;
+		}
+
+		const char* GetName() const override { return "CollisionEnterEvent"; }
+
+		BackBone::Entity GetEntity1() { return Entity1; }
+		BackBone::Entity GetEntity2() { return Entity2; }
+
+	private:
+		BackBone::Entity Entity1, Entity2;
+	};
+
+	struct CollisionStayEvent : public Event
+	{
+	public:
+		CollisionStayEvent(BackBone::Entity Entity1, BackBone::Entity Entity2)
+		{
+			this->Entity1 = Entity1;
+			this->Entity2 = Entity2;
+		}
+
+		const char* GetName() const override { return "CollisionStayEvent"; }
+
+		BackBone::Entity GetEntity1() { return Entity1; }
+		BackBone::Entity GetEntity2() { return Entity2; }
+
+	private:
+		BackBone::Entity Entity1, Entity2;
+	};
+
+	struct CollisionExitEvent : public Event
+	{
+	public:
+		CollisionExitEvent(BackBone::Entity Entity1, BackBone::Entity Entity2)
+		{
+			this->Entity1 = Entity1;
+			this->Entity2 = Entity2;
+		}
+
+		const char* GetName() const override { return "CollisionExitEvent "; }
+
+		BackBone::Entity GetEntity1() { return Entity1; }
+		BackBone::Entity GetEntity2() { return Entity2; }
+
+	private:
+		BackBone::Entity Entity1, Entity2;
+	};
+
+	struct Collider
+	{
 		ColliderType Type;
 		bool IsTrigger = false;
 
-		// Only one of these is valid depending on Type
-		union
+		union ShapeUnion
 		{
-			AABB Box;
-			Sphere Sphere;
-			Capsule Capsule;
-		};
+			struct { Vec3 HalfExtent; } AABB;
+			struct { Vec3 Max; Vec3 Min; } Sphere;
+			struct { Vec3 Max; Vec3 Min; } Capsule;
 
-		// Add these to fix the error
-		Collider() = default;
-		~Collider() = default;
-		Collider(const Collider& other) = default;
+			// Explicit default constructor to initialize the union
+			ShapeUnion() : AABB{ {0,0,0} } {}
 
-		Collider& operator=(const Collider& other) {
-			Type = other.Type;
-			IsTrigger = other.IsTrigger;
+			~ShapeUnion() {}
+		} Shape;
 
-			// Copy based on type
-			switch (Type) {
+		// Collision STARTS - called once
+		std::function<void(BackBone::Entity, BackBone::SystemContext&)> OnEnter = [](BackBone::Entity, BackBone::SystemContext&) {};
+
+		// Collision CONTINUES - called every frame (usually unused)
+		std::function<void(BackBone::Entity, BackBone::SystemContext&)> OnStay = [](BackBone::Entity, BackBone::SystemContext&) {};;
+
+		// Collision ENDS - called once
+		std::function<void(BackBone::Entity, BackBone::SystemContext&)> OnExit = [](BackBone::Entity, BackBone::SystemContext&) {};;
+
+		// Default constructor
+		Collider() : Type(ColliderType::BOX), IsTrigger(false), Shape() {}
+
+		// Copy constructor (needed for vector operations)
+		Collider(const Collider& other) : Type(other.Type), IsTrigger(other.IsTrigger)
+			, OnEnter(other.OnEnter) , OnStay(other.OnStay), OnExit(other.OnExit)
+		{
+			switch (other.Type)
+			{
 			case ColliderType::BOX:
-				Box = other.Box;
+				Shape.AABB = other.Shape.AABB;
 				break;
 			case ColliderType::SPHERE:
-				Sphere = other.Sphere;
+				Shape.Sphere = other.Shape.Sphere;
 				break;
 			case ColliderType::CAPSULE:
-				Capsule = other.Capsule;
+				Shape.Capsule = other.Shape.Capsule;
 				break;
+			}
+		}
+
+		// Move constructor (needed for vector operations)
+		Collider(Collider&& other) noexcept : Type(other.Type), IsTrigger(other.IsTrigger)
+			, OnEnter(other.OnEnter), OnStay(other.OnStay), OnExit(other.OnExit)
+		{
+			switch (other.Type)
+			{
+			case ColliderType::BOX:
+				Shape.AABB = other.Shape.AABB;
+				break;
+			case ColliderType::SPHERE:
+				Shape.Sphere = other.Shape.Sphere;
+				break;
+			case ColliderType::CAPSULE:
+				Shape.Capsule = other.Shape.Capsule;
+				break;
+			}
+		}
+
+		// Destructor
+		~Collider() {}
+
+		// Copy assignment operator
+		Collider& operator=(const Collider& other)
+		{
+			if (this != &other)
+			{
+				Type = other.Type;
+				IsTrigger = other.IsTrigger;
+				OnEnter = other.OnEnter;
+				OnStay = other.OnStay;
+				OnExit = other.OnExit;
+				switch (other.Type)
+				{
+				case ColliderType::BOX:
+					Shape.AABB = other.Shape.AABB;
+					break;
+				case ColliderType::SPHERE:
+					Shape.Sphere = other.Shape.Sphere;
+					break;
+				case ColliderType::CAPSULE:
+					Shape.Capsule = other.Shape.Capsule;
+					break;
+				}
 			}
 			return *this;
 		}
 
-		Collider(Collider&& other) noexcept = default;
-		Collider& operator=(Collider&& other) noexcept = default;
-	};
-
-	// We Sepreate Collision handling in 2 functions: Detection and Resolving detection gives CollisionResult which is used by resolving
-	struct CollisionResult
-	{
-		BackBone::Entity EntityA, EntityB;
-		Chilli::Vec3  Normal;
-		float Penetration;
-	};
-
-	struct SimPhysicsWorld
-	{
-		Chilli::Vec3 Gravity;
-		bool  Paused = false;
-	};
-
-	// Define function pointer type
-	using CollisionFn = bool(*)(
-		const Collider&, const TransformComponent&,
-		const Collider&, const TransformComponent&,
-		CollisionResult&);
-
-	// Forward declarations of all test functions
-	bool TestAABBvsAABB(const Collider& ColliderA, const TransformComponent& TransformA, const Collider& ColliderB, const TransformComponent& TransformB, CollisionResult& Result);
-	bool TestSphereVsSphere(const Collider& ColliderA, const TransformComponent& TransformA,
-		const Collider& ColliderB, const TransformComponent& TransformB,
-		CollisionResult& Out);
-
-	bool TestAABBvsSphere(const Collider& ColliderA, const TransformComponent& TransformA,
-		const Collider& ColliderB, const TransformComponent& TransformB,
-		CollisionResult& Out);
-
-	bool TestSphereVsCapsule(const Collider& ColliderA, const TransformComponent& TransformA,
-		const Collider& ColliderB, const TransformComponent& TransformB,
-		CollisionResult& Out);
-
-	bool TestCapsuleVsCapsule(const Collider& ColliderA, const TransformComponent& TransformA,
-		const Collider& ColliderB, const TransformComponent& TransformB,
-		CollisionResult& Out);
-
-	bool TestAABBvsCapsule(const Collider& ColliderA, const TransformComponent& TransformA,
-		const Collider& ColliderB, const TransformComponent& TransformB,
-		CollisionResult& Out);
-	inline bool TestUnsupported(const Collider&, const TransformComponent&, const Collider&, const TransformComponent&, CollisionResult&)
-	{
-		return false;
-	} // pair not implemented yet
-
-	struct SimPhysicsResources
-	{
-		std::vector<BackBone::Entity> CollisionEntities;
-		std::vector<CollisionResult> CollisionResults;
-
-		// Dispatch table — rows = A type, cols = B type
-		const CollisionFn CollisionMatrix[3][3] =
+		// Move assignment operator
+		Collider& operator=(Collider&& other) noexcept
 		{
-			//                AABB              Sphere             Capsule
-			/* AABB    */  { TestAABBvsAABB,    TestAABBvsSphere,  TestUnsupported },
-			/* Sphere  */  { TestAABBvsSphere,  TestSphereVsSphere,TestUnsupported },
-			/* Capsule */  { TestUnsupported,   TestUnsupported,   TestUnsupported }
-		};
+			if (this != &other)
+			{
+				Type = other.Type;
+				IsTrigger = other.IsTrigger;
+				OnEnter = other.OnEnter;
+				OnStay = other.OnStay;
+				OnExit = other.OnExit;
+				switch (other.Type)
+				{
+				case ColliderType::BOX:
+					Shape.AABB = other.Shape.AABB;
+					break;
+				case ColliderType::SPHERE:
+					Shape.Sphere = other.Shape.Sphere;
+					break;
+				case ColliderType::CAPSULE:
+					Shape.Capsule = other.Shape.Capsule;
+					break;
+				}
+			}
+			return *this;
+		}
 	};
 
-	struct SimPhysicsExtensionConfig
+	struct JoltPhysicsExtensionConfig
 	{
-		Chilli::Vec3 Gravity = { 0.0f, -9.81f, 0.0f };
-		float        Tick = 1.0f / 60.0f;
-		int          CollisionSolverIterations = 4;  // renamed
-		float        DefaultRestitution = 0.3f;
-		float        DefaultDrag = 0.01f;
-		bool         Enabled = true;
-		float Slop = 0.01f;
-		float Aggressiveness = 0.4f;
+		bool Enabled = true;
+		uint32_t UpFrontMemoryAllocated = 10 * 1024 * 1024;
+		uint32_t MaxRigidBodies = 1024;
+		uint32_t NumBodyMutexes = 0;
+		uint32_t MaxBodyPairs = 1024;
+		uint32_t MaxContactConstraints = 1024;
+		uint32_t MaxPhysicsJobs = 2048;
+		uint32_t MaxPhysicsBarriers = 8;
+		uint32_t NumThreads = 2;
+		float DeafultRestitution = 0.3f;
+		float DeafultFriction = 0.3f;
+
+		uint8_t CollisionMatrix[int(Layers::NUM_LAYERS)][int(Layers::NUM_LAYERS)];
+		BroadPhaseLayers LayerToBP[int(Layers::NUM_LAYERS)];
+
+		JoltPhysicsExtensionConfig()
+		{
+			// Zero everything first
+			memset(CollisionMatrix, 0, sizeof(CollisionMatrix));
+			memset(LayerToBP, 0, sizeof(LayerToBP));
+
+			SetupDefaultCollisionMatrix();
+			SetupDefaultBPMap();
+		}
+
+		void SetupDefaultCollisionMatrix()
+		{
+			// Helper to set symmetric pair
+			auto Enable = [&](Layers A, Layers B)
+				{
+					CollisionMatrix[int(A)][int(B)] = true;
+					CollisionMatrix[int(B)][int(A)] = true;
+				};
+
+			// Static world collides with everything except itself and sensors
+			Enable(Layers::STATIC, Layers::DYNAMIC);
+			Enable(Layers::STATIC, Layers::PLAYER);
+			Enable(Layers::STATIC, Layers::ENEMIES);
+			Enable(Layers::STATIC, Layers::PROJECTILE);
+			Enable(Layers::STATIC, Layers::DEBRIS);
+			Enable(Layers::STATIC, Layers::DEFAULT);
+
+			// Dynamic collides with dynamic and characters
+			Enable(Layers::DYNAMIC, Layers::DYNAMIC);
+			Enable(Layers::DYNAMIC, Layers::PLAYER);
+			Enable(Layers::DYNAMIC, Layers::ENEMIES);
+			Enable(Layers::DYNAMIC, Layers::PROJECTILE);
+			Enable(Layers::DYNAMIC, Layers::DEBRIS);
+
+			// Player collides with enemies and projectiles
+			Enable(Layers::PLAYER, Layers::ENEMIES);
+			Enable(Layers::PLAYER, Layers::PROJECTILE);
+
+			// Enemies collide with projectiles
+			Enable(Layers::ENEMIES, Layers::PROJECTILE);
+
+			// Sensors collide with player and enemies only
+			Enable(Layers::SENSOR, Layers::PLAYER);
+			Enable(Layers::SENSOR, Layers::ENEMIES);
+
+			// Debris only hits static world
+			Enable(Layers::DEBRIS, Layers::STATIC);
+
+			// Custom layers default to colliding with everything
+			for (int i = int(Layers::CUSTOM_0); i < int(Layers::NUM_LAYERS); i++)
+				for (int j = 0; j < int(Layers::NUM_LAYERS); j++)
+				{
+					CollisionMatrix[i][j] = true;
+					CollisionMatrix[j][i] = true;
+				}
+		}
+
+		void SetupDefaultBPMap()
+		{
+			// Static layers → BP STATIC bucket
+			LayerToBP[int(Layers::STATIC)] = BroadPhaseLayers::STATIC;
+
+			// Sensor → BP SENSOR bucket
+			LayerToBP[int(Layers::SENSOR)] = BroadPhaseLayers::SENSOR;
+
+			// Everything else → BP DYNAMIC bucket
+			LayerToBP[int(Layers::DEFAULT)] = BroadPhaseLayers::DYNAMIC;
+			LayerToBP[int(Layers::DYNAMIC)] = BroadPhaseLayers::DYNAMIC;
+			LayerToBP[int(Layers::PLAYER)] = BroadPhaseLayers::DYNAMIC;
+			LayerToBP[int(Layers::ENEMIES)] = BroadPhaseLayers::DYNAMIC;
+			LayerToBP[int(Layers::PROJECTILE)] = BroadPhaseLayers::DYNAMIC;
+			LayerToBP[int(Layers::DEBRIS)] = BroadPhaseLayers::DYNAMIC;
+
+			for (int i = int(Layers::CUSTOM_0); i < int(Layers::NUM_LAYERS); i++)
+				LayerToBP[i] = BroadPhaseLayers::DYNAMIC;
+		}
+
+		// Convenience — user calls this to override pairs
+		void SetCollides(Layers A, Layers B, bool Collides)
+		{
+			CollisionMatrix[int(A)][int(B)] = Collides;
+			CollisionMatrix[int(B)][int(A)] = Collides;
+		}
+	};
+
+	struct JoltPhysicsResource
+	{
+		void* Data = nullptr;
 	};
 
 	// ---- Basic Extensions ----
-	class SimPhysicsExtension : public BackBone::Extension
+	class JoltPhysicsExtension : public BackBone::Extension
 	{
 	public:
-		SimPhysicsExtension(const SimPhysicsExtensionConfig& Config = SimPhysicsExtensionConfig())
+		JoltPhysicsExtension(const JoltPhysicsExtensionConfig& Config = JoltPhysicsExtensionConfig())
 			:_Config(Config)
 		{
 		}
-		~SimPhysicsExtension() {}
+		~JoltPhysicsExtension() {}
 
 		virtual void Build(BackBone::App& App) override;
 
-		virtual const char* Name() const override { return "SimPhysicsExtension"; }
+		virtual const char* Name() const override { return "JoltPhysicsExtension"; }
 	private:
-		SimPhysicsExtensionConfig  _Config;
+		JoltPhysicsExtensionConfig _Config;
 	};
 
-#pragma endregion
+	void OnJoltSetup(BackBone::SystemContext& Ctxt);
+	void OnJoltTerminate(BackBone::SystemContext& Ctxt);
+
+#pragma endregion JoltPhysics
 
 	struct DeafultExtensionConfig
 	{
 		RenderExtensionConfig RenderConfig{};
 		WindowExtensionConfig WindowConfig{};
 		PepperExtensionConfig PepperConfig{};
-		SimPhysicsExtensionConfig SimPhysicsConfig{ .Enabled = true };
+		JoltPhysicsExtensionConfig SimPhysicsConfig;
 
 		struct {
 			bool EnableFastNoise2Provider = true;
 		} NoiseExtensionConfig;
+		
+		DeafultExtensionConfig()
+		{
+			SimPhysicsConfig.Enabled = true;
+		}
 	};
 
 	// ---- Basic Extensions ----
@@ -1651,6 +1741,38 @@ namespace Chilli
 
 		void UpdateDynamicMesh(uint8_t* VertexData);
 
+		template<typename _EventType>
+			requires std::derived_from<_EventType, Event>
+		void RegisterEvent()
+		{
+			auto EventService = GetService<EventHandler>();
+			EventService->Register<_EventType>();
+		}
+
+		template<typename _EventType>
+			requires std::derived_from<_EventType, Event>
+		void ClearEvent()
+		{
+			auto EventService = GetService<EventHandler>();
+			EventService->Clear<_EventType>();
+		}
+
+		template<typename _EventType>
+			requires std::derived_from<_EventType, Event>
+		PerEventStorage<_EventType>* GetEventStorage()
+		{
+			auto EventService = GetService<EventHandler>();
+			return static_cast<PerEventStorage<_EventType>*>(EventService->GetEventStorage<_EventType>());
+		}
+
+		template<typename _EventType>
+			requires std::derived_from<_EventType, Event>
+		void AddEvent(const _EventType& e)
+		{
+			auto EventService = GetService<EventHandler>();
+			EventService->Add(e);
+		}
+
 		uint32_t CreateEntity();
 		void DestroyEntity(uint32_t EntityID);
 
@@ -1691,20 +1813,24 @@ namespace Chilli
 		uint32_t SpwanWindow(const WindowSpec& Spec);
 		void DestroyWindow(uint32_t Idx);
 
+		BackBone::AssetHandle<ShaderProgram> GetDeafultShaderProgram() {
+			return GetResource<RenderResource>()->DeafultShaderProgram;
+		}
+
 		BackBone::GenericFrameData* GetGenericFrameData();
 
 		float GetPhysicsDeltaTime() {
 			return GetGenericFrameData()->FixedPhysicsData.Ticks;
 		}
-		
+
 		float GetNetWorkDeltaTime() {
 			return GetGenericFrameData()->FixedNetWorkData.Ticks;
 		}
-		
+
 		float GetTriggerDeltaTime() {
 			return GetGenericFrameData()->FixedTriggerData.Ticks;
 		}
-		
+
 		float GetAIDeltaTime() {
 			return GetGenericFrameData()->FixedAIData.Ticks;
 		}
