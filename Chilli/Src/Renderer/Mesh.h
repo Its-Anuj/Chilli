@@ -11,7 +11,10 @@ namespace Chilli
 		TRIANGLE,
 		QUAD,
 		CUBE,
-		SPHERE
+		SPHERE,
+		CYLINDER,
+		TORUS,
+		CONE
 	};
 
 	struct MeshCreateInfo

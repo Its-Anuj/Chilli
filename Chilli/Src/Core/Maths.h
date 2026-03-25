@@ -56,11 +56,15 @@ namespace Chilli
 		bool operator<(const Vec2& rhs) const { return (x < rhs.x) || (x == rhs.x && y < rhs.y); }
 		bool operator>(const Vec2& rhs) const { return (x > rhs.x) || (x == rhs.x && y > rhs.y); }
 
-		// Arithmetic operators
 		Vec2 operator+(const Vec2& other) const { return Vec2(x + other.x, y + other.y); }
 		Vec2 operator-(const Vec2& other) const { return Vec2(x - other.x, y - other.y); }
 		Vec2 operator/(const Vec2& other) const { return Vec2(x / other.x, y / other.y); }
 		Vec2 operator*(const Vec2& other) const { return Vec2(x * other.x, y * other.y); }
+
+		Vec2 operator + (float other) const { return	Vec2(x + other, y + other); }
+		Vec2 operator - (float other) const { return	Vec2(x - other, y - other); }
+		Vec2 operator / (float other) const { return	Vec2(x / other, y / other); }
+		Vec2 operator*(float other) const { return		Vec2(x * other, y * other); }
 
 		// Conversion operators
 		explicit operator IVec2() const;
@@ -98,6 +102,16 @@ namespace Chilli
 		bool operator<(const DVec2& rhs) const { return (x < rhs.x) || (x == rhs.x && y < rhs.y); }
 		bool operator>(const DVec2& rhs) const { return (x > rhs.x) || (x == rhs.x && y > rhs.y); }
 
+		DVec2 operator+(const DVec2& other) const { return DVec2(x + other.x, y + other.y); }
+		DVec2 operator-(const DVec2& other) const { return DVec2(x - other.x, y - other.y); }
+		DVec2 operator/(const DVec2& other) const { return DVec2(x / other.x, y / other.y); }
+		DVec2 operator*(const DVec2& other) const { return DVec2(x * other.x, y * other.y); }
+
+		DVec2 operator + (float other) const { return	DVec2(x + other, y + other); }
+		DVec2 operator - (float other) const { return	DVec2(x - other, y - other); }
+		DVec2 operator / (float other) const { return	DVec2(x / other, y / other); }
+		DVec2 operator*(float other) const { return		DVec2(x * other, y * other); }
+
 		// Conversion operators
 		explicit operator Vec2() const;
 		explicit operator IVec2() const;
@@ -133,6 +147,18 @@ namespace Chilli
 		bool operator!=(const IVec2& rhs) const { return !(*this == rhs); }
 		bool operator<(const IVec2& rhs) const { return (x < rhs.x) || (x == rhs.x && y < rhs.y); }
 		bool operator>(const IVec2& rhs) const { return (x > rhs.x) || (x == rhs.x && y > rhs.y); }
+
+		IVec2 operator+(const IVec2& other) const { return IVec2(x + other.x, y + other.y); }
+		IVec2 operator-(const IVec2& other) const { return IVec2(x - other.x, y - other.y); }
+		IVec2 operator/(const IVec2& other) const { return IVec2(x / other.x, y / other.y); }
+		IVec2 operator*(const IVec2& other) const { return IVec2(x * other.x, y * other.y); }
+
+		IVec2 operator + (float other) const {
+			return	IVec2(x + other, y + other);
+		}
+		IVec2 operator - (float other) const { return	IVec2(x - other, y - other); }
+		IVec2 operator / (float other) const { return	IVec2(x / other, y / other); }
+		IVec2 operator*(float other) const { return		IVec2(x * other, y * other); }
 
 		// Conversion operators
 		explicit operator Vec2() const;

@@ -1137,7 +1137,7 @@ namespace Chilli
 
 		// Internal state to track rotation without Gimbal Lock
 		float Pitch = 0.0f;
-		float Yaw = -90.0f;
+		float Yaw = 0.0f;
 
 		bool Invert_Y = false;
 	};
@@ -1173,6 +1173,8 @@ namespace Chilli
 		// If Resolution is not provided it will use window coordinates
 		Chilli::BackBone::Entity Create2D(Chilli::BackBone::SystemContext& Ctxt,
 			bool Main_Cam = true, const IVec2& Resolution = { 0, 0 });
+
+		void Update3DCamera(Chilli::BackBone::Entity Camera, Chilli::BackBone::SystemContext& Ctxt);
 	}
 #pragma endregion
 
@@ -1289,7 +1291,7 @@ namespace Chilli
 		ENEMIES = 4,
 		PROJECTILE = 5,
 		SENSOR = 6,
-		DEBRIS = 7,			
+		DEBRIS = 7,
 		CUSTOM_0,
 		CUSTOM_1,
 		CUSTOM_2,
@@ -1298,12 +1300,12 @@ namespace Chilli
 		CUSTOM_5,
 		CUSTOM_6,
 		CUSTOM_7,
-		NUM_LAYERS 
+		NUM_LAYERS
 	};
 
 	enum class BroadPhaseLayers : uint16_t
 	{
-		STATIC, 
+		STATIC,
 		DYNAMIC,
 		SENSOR,
 		NUM_LAYERS
@@ -1325,16 +1327,19 @@ namespace Chilli
 		float GravityFactor = 0.0f;
 		float Restitution = -1.0f;
 		float Friction = -1.0f;
+		float LinearDamping = -1.0f;
 
 		Layers Layer = Layers::STATIC;
 		MotionType MotionType;
 
 		Vec3 Velocity{ 0,0,0 };
-		Vec3 Force{ 0,0,0 };
+		Vec3 ForceAccumulator{ 0,0,0 };
+		Vec3 Acceleration{ 0,0,0 };
+		bool UseVelvert = false;
 
 		void AddImpulse(const Vec3& Impulse)
 		{
-			Force += Impulse;
+			ForceAccumulator += Impulse;
 		}
 	};
 
@@ -1407,8 +1412,8 @@ namespace Chilli
 		union ShapeUnion
 		{
 			struct { Vec3 HalfExtent; } AABB;
-			struct { Vec3 Max; Vec3 Min; } Sphere;
-			struct { Vec3 Max; Vec3 Min; } Capsule;
+			struct { float Radius; } Sphere;
+			struct { float SphereRadius; } Capsule;
 
 			// Explicit default constructor to initialize the union
 			ShapeUnion() : AABB{ {0,0,0} } {}
@@ -1430,7 +1435,7 @@ namespace Chilli
 
 		// Copy constructor (needed for vector operations)
 		Collider(const Collider& other) : Type(other.Type), IsTrigger(other.IsTrigger)
-			, OnEnter(other.OnEnter) , OnStay(other.OnStay), OnExit(other.OnExit)
+			, OnEnter(other.OnEnter), OnStay(other.OnStay), OnExit(other.OnExit)
 		{
 			switch (other.Type)
 			{
@@ -1531,8 +1536,10 @@ namespace Chilli
 		uint32_t MaxPhysicsJobs = 2048;
 		uint32_t MaxPhysicsBarriers = 8;
 		uint32_t NumThreads = 2;
+		float DeafultLinearDamping = 0.3f;
 		float DeafultRestitution = 0.3f;
 		float DeafultFriction = 0.3f;
+		Vec3 Graivty{ 0.0f, -9.81f, 0.0f };
 
 		uint8_t CollisionMatrix[int(Layers::NUM_LAYERS)][int(Layers::NUM_LAYERS)];
 		BroadPhaseLayers LayerToBP[int(Layers::NUM_LAYERS)];
@@ -1659,7 +1666,7 @@ namespace Chilli
 		struct {
 			bool EnableFastNoise2Provider = true;
 		} NoiseExtensionConfig;
-		
+
 		DeafultExtensionConfig()
 		{
 			SimPhysicsConfig.Enabled = true;
@@ -1694,6 +1701,10 @@ namespace Chilli
 
 		// Render Services Related
 		BackBone::AssetHandle<Mesh> CreateSphere(int XSegments, int YSegments);
+		BackBone::AssetHandle<Mesh> CreateCylinder(int Segments, float Radius, float Height);
+		BackBone::AssetHandle<Mesh> CreateTorus(int MajorSegments, int MinorSegments,
+			float MajorRadius, float MinorRadius);
+		BackBone::AssetHandle<Mesh> CreateCone(int Segments, float Radius, float Height);
 
 		// Dynamic Mesh Creation
 		BackBone::AssetHandle<Mesh> CreateMesh(uint32_t VertexCount,
@@ -1718,6 +1729,17 @@ namespace Chilli
 
 		void GeneratePlane(int ResolutionX, int ResolutionZ, std::vector<Chilli::Vertex>& OutVerts, std::vector<uint32_t>& OutIndices);
 		void GenerateSphere(int XSegments, int YSegments, std::vector<Chilli::Vertex>& OutVerts, std::vector<uint32_t>& OutIndices);
+		void GenerateCylinder(int Segments, float Radius, float Height,
+			std::vector<Chilli::Vertex>& OutVerts,
+			std::vector<uint32_t>& OutIndices);
+		void GenerateTorus(int MajorSegments, int MinorSegments,
+			float MajorRadius, float MinorRadius,
+			std::vector<Chilli::Vertex>& OutVerts,
+			std::vector<uint32_t>& OutIndices);
+		void GenerateCone(int Segments, float Radius, float Height,
+			std::vector<Chilli::Vertex>& OutVerts,
+			std::vector<uint32_t>& OutIndices);
+
 		void Displace(std::vector<Chilli::Vertex>& ModelVerts, const std::vector<uint32_t>& Indices, float Strength, float Limit);
 		void RecalculateNormals(std::vector<Chilli::Vertex>& Verts, const std::vector<uint32_t>& Indices);
 
@@ -1740,6 +1762,63 @@ namespace Chilli
 		std::vector<uint32_t> RawIndicesToIndices(const std::vector<uint8_t>& RawIndices);
 
 		void UpdateDynamicMesh(uint8_t* VertexData);
+
+		InputResult GetKeyState(Input_key KeyCode) {
+			return GetService<Input>()->GetKeyState(KeyCode);
+		}
+
+		InputResult GetMouseButtonState(Input_mouse ButtonCode) {
+			return GetService<Input>()->GetMouseButtonState(ButtonCode);
+		}
+		bool GetModState(Input_mod mod) {
+			return GetService<Input>()->GetModState(mod);
+		}
+
+		bool IsModActive(Input_mod mod) {
+			return GetService<Input>()->IsModActive(mod);
+		}
+
+		IVec2 GetCursorPos() {
+			return GetService<Input>()->GetCursorPos();
+		}
+
+		IVec2 GetCursorDelta() {
+			return GetService<Input>()->GetCursorDelta();
+		}
+
+		bool IsKeyPressed(Input_key key) {
+			return GetService<Input>()->IsKeyPressed(key);
+		}
+
+		bool IsKeyDown(Input_key key) {
+			return GetService<Input>()->IsKeyDown(key);
+		}
+
+		bool IsKeyReleased(Input_key key) {
+			return GetService<Input>()->IsKeyReleased(key);
+		}
+
+		bool IsMouseButtonPressed(Input_mouse button) {
+			return GetService<Input>()->IsMouseButtonPressed(button);
+		}
+
+		bool IsMouseButtonDown(Input_mouse button) {
+			return GetService<Input>()->IsMouseButtonDown(button);
+		}
+
+		bool IsMouseButtonRelease(Input_mouse button) {
+			return GetService<Input>()->IsMouseButtonRelease(button);
+		}
+
+		const char* InputKeyToString(Input_key Key)
+		{
+			return GetService<Input>()->KeyToString(Key);
+		}
+
+		const char* InputMouseToString(Input_mouse Mouse)
+		{
+			return GetService<Input>()->MouseToString(Mouse);
+		}
 
 		template<typename _EventType>
 			requires std::derived_from<_EventType, Event>

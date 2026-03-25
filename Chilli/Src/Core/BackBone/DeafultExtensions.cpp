@@ -1,5 +1,12 @@
 ﻿#include "DeafultExtensions.h"
 #include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
+#include "DeafultExtensions.h"
 #include "Ch_PCH.h"
 #include "DeafultExtensions.h"
 #include "Window/Window.h"
@@ -1112,6 +1119,78 @@ namespace Chilli
 		return CreateMesh(Info);
 	}
 
+	BackBone::AssetHandle<Mesh> Command::CreateCylinder(int Segments, float Radius, float Height)
+	{
+		std::vector<Chilli::Vertex>  Vertices;
+		std::vector<uint32_t>        Indices;
+		GenerateCylinder(Segments, Radius, Height, Vertices, Indices);
+
+		VertexInputShaderLayout Layout;
+		Layout.BeginBinding(0);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InNormal", 1);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT2, "InTexCoords", 2);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InColor", 3);
+
+		MeshCreateInfo Info{};
+		Info.VertCount = Vertices.size();
+		Info.Vertices = Vertices.data();
+		Info.IndexCount = Indices.size();
+		Info.Indicies = Indices.data();
+		Info.IndexType = IndexBufferType::UINT32_T;
+		Info.MeshLayout = Layout;
+		Info.IndexBufferState = BufferState::STATIC_DRAW;
+		return CreateMesh(Info);
+	}
+
+	BackBone::AssetHandle<Mesh> Command::CreateTorus(int MajorSegments, int MinorSegments, float MajorRadius, float MinorRadius)
+	{
+		std::vector<Chilli::Vertex>  Vertices;
+		std::vector<uint32_t>        Indices;
+		GenerateTorus(MajorSegments, MinorSegments, MajorRadius, MinorRadius, Vertices, Indices);
+
+		VertexInputShaderLayout Layout;
+		Layout.BeginBinding(0);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InNormal", 1);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT2, "InTexCoords", 2);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InColor", 3);
+
+		MeshCreateInfo Info{};
+		Info.VertCount = Vertices.size();
+		Info.Vertices = Vertices.data();
+		Info.IndexCount = Indices.size();
+		Info.Indicies = Indices.data();
+		Info.IndexType = IndexBufferType::UINT32_T;
+		Info.MeshLayout = Layout;
+		Info.IndexBufferState = BufferState::STATIC_DRAW;
+		return CreateMesh(Info);
+	}
+
+	BackBone::AssetHandle<Mesh> Command::CreateCone(int Segments, float Radius, float Height)
+	{
+		std::vector<Chilli::Vertex>  Vertices;
+		std::vector<uint32_t>        Indices;
+		GenerateCone(Segments, Radius, Height, Vertices, Indices);
+
+		VertexInputShaderLayout Layout;
+		Layout.BeginBinding(0);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InNormal", 1);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT2, "InTexCoords", 2);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InColor", 3);
+
+		MeshCreateInfo Info{};
+		Info.VertCount = Vertices.size();
+		Info.Vertices = Vertices.data();
+		Info.IndexCount = Indices.size();
+		Info.Indicies = Indices.data();
+		Info.IndexType = IndexBufferType::UINT32_T;
+		Info.MeshLayout = Layout;
+		Info.IndexBufferState = BufferState::STATIC_DRAW;
+		return CreateMesh(Info);
+	}
+
 	BackBone::AssetHandle<Mesh> Command::CreateMesh(uint32_t VertexCount, uint32_t IndexCount
 		, IndexBufferType Type, VertexInputShaderLayout Layout)
 	{
@@ -1330,6 +1409,224 @@ namespace Chilli
 		}
 	}
 
+	void Command::GenerateCylinder(int Segments, float Radius, float Height, std::vector<Chilli::Vertex>& OutVerts, std::vector<uint32_t>& OutIndices)
+	{
+		OutVerts.clear();
+		OutIndices.clear();
+
+		float HalfHeight = Height * 0.5f;
+		float Step = 2.0f * 3.14159265f / Segments;
+
+		// Side vertices — two rings
+		for (int i = 0; i <= Segments; i++)
+		{
+			float Angle = i * Step;
+			float X = std::cos(Angle) * Radius;
+			float Z = std::sin(Angle) * Radius;
+
+			Chilli::Vec3 Normal = Chilli::Normalize(Chilli::Vec3{ X, 0, Z });
+
+			// Bottom ring
+			Chilli::Vertex Bottom;
+			Bottom.Position = { X, -HalfHeight, Z };
+			Bottom.Normal = Normal;
+			Bottom.UV = { (float)i / Segments, 0.0f };
+			OutVerts.push_back(Bottom);
+
+			// Top ring
+			Chilli::Vertex Top;
+			Top.Position = { X, HalfHeight, Z };
+			Top.Normal = Normal;
+			Top.UV = { (float)i / Segments, 1.0f };
+			OutVerts.push_back(Top);
+		}
+
+		// Side indices
+		for (int i = 0; i < Segments; i++)
+		{
+			uint32_t B0 = i * 2;
+			uint32_t T0 = i * 2 + 1;
+			uint32_t B1 = (i + 1) * 2;
+			uint32_t T1 = (i + 1) * 2 + 1;
+
+			OutIndices.push_back(B0); OutIndices.push_back(B1); OutIndices.push_back(T0);
+			OutIndices.push_back(T0); OutIndices.push_back(B1); OutIndices.push_back(T1);
+		}
+
+		// Cap centers
+		uint32_t BottomCenter = OutVerts.size();
+		Chilli::Vertex BC; BC.Position = { 0, -HalfHeight, 0 }; BC.Normal = { 0,-1,0 }; BC.UV = { 0.5f,0.5f };
+		OutVerts.push_back(BC);
+
+		uint32_t TopCenter = OutVerts.size();
+		Chilli::Vertex TC; TC.Position = { 0, HalfHeight, 0 }; TC.Normal = { 0,1,0 }; TC.UV = { 0.5f,0.5f };
+		OutVerts.push_back(TC);
+
+		// Cap rim vertices — separate from side verts so normals are correct
+		uint32_t BottomRimStart = OutVerts.size();
+		for (int i = 0; i <= Segments; i++)
+		{
+			float Angle = i * Step;
+			float X = std::cos(Angle) * Radius;
+			float Z = std::sin(Angle) * Radius;
+
+			Chilli::Vertex BV; BV.Position = { X,-HalfHeight,Z }; BV.Normal = { 0,-1,0 };
+			BV.UV = { (std::cos(Angle) + 1) * 0.5f, (std::sin(Angle) + 1) * 0.5f };
+			OutVerts.push_back(BV);
+		}
+
+		uint32_t TopRimStart = OutVerts.size();
+		for (int i = 0; i <= Segments; i++)
+		{
+			float Angle = i * Step;
+			float X = std::cos(Angle) * Radius;
+			float Z = std::sin(Angle) * Radius;
+
+			Chilli::Vertex TV; TV.Position = { X,HalfHeight,Z }; TV.Normal = { 0,1,0 };
+			TV.UV = { (std::cos(Angle) + 1) * 0.5f, (std::sin(Angle) + 1) * 0.5f };
+			OutVerts.push_back(TV);
+		}
+
+		// Cap indices
+		for (int i = 0; i < Segments; i++)
+		{
+			// Bottom cap — winding flipped for downward normal
+			OutIndices.push_back(BottomCenter);
+			OutIndices.push_back(BottomRimStart + i + 1);
+			OutIndices.push_back(BottomRimStart + i);
+
+			// Top cap
+			OutIndices.push_back(TopCenter);
+			OutIndices.push_back(TopRimStart + i);
+			OutIndices.push_back(TopRimStart + i + 1);
+		}
+	}
+
+	void Command::GenerateTorus(int MajorSegments, int MinorSegments, float MajorRadius, float MinorRadius, std::vector<Chilli::Vertex>& OutVerts, std::vector<uint32_t>& OutIndices)
+	{
+		OutVerts.clear();
+		OutIndices.clear();
+
+		float MajorStep = 2.0f * 3.14159265f / MajorSegments;
+		float MinorStep = 2.0f * 3.14159265f / MinorSegments;
+
+		for (int i = 0; i <= MajorSegments; i++)
+		{
+			float MajorAngle = i * MajorStep;
+			float CosMajor = std::cos(MajorAngle);
+			float SinMajor = std::sin(MajorAngle);
+
+			for (int j = 0; j <= MinorSegments; j++)
+			{
+				float MinorAngle = j * MinorStep;
+				float CosMinor = std::cos(MinorAngle);
+				float SinMinor = std::sin(MinorAngle);
+
+				// Position on the torus surface
+				float X = (MajorRadius + MinorRadius * CosMinor) * CosMajor;
+				float Y = MinorRadius * SinMinor;
+				float Z = (MajorRadius + MinorRadius * CosMinor) * SinMajor;
+
+				// Normal points from tube center to surface point
+				float NX = CosMinor * CosMajor;
+				float NY = SinMinor;
+				float NZ = CosMinor * SinMajor;
+
+				Chilli::Vertex V;
+				V.Position = { X, Y, Z };
+				V.Normal = Chilli::Normalize(Vec3{ NX, NY, NZ });
+				V.UV = { (float)i / MajorSegments, (float)j / MinorSegments };
+				OutVerts.push_back(V);
+			}
+		}
+
+		// Indices
+		for (int i = 0; i < MajorSegments; i++)
+		{
+			for (int j = 0; j < MinorSegments; j++)
+			{
+				uint32_t A = i * (MinorSegments + 1) + j;
+				uint32_t B = A + 1;
+				uint32_t C = A + (MinorSegments + 1);
+				uint32_t D = C + 1;
+
+				OutIndices.push_back(A); OutIndices.push_back(C); OutIndices.push_back(B);
+				OutIndices.push_back(B); OutIndices.push_back(C); OutIndices.push_back(D);
+			}
+		}
+	}
+
+	void Command::GenerateCone(int Segments, float Radius, float Height, std::vector<Chilli::Vertex>& OutVerts, std::vector<uint32_t>& OutIndices)
+	{
+		OutVerts.clear();
+		OutIndices.clear();
+
+		float Step = 2.0f * 3.14159265f / Segments;
+		float HalfHeight = Height * 0.5f;
+
+		// Tip
+		uint32_t TipIndex = 0;
+		Chilli::Vertex Tip;
+		Tip.Position = { 0, HalfHeight, 0 };
+		Tip.Normal = { 0, 1, 0 };
+		Tip.UV = { 0.5f, 1.0f };
+		OutVerts.push_back(Tip);
+
+		// Base rim — side normals point outward and slightly up
+		float SlopNormal = Radius / std::sqrt(Radius * Radius + Height * Height);
+		float UpNormal = Height / std::sqrt(Radius * Radius + Height * Height);
+
+		for (int i = 0; i <= Segments; i++)
+		{
+			float Angle = i * Step;
+			float X = std::cos(Angle) * Radius;
+			float Z = std::sin(Angle) * Radius;
+
+			Chilli::Vertex V;
+			V.Position = { X, -HalfHeight, Z };
+			V.Normal = Chilli::Normalize(Vec3{ X * SlopNormal, UpNormal, Z * SlopNormal });
+			V.UV = { (float)i / Segments, 0.0f };
+			OutVerts.push_back(V);
+		}
+
+		// Side indices
+		for (int i = 0; i < Segments; i++)
+		{
+			OutIndices.push_back(TipIndex);
+			OutIndices.push_back(1 + i);
+			OutIndices.push_back(1 + i + 1);
+		}
+
+		// Base cap
+		uint32_t BaseCenterIndex = OutVerts.size();
+		Chilli::Vertex BaseCenter;
+		BaseCenter.Position = { 0, -HalfHeight, 0 };
+		BaseCenter.Normal = { 0, -1, 0 };
+		BaseCenter.UV = { 0.5f, 0.5f };
+		OutVerts.push_back(BaseCenter);
+
+		uint32_t BaseRimStart = OutVerts.size();
+		for (int i = 0; i <= Segments; i++)
+		{
+			float Angle = i * Step;
+			float X = std::cos(Angle) * Radius;
+			float Z = std::sin(Angle) * Radius;
+
+			Chilli::Vertex V;
+			V.Position = { X, -HalfHeight, Z };
+			V.Normal = { 0, -1, 0 };
+			V.UV = { (std::cos(Angle) + 1) * 0.5f, (std::sin(Angle) + 1) * 0.5f };
+			OutVerts.push_back(V);
+		}
+
+		for (int i = 0; i < Segments; i++)
+		{
+			OutIndices.push_back(BaseCenterIndex);
+			OutIndices.push_back(BaseRimStart + i + 1);
+			OutIndices.push_back(BaseRimStart + i);
+		}
+	}
+
 	void Command::Displace(std::vector<Chilli::Vertex>& ModelVerts, const std::vector<uint32_t>& Indices, float Strength, float Limit)
 	{
 		for (auto& Vertex : ModelVerts)
@@ -1472,6 +1769,18 @@ namespace Chilli
 			const float PI = 3.14159265359f;
 
 			return CreateSphere(X_SEGMENTS, Y_SEGMENTS);
+		}
+		case BasicShapes::CYLINDER:
+		{
+			return CreateCylinder(32, 0.5f, 2.0f);
+		}
+		case BasicShapes::TORUS:
+		{
+			return CreateTorus(32, 16.0f, 1.0f, 0.3f);
+		}
+		case BasicShapes::CONE:
+		{
+			return CreateCone(32, 0.5f, 2.0f);
 		}
 		}
 
@@ -1987,66 +2296,10 @@ namespace Chilli
 			break;
 		}
 	}
-	void Update3DCamera(BackBone::SystemContext& Ctxt)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		auto Input = Ctxt.ServiceRegistry->GetService<Chilli::Input>();
-		auto FrameData = Command.GetResource<Chilli::BackBone::GenericFrameData>();
-		auto Scene = Command.GetService<SceneManager>();
-		auto ActiveScene = Scene->GetActiveScene();
-		float DT = FrameData->Ts.GetSecond();
-
-		for (auto [Entity, Camera, Control, Transform] :
-			BackBone::QueryWithEntities<CameraComponent, Deafult3DCameraController, TransformComponent>(*Ctxt.Registry))
-		{
-			if (ActiveScene->MainCamera != Entity)
-				continue;
-
-			// 1. Handle Rotation ONLY on Left Mouse Button
-			if (Input->IsMouseButtonDown(Input_mouse_Left))
-			{
-				// Get movement since last frame
-				IVec2 Mouse_Delta = Input->GetCursorDelta();
-
-				Control->Yaw += Mouse_Delta.x * Control->Look_Sensitivity;
-
-				float Y_Mult = Control->Invert_Y ? 1.0f : -1.0f;
-				Control->Pitch += Mouse_Delta.y * Control->Look_Sensitivity * Y_Mult;
-
-				// Constrain Pitch to avoid flipping the camera over the poles
-				Control->Pitch = glm::clamp(Control->Pitch, -89.0f, 89.0f);
-
-				Transform->SetRotation({ Control->Pitch, Control->Yaw, 0.0f });
-			}
-
-			// 2. Handle Movement (WASD + Space/Ctrl)
-			// We get the current matrix to extract the 'Look' vectors
-			glm::mat4 Mat = Transform->GetWorldMatrix();
-
-			// Extract Forward (-Z) and Right (+X) from matrix columns
-			Vec3 Forward = -Vec3(Mat[2].x, Mat[2].y, Mat[2].z);
-			Vec3 Right = Vec3(Mat[0].x, Mat[0].y, Mat[0].z);
-
-			float S = Control->Move_Speed * DT;
-
-			// Horizontal Movement
-			if (Input->IsKeyDown(Input_key_W)) Transform->Move(Forward * S);
-			if (Input->IsKeyDown(Input_key_S)) Transform->Move(-Forward * S);
-			if (Input->IsKeyDown(Input_key_A)) Transform->Move(-Right * S);
-			if (Input->IsKeyDown(Input_key_D)) Transform->Move(Right * S);
-
-			// Vertical Movement
-			if (Input->IsKeyDown(Input_key_Space))       Transform->MoveY(S);
-			if (Input->IsKeyDown(Input_key_LeftControl)) Transform->MoveY(-S);
-
-			break;
-		}
-	}
 
 	void CameraExtension::Build(BackBone::App& App)
 	{
 		auto Command = Chilli::Command(App.Ctxt);
-		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::UPDATE, Update3DCamera);
 		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::UPDATE, OnCameraSystem);
 	}
 
@@ -2091,6 +2344,57 @@ namespace Chilli
 
 			return Chilli::BackBone::Entity();
 		}
+
+		void CameraBundle::Update3DCamera(Chilli::BackBone::Entity Camera, Chilli::BackBone::SystemContext& Ctxt)
+
+		{
+			auto Command = Chilli::Command(Ctxt);
+			auto Input = Ctxt.ServiceRegistry->GetService<Chilli::Input>();
+			auto FrameData = Command.GetResource<Chilli::BackBone::GenericFrameData>();
+			auto Scene = Command.GetService<Chilli::SceneManager>();
+			auto ActiveScene = Scene->GetActiveScene();
+			float DT = FrameData->Ts.GetSecond();
+
+			auto Transform = Command.GetComponent<Chilli::TransformComponent>(Camera);
+			auto Control = Command.GetComponent<Chilli::Deafult3DCameraController>(Camera);
+
+			// 1. Handle Rotation ONLY on Left Mouse Button
+			if (Input->IsMouseButtonDown(Chilli::Input_mouse_Left))
+			{
+				Chilli::IVec2 Mouse_Delta = Input->GetCursorDelta();
+
+				Control->Yaw += Mouse_Delta.x * Control->Look_Sensitivity;
+
+				float Y_Mult = Control->Invert_Y ? 1.0f : -1.0f;
+				Control->Pitch += Mouse_Delta.y * Control->Look_Sensitivity * Y_Mult;
+
+				// Constrain Pitch to avoid flipping the camera over the poles
+				Control->Pitch = glm::clamp(Control->Pitch, -89.0f, 89.0f);
+
+				Transform->SetRotation({ Control->Pitch, Control->Yaw, 0.0f });
+			}
+
+			// 2. Handle Movement (WASD + Space/Ctrl)
+			// We get the current matrix to extract the 'Look' vectors
+			glm::mat4 Mat = Transform->GetWorldMatrix();
+
+			// Extract Forward (-Z) and Right (+X) from matrix columns
+			Chilli::Vec3 Forward = -Chilli::Vec3(Mat[2].x, Mat[2].y, Mat[2].z);
+			Chilli::Vec3 Right = Chilli::Vec3(Mat[0].x, Mat[0].y, Mat[0].z);
+
+			float S = Control->Move_Speed * DT;
+
+			// Horizontal Movement
+			if (Input->IsKeyDown(Chilli::Input_key_W)) Transform->Move(Forward * S);
+			if (Input->IsKeyDown(Chilli::Input_key_S)) Transform->Move(-Forward * S);
+			if (Input->IsKeyDown(Chilli::Input_key_A)) Transform->Move(-Right * S);
+			if (Input->IsKeyDown(Chilli::Input_key_D)) Transform->Move(Right * S);
+
+			// Vertical Movement
+			if (Input->IsKeyDown(Chilli::Input_key_Space))       Transform->MoveY(S);
+			if (Input->IsKeyDown(Chilli::Input_key_LeftControl)) Transform->MoveY(-S);
+		}
+
 	}
 #pragma endregion
 #pragma region Ember
@@ -3616,7 +3920,6 @@ namespace Chilli
 		JoltData->PhysicsSystem.OptimizeBroadPhase();
 
 		CH_CORE_INFO("Jolt Physics Extension Setup!");
-		CH_CORE_INFO("Gravity set to: {}", JoltData->PhysicsSystem.GetGravity().GetY());  // Should be -9.81
 	}
 
 	void OnJoltClearEvents(BackBone::SystemContext& Ctxt)
@@ -3634,6 +3937,15 @@ namespace Chilli
 		auto Resource = Command.GetResource< JoltPhysicsResource>();
 		auto Config = Command.GetResource<JoltPhysicsExtensionConfig>();
 		auto JoltData = (JoltPhysicsResourceImpl*)Resource->Data;
+
+		auto JoltGravity = JoltData->PhysicsSystem.GetGravity();
+		if (JoltGravity.GetX() != Config->Graivty.x ||
+			JoltGravity.GetY() != Config->Graivty.y ||
+			JoltGravity.GetZ() != Config->Graivty.z)
+		{
+			JoltGravity = { Config->Graivty.x, Config->Graivty.y, Config->Graivty.z };
+			JoltData->PhysicsSystem.SetGravity(JoltGravity);
+		}
 
 		for (auto [Entity, Transform, RigidBody, Collider] : BackBone::QueryWithEntities<TransformComponent,
 			RigidBody, Collider>(*Ctxt.Registry))
@@ -3677,6 +3989,12 @@ namespace Chilli
 					floor_shape_settings.SetEmbedded();
 					ShapeResult = floor_shape_settings.Create();
 				}
+				if (Collider->Type == ColliderType::SPHERE)
+				{
+					JPH::SphereShapeSettings SphereShape(Collider->Shape.Sphere.Radius);
+					SphereShape.SetEmbedded();
+					ShapeResult = SphereShape.Create();
+				}
 
 				JPH::ShapeRefC ShapeRef = ShapeResult.Get(); // We don't expect an error here, but you can check floor_shape_result for HasError() / GetError()
 
@@ -3710,13 +4028,23 @@ namespace Chilli
 					RigidBody->Restitution = Config->DeafultRestitution;
 				if (RigidBody->Friction == -1.0f)
 					RigidBody->Friction = Config->DeafultFriction;
+				if (RigidBody->LinearDamping == -1.0f)
+					RigidBody->LinearDamping = Config->DeafultLinearDamping;
 
 				// FIX #10: Set other properties
 				BodySettings.mIsSensor = Collider->IsTrigger;
 				BodySettings.mFriction = RigidBody->Friction;
 				BodySettings.mRestitution = RigidBody->Restitution;
 				BodySettings.mGravityFactor = RigidBody->GravityFactor;
+				BodySettings.mLinearDamping = RigidBody->LinearDamping;
 				BodySettings.mUserData = (uint64_t)Entity;
+
+				if (RigidBody->UseVelvert)
+				{
+					BodySettings.mLinearDamping = 0.0f;
+					BodySettings.mAngularDamping = 0.0f;
+					BodySettings.mGravityFactor = 0.0f;
+				}
 
 				// Create the actual rigid body
 				JPH::Body* Body = JoltData->BodyInterFace->CreateBody(BodySettings); // Note that if we run out of bodies this can return nullptr
@@ -3724,7 +4052,7 @@ namespace Chilli
 				// FIX #3: Check if body creation failed
 				if (Body == nullptr)
 				{
-					CH_CORE_ERROR("Failed to create floor body - max bodies reached!");
+					CH_CORE_ERROR("Failed to create body - max bodies reached!");
 					MetaDataPtr->Active = false;
 					continue;
 				}
@@ -3748,7 +4076,7 @@ namespace Chilli
 		}
 	}
 
-	void OnJoltUpdate(BackBone::SystemContext& Ctxt)
+	void OnJoltVelvertIntegrate(BackBone::SystemContext& Ctxt)
 	{
 		auto Command = Chilli::Command(Ctxt);
 		auto Resource = Command.GetResource< JoltPhysicsResource>();
@@ -3759,16 +4087,62 @@ namespace Chilli
 		for (auto [Entity, Transform, RigidBody, Collider] : BackBone::QueryWithEntities<TransformComponent,
 			RigidBody, Collider>(*Ctxt.Registry))
 		{
+			if (RigidBody->UseVelvert == false)
+			{
+				if (RigidBody->MotionType != MotionType::DYNAMIC)
+					continue;
+				// Even if a non velvert user might add a force and rather than waste 2 queries might as well do it here
+				auto MetaDataPtr = JoltData->BodiesMetaData.Get(Entity);
+
+				if (RigidBody->ForceAccumulator != Chilli::Vec3(0, 0, 0))
+				{
+					auto Impulse = JPH::Vec3(RigidBody->ForceAccumulator.x, RigidBody->ForceAccumulator.y,
+						RigidBody->ForceAccumulator.z);
+					JoltData->BodyInterFace->AddImpulse(MetaDataPtr->BodyID, Impulse);
+				}
+				RigidBody->ForceAccumulator = Vec3(0, 0, 0);
+
+				continue;
+
+			}
+			if (RigidBody->MotionType != MotionType::DYNAMIC)
+				continue;
+
 			auto MetaDataPtr = JoltData->BodiesMetaData.Get(Entity);
 
-			if (RigidBody->Force != Chilli::Vec3(0, 0, 0))
-			{
-				auto Impulse = JPH::Vec3(RigidBody->Force.x, RigidBody->Force.y,
-					RigidBody->Force.z);
-				JoltData->BodyInterFace->AddImpulse(MetaDataPtr->BodyID, Impulse);
-			}
-			RigidBody->Force = Vec3(0, 0, 0);
+			// Standard gravity
+			Chilli::Vec3 GravityForce = Config->Graivty * RigidBody->Mass * RigidBody->GravityFactor;
+			RigidBody->ForceAccumulator += GravityForce;
+
+			// Linear drag — opposes velocity
+			JPH::BodyID ID = MetaDataPtr->BodyID;
+			JPH::Vec3 JoltVel = JoltData->BodyInterFace->GetLinearVelocity(ID);
+			Chilli::Vec3 Vel = { JoltVel.GetX(), JoltVel.GetY(), JoltVel.GetZ() };
+
+			Chilli::Vec3 DragForce = Vel * -RigidBody->LinearDamping * RigidBody->Mass;
+			RigidBody->ForceAccumulator += DragForce;
+
+			Chilli::Vec3 NewAcceleration = RigidBody->ForceAccumulator / RigidBody->Mass;
+
+			// Average old and new acceleration → new velocity
+			Chilli::Vec3 NewVelocity = Vel +
+				(RigidBody->Acceleration + NewAcceleration) * (0.5f * FrameData->FixedPhysicsData.Ticks);
+
+			JoltData->BodyInterFace->SetLinearVelocity(ID,
+				JPH::Vec3(NewVelocity.x, NewVelocity.y, NewVelocity.z));
+
+			RigidBody->Acceleration = NewAcceleration;
+			RigidBody->ForceAccumulator = Vec3(0, 0, 0);
 		}
+	}
+
+	void OnJoltUpdate(BackBone::SystemContext& Ctxt)
+	{
+		auto Command = Chilli::Command(Ctxt);
+		auto Resource = Command.GetResource< JoltPhysicsResource>();
+		auto FrameData = Command.GetResource< BackBone::GenericFrameData>();
+		auto Config = Command.GetResource<JoltPhysicsExtensionConfig>();
+		auto JoltData = (JoltPhysicsResourceImpl*)Resource->Data;
 
 		// If you take larger steps than 1 / 60th of a second you need to do multiple collision steps in order to keep the simulation stable. Do 1 collision step per 1 / 60th of a second (round up).
 		const int cCollisionSteps = 1;
@@ -3890,6 +4264,7 @@ namespace Chilli
 		App.SystemScheduler.AddSystemOverLayBefore(BackBone::ScheduleTimer::FIXED_PHYSICS, OnJoltHandleConversions);
 		App.SystemScheduler.AddSystemOverLayBefore(BackBone::ScheduleTimer::FIXED_PHYSICS, OnJoltClearEvents);
 
+		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::FIXED_PHYSICS, OnJoltVelvertIntegrate);
 		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::FIXED_PHYSICS, OnJoltUpdate);
 		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::FIXED_PHYSICS, OnJoltSyncBack);
 		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::FIXED_PHYSICS, OnJoltHandleEvents);

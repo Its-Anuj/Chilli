@@ -1,4 +1,4 @@
-#include "Ch_PCH.h"
+#include "Ch_PCH.h"	
 #include "Chilli/Chilli.h"
 #include "Profiling\Timer.h"
 #include "glm/ext/matrix_transform.hpp"
@@ -26,6 +26,14 @@ void OnWindowCreate(Chilli::BackBone::SystemContext& Ctxt)
 	Command.GetResource<Simulation>()->Window = Command.SpwanWindow(Chilli::WindowSpec{ "Gravity Sim", {800, 600} });
 }
 
+void SimulationCameraUpdate(Chilli::BackBone::SystemContext& Ctxt)
+{
+	auto Command = Chilli::Command(Ctxt);
+	auto Data = Command.GetResource<Simulation>();
+
+	Chilli::CameraBundle::Update3DCamera(Data->Camera, Ctxt);
+}
+
 void SimulationSetup(Chilli::BackBone::SystemContext& Ctxt)
 {
 	auto Command = Chilli::Command(Ctxt);
@@ -33,6 +41,14 @@ void SimulationSetup(Chilli::BackBone::SystemContext& Ctxt)
 
 	auto CubeMesh = Command.CreateMesh(Chilli::BasicShapes::CUBE);
 	auto SphereMesh = Command.CreateMesh(Chilli::BasicShapes::SPHERE);
+	auto ConeMesh = Command.CreateMesh(Chilli::BasicShapes::CONE);
+
+	auto Cone = Command.CreateEntity();
+	Command.AddComponent<Chilli::TransformComponent>(Cone, Chilli::TransformComponent{});
+
+	Command.AddComponent<Chilli::MeshComponent>(Cone, Chilli::MeshComponent{
+		.MeshHandle = ConeMesh
+		});
 
 	Data->Cube = Command.CreateEntity();
 	Command.AddComponent<Chilli::TransformComponent>(Data->Cube, Chilli::TransformComponent{});
@@ -43,13 +59,14 @@ void SimulationSetup(Chilli::BackBone::SystemContext& Ctxt)
 	CubeRigidBody.Layer = Chilli::Layers::DYNAMIC;
 	CubeRigidBody.MotionType = Chilli::MotionType::DYNAMIC;
 	CubeRigidBody.Velocity = { 0, -0, 0 };
+	CubeRigidBody.Restitution = 0.8f;
 
 	Command.AddComponent<Chilli::RigidBody>(Data->Cube, CubeRigidBody);
 
 	Chilli::Collider CubeCollider;
-	CubeCollider.Type = Chilli::ColliderType::BOX;
+	CubeCollider.Type = Chilli::ColliderType::SPHERE;
 	CubeCollider.IsTrigger = false;
-	CubeCollider.Shape.AABB.HalfExtent = { 0.5f, 0.5f, 0.5f };
+	CubeCollider.Shape.Sphere.Radius = 0.5f;
 
 	Command.AddComponent<Chilli::Collider>(Data->Cube, CubeCollider);
 
@@ -111,7 +128,7 @@ int main()
 
 	Chilli::Log::Init();
 
-	Chilli::BackBone::App App; 
+	Chilli::BackBone::App App;
 
 	Chilli::RenderExtensionConfig RenderConfig{};
 	RenderConfig.Spec.VSync = true;
@@ -125,6 +142,7 @@ int main()
 	App.Extensions.AddExtension(std::make_unique<Chilli::DeafultExtension>(DeafultConfig), true, &App);
 	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::START_UP, SimulationSetup);
 	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::FIXED_PHYSICS, OnCubeMovement);
+	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::UPDATE, SimulationCameraUpdate);
 	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::SHUTDOWN, SimulationShutDown);
 
 
