@@ -1,6 +1,8 @@
 #pragma once
 
 #include "glm\glm.hpp"
+#include "BackBone/BackBone.h"
+#include "Maths.h"
 
 namespace Chilli
 {
@@ -67,6 +69,10 @@ namespace Chilli
 		HostWrite,      // CPU is filling the buffer
 		VertexRead,     // GPU is reading from Vertex Buffer
 		IndexRead,      // GPU is reading from Index Buffer
+		IndirectArgument,     // ADD: For DrawIndirect / DispatchIndirect
+		UniformBuffer,        // ADD: Constant Buffers (UBO)
+		StorageBufferRead,    // ADD: SSBO Read
+		StorageBufferWrite,   // ADD: SSBO Write
 
 		// Graphics
 		RenderTarget,

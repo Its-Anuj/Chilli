@@ -11,12 +11,27 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
+if(MSVC)
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Zi")
+else()
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -g")
+endif()
+
+if(WIN32 AND NOT MSVC)
+    # We are on Windows but using MinGW (like your msys64 setup)
+    add_compile_options(-mavx2 -g) 
+    # Remove any manual /Zi, /W4, or /Od calls
+endif()
+
+set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /DEBUG")
+
 set(CHILLI_COMPILE_EXAMPLES ON)
 set(Chilli_EXAMPLE_GRAVITY_COMPILE ON)
+set(CHILLI_LOG TRUE)
 
 # Check For Vulkan
 find_package(Vulkan REQUIRED)
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDebug")
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 if (NOT Vulkan_FOUND)
     message(FATAL_ERROR "Vulkan SDK not found. Please install 1.3.275")
@@ -45,8 +60,7 @@ include_directories("Libs/TinyObjLoader/")
 include_directories(${CMAKE_SOURCE_DIR}/include)
 add_executable(${CMAKE_PROJECT_NAME} ${SOURCES} "Main.cpp")
 
-target_link_libraries(${CMAKE_PROJECT_NAME} ufbx ChilliExtensions ChilliCore ChilliVulkan VulkanMemoryAllocator glm::glm kernel32 user32 glfw)
-target_link_libraries(${CMAKE_PROJECT_NAME} ${Vulkan_LIBRARIES})
+target_link_libraries(${CMAKE_PROJECT_NAME} ChilliExtensions ChilliCore ChilliVulkan)
 
 if(CMAKE_BUILD_TYPE MATCHES "Debug")
 	message("Using Debug")

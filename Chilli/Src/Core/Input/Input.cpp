@@ -34,20 +34,31 @@ namespace Chilli
 
 	void Input::UpdateEvents(EventHandler* EventManager)
 	{
+		// 1. CLEAR TRANSIENT STATES FIRST (At the start of the frame)
+		for (int i = 0; i < Input_key_Count; i++) {
+			if (_KeyStates[i] == InputResult::INPUT_RELEASE) {
+				_KeyStates[i] = InputResult::INPUT_NONE; // Reset released keys
+			}
+			if (_KeyStates[i] == InputResult::INPUT_PRESS) {
+				_KeyStates[i] = InputResult::INPUT_HELD; // Move from 'just pressed' to 'currently held'
+			}
+		}
+		_ModStates = 0;
 		// Key Events
 		auto KeyPressedRead = EventManager->GetEventStorage< KeyPressedEvent>();
-		if (KeyPressedRead->GetActiveSize()> 0)
+		if (KeyPressedRead->GetActiveSize() > 0)
 		{
 			for (auto KeyEvent : *KeyPressedRead)
 			{
 				auto KeyCode = KeyEvent.GetKeyCode();
+
 				_KeyStates[KeyCode] = InputResult::INPUT_PRESS;
 				_SetModStates(KeyEvent.GetMods());
 			}
 		}
 
 		auto KeyRepeatRead = EventManager->GetEventStorage< KeyRepeatEvent>();
-		if (KeyRepeatRead->GetActiveSize()> 0)
+		if (KeyRepeatRead->GetActiveSize() > 0)
 		{
 			for (auto KeyEvent : *KeyRepeatRead)
 			{
@@ -58,7 +69,7 @@ namespace Chilli
 		}
 
 		auto KeyReleaseRead = EventManager->GetEventStorage< KeyReleasedEvent>();
-		if (KeyReleaseRead->GetActiveSize()> 0)
+		if (KeyReleaseRead->GetActiveSize() > 0)
 		{
 			for (auto KeyEvent : *KeyReleaseRead)
 			{
@@ -70,7 +81,7 @@ namespace Chilli
 
 		// Mouse Event
 		auto MousePressedRead = EventManager->GetEventStorage< MouseButtonPressedEvent>();
-		if (MousePressedRead->GetActiveSize()> 0)
+		if (MousePressedRead->GetActiveSize() > 0)
 		{
 			for (auto MouseEvent : *MousePressedRead)
 			{
@@ -79,7 +90,7 @@ namespace Chilli
 			}
 		}
 		auto MouseRepeatRead = EventManager->GetEventStorage< MouseButtonRepeatEvent>();
-		if (MouseRepeatRead->GetActiveSize()> 0)
+		if (MouseRepeatRead->GetActiveSize() > 0)
 		{
 			for (auto MouseEvent : *MouseRepeatRead)
 			{
@@ -88,7 +99,7 @@ namespace Chilli
 			}
 		}
 		auto MouseReleasedRead = EventManager->GetEventStorage< MouseButtonReleasedEvent>();
-		if (MouseReleasedRead->GetActiveSize()> 0)
+		if (MouseReleasedRead->GetActiveSize() > 0)
 		{
 			for (auto MouseEvent : *MouseReleasedRead)
 			{
@@ -96,13 +107,13 @@ namespace Chilli
 				_MouseButtonStates[ButtonCode] = InputResult::INPUT_RELEASE;
 			}
 		}
-	
+
 		_OldCursorPos = _CursorPos;
 		// Cursor Pos
 		auto CursorPosRead = EventManager->GetEventStorage<CursorPosEvent>();
-		if (CursorPosRead->GetActiveSize()> 0)
+		if (CursorPosRead->GetActiveSize() > 0)
 			for (auto CursorEvent : *CursorPosRead)
-				_CursorPos = {(int) CursorEvent.GetX(),(int)CursorEvent.GetY() };
+				_CursorPos = { (int)CursorEvent.GetX(),(int)CursorEvent.GetY() };
 		_CursorDelta.x = _CursorPos.x - _OldCursorPos.x;
 		_CursorDelta.y = _CursorPos.y - _OldCursorPos.y;
 	}

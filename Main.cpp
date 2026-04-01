@@ -224,26 +224,26 @@ void OnGameShutDown(Chilli::BackBone::SystemContext& Ctxt)
 
 int main()
 {
-	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
+	//_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 
-	Chilli::Log::Init();
+	//Chilli::Log::Init();
 
-	Chilli::BackBone::App App;
+	//Chilli::BackBone::App App;
 
-	Chilli::RenderExtensionConfig RenderConfig{};
-	RenderConfig.Spec.VSync = true;
-	RenderConfig.Spec.EnableValidation = true;
+	//Chilli::RenderExtensionConfig RenderConfig{};
+	//RenderConfig.Spec.VSync = true;
+	//RenderConfig.Spec.EnableValidation = true;
 
-	App.SystemScheduler.AddSystemOverLayBefore(Chilli::BackBone::ScheduleTimer::START_UP, OnWindowCreate);
+	//App.SystemScheduler.AddSystemOverLayBefore(Chilli::BackBone::ScheduleTimer::START_UP, OnWindowCreate);
 
-	Chilli::DeafultExtensionConfig DeafultConfig;
-	DeafultConfig.RenderConfig = RenderConfig;
+	//Chilli::DeafultExtensionConfig DeafultConfig;
+	//DeafultConfig.RenderConfig = RenderConfig;
 
-	App.Extensions.AddExtension(std::make_unique<Chilli::DeafultExtension>(DeafultConfig), true, &App);
-	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::START_UP, OnGameCreate);
+	//App.Extensions.AddExtension(std::make_unique<Chilli::DeafultExtension>(DeafultConfig), true, &App);
+	//App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::START_UP, OnGameCreate);
 
-	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::UPDATE, OnGamePlay);
-	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::SHUTDOWN, OnGameShutDown);
+	//App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::UPDATE, OnGamePlay);
+	//App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::SHUTDOWN, OnGameShutDown);
 
-	App.Run();
+	//App.Run();
 }

@@ -2,7 +2,7 @@
 
 #include "Mesh.h"
 #include "GraphicsBackend.h"
-#include "DeafultExtensions.h"
+#include "BackBone/DeafultExtensions.h"
 #include "MemoryArena.h"
 #include "FrameAllocator.h"
 
@@ -119,7 +119,7 @@ namespace Chilli
 			_FramePackets[_FrameIndex].Graphics_Stream.PushCommandBuffer(Buffer);
 		}
 
-		void BeginRenderPass(const RenderPassInfo& Pass)
+		void BeginRenderPass(const RenderPassDesc& Pass)
 		{
 			_FramePackets[_FrameIndex].Graphics_Stream.BeginRenderPass(Pass);
 		}
@@ -127,6 +127,16 @@ namespace Chilli
 		void EndRenderPass()
 		{
 			_FramePackets[_FrameIndex].Graphics_Stream.EndRenderPass();
+		}
+
+		void  PushPipelineBarriers(const PipelineBarrier* Barriers, uint32_t Count, RenderStreamTypes Stream)
+		{
+			if (Stream == RenderStreamTypes::TRANSFER)
+				return;
+			if (Stream == RenderStreamTypes::GRAPHICS)
+				_FramePackets[_FrameIndex].Graphics_Stream.PushPipelineBarriers(Barriers, Count);
+			if (Stream == RenderStreamTypes::COMPUTE)
+				_FramePackets[_FrameIndex].Compute_Stream.PushPipelineBarriers(Barriers, Count);
 		}
 
 		void PushPipelienBarrier(const PipelineBarrier& Barrier, RenderStreamTypes Stream)

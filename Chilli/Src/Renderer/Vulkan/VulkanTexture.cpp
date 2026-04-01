@@ -349,7 +349,8 @@ namespace Chilli
 		// --- GROWTH CHECK ---
 		if (requiredSize > _StagingBufferRange) {
 			// Log the growth so you can monitor memory usage
-			VULKAN_PRINTLN("Growing Staging Buffer from %llu to %llu bytes", _StagingBufferRange, requiredSize);
+			VULKAN_PRINTLN("Growing Staging Buffer from  " << _StagingBufferRange << " to " << requiredSize
+				<< " bytes ");
 
 			// 1. Destroy old buffer
 			_Spec.FreeBuffer(_StagingBuffer);

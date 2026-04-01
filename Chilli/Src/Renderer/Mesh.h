@@ -14,7 +14,8 @@ namespace Chilli
 		SPHERE,
 		CYLINDER,
 		TORUS,
-		CONE
+		CONE,
+		CAPSULE
 	};
 
 	struct MeshCreateInfo

@@ -8,7 +8,6 @@ layout(location = 1) in vec2 InTexCoords;
 layout(location = 0) out vec2 fragUV;
 
 layout(push_constant) uniform PushConstants {
-    int ObjectIndex;
     int MaterialIndex;
 } DrawPushData;
 

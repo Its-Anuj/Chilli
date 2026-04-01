@@ -1,13 +1,4 @@
-﻿#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "DeafultExtensions.h"
-#include "Ch_PCH.h"
+﻿#include "Ch_PCH.h"
 #include "DeafultExtensions.h"
 #include "Window/Window.h"
 #include "Profiling\Timer.h"
@@ -33,963 +24,95 @@
 
 namespace Chilli
 {
-#pragma region Render Extension
-	uint32_t GetNewEventID()
-	{
-		static uint32_t NewID = 0;
-		return NewID++;
-	}
-
-	void OnRenderExtensionsSetup(BackBone::SystemContext& Ctxt)
-	{
-		CHILLI_DEBUG_TIMER("RenderSystem::OnCreate");
-		auto Command = Chilli::Command(Ctxt);
-
-		Ctxt.Registry->AddResource< RenderResource>();
-		auto RenderInfo = Ctxt.Registry->GetResource< RenderResource>();
-
-		auto Config = Command.GetResource<RenderExtensionConfig>();
-		RenderInfo->MaxFrameInFlight = Config->Spec.MaxFrameInFlight;
-
-		auto WindowStore = Ctxt.AssetRegistry->GetStore<Window>();
-
-		auto WindowService = Ctxt.ServiceRegistry->GetService<WindowManager>();
-		auto Win = WindowService->GetActiveWindow();
-
-		Config->Spec.WindowSurfaceHandle = Win->GetRawHandle();
-		Config->Spec.ViewPortSize = { Win->GetWidth(), Win->GetHeight() };
-		Config->Spec.ViewPortResized = true;
-
-		if (Config->Spec.Type == GraphicsBackendType::VULKAN_1_3)
-			CHILLI_DEBUG_TIMER("Renderer Initializing: VULKAN_1_3");
-
-		Ctxt.ServiceRegistry->RegisterService<Renderer>(std::make_shared<Renderer>());
-		Ctxt.ServiceRegistry->RegisterService<AssetLoader>(std::make_shared<AssetLoader>(Ctxt));
-
-		Command.AddLoader<Chilli::ImageLoader>();
-		Command.RegisterStore<Chilli::RawMeshData>();
-		Command.RegisterStore<Chilli::MeshLoaderData>();
-		Command.AddLoader<Chilli::CGLFTMeshLoader>();
-		Command.AddLoader<Chilli::TinyObjMeshLoader>();
-
-		auto RenderService = Ctxt.ServiceRegistry->GetService<Renderer>();
-		RenderService->Init(Config->Spec);
-
-		Ctxt.ServiceRegistry->RegisterService<RenderCommand>(RenderService->CreateRenderCommand());
-		Ctxt.ServiceRegistry->RegisterService<MaterialSystem>(std::make_shared<MaterialSystem>(Ctxt));
-
-		CH_CORE_TRACE("Graphcis Backend Using: {}", RenderService->GetName());
-		auto RenderCommandService = Ctxt.ServiceRegistry->GetService<RenderCommand>();
-
-		auto Resource = Command.GetResource<RenderResource>();
-
-		Command.GetResource<RenderResource>()->DeafultShaderProgram = Command.GetStore<ShaderProgram>()->Add(RenderService->GetDeafultShaderProgram());
-
-		Chilli::SamplerSpec SamplerSpec;
-		SamplerSpec.Filter = Chilli::SamplerFilter::NEAREST;
-		SamplerSpec.Mode = Chilli::SamplerMode::REPEAT;
-		Resource->DeafultSampler = Command.CreateSampler(SamplerSpec);
-
-		uint32_t Width = 1;
-		uint32_t Height = 1;
-
-		uint32_t WhiteColor = 0xFFFFFFFF;
-		Chilli::ImageSpec ImageSpec{};
-		ImageSpec.Format = Chilli::ImageFormat::RGBA8;
-		ImageSpec.ImageData = &WhiteColor;
-		ImageSpec.MipLevel = 1;
-		ImageSpec.Resolution.Width = Width;
-		ImageSpec.Resolution.Height = Height;
-		ImageSpec.Resolution.Depth = 1;
-		ImageSpec.Sample = Chilli::IMAGE_SAMPLE_COUNT_1_BIT;
-		ImageSpec.State = Chilli::ResourceState::ShaderRead;
-		ImageSpec.Type = Chilli::ImageType::IMAGE_TYPE_2D;
-		ImageSpec.Usage = Chilli::IMAGE_USAGE_SAMPLED_IMAGE;
-
-		Resource->DeafultImage = Command.AllocateImage(ImageSpec);
-		Command.MapImageData(Resource->DeafultImage, &WhiteColor, Width, Height);
-
-		Chilli::TextureSpec TextureSpec;
-		TextureSpec.Format = Chilli::ImageFormat::RGBA8;
-		Resource->DeafultTexture = Command.CreateTexture(Resource->DeafultImage, TextureSpec);
-
-		auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
-
-		Resource->DeafultMaterial = Command.CreateMaterial(Command.GetDeafultShaderProgram());
-		MaterialSystem->SetAlbedoColor(Resource->DeafultMaterial, { 1.0f, 1.0f, 1.0f, 1.0f });
-		MaterialSystem->SetAlbedoTexture(Resource->DeafultMaterial, Resource->DeafultTexture);
-		MaterialSystem->SetAlbedoSampler(Resource->DeafultMaterial, Resource->DeafultSampler);
-	}
-
-	void OnRenderExtensionsCleanUp(BackBone::SystemContext& Ctxt)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		CHILLI_DEBUG_TIMER("OnRenderShutDown::");
-		auto RenderCommandService = Command.GetService<RenderCommand>();
-		auto RenderService = Command.GetService<Renderer>();
-		auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
-
-		// Clear Mesh
-		auto MeshStore = Command.GetStore<Mesh>();
-		for (auto& MeshInfo : *MeshStore)
-		{
-			Command.DestroyBuffer(MeshInfo->VertexBufferHandles[0]);
-			if (MeshInfo->IBHandle.ValPtr != nullptr)
-				Command.DestroyBuffer(MeshInfo->IBHandle);
-		}
-
-		auto BufferStore = Command.GetStore<Buffer>();
-		for (auto& Buffer : *BufferStore)
-			RenderCommandService->FreeBuffer(Buffer->RawBufferHandle);
-
-		auto ShaderProgramStore = Command.GetStore<ShaderProgram>();
-		for (auto& Program : *ShaderProgramStore)
-			RenderCommandService->ClearShaderProgram(Program->RawProgramHandle);
-
-		auto MaterialStore = Command.GetStore<Material>();
-		for (auto Mat : MaterialStore->GetHandles())
-		{
-			MaterialSystem->ClearMaterialData(Mat);
-		}
-
-		auto ImageStore = Command.GetStore<Image>();
-		for (auto& Image : *ImageStore)
-			RenderCommandService->DestroyImage(Image->RawImageHandle);
-
-		auto TextureStore = Command.GetStore<Texture>();
-		for (auto& Tex : *TextureStore)
-			RenderCommandService->DestroyTexture(Tex->RawTextureHandle);
-
-		auto SamplerStore = Command.GetStore<Sampler>();
-		for (auto& Sampler : *SamplerStore)
-			RenderCommandService->DestroySampler(Sampler->SamplerHandle);
-
-		RenderCommandService->Terminate();
-		RenderService->Terminate();
-	}
-
-	void OnRenderExtensionFinishRendering(BackBone::SystemContext& Ctxt)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		auto RenderCommandService = Command.GetService<RenderCommand>();
-		RenderCommandService->PrepareForShutDown();
-	}
-
-	void OnRenderExtensionDefferedRenderingUpdate(BackBone::SystemContext& Ctxt)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		auto EventService = Command.GetService<EventHandler>();
-		auto RenderGraph = Command.GetResource<Chilli::RenderGraph>();
-		auto RenderService = Command.GetService<Renderer>();
-
-		for (auto& Event : EventReader<FrameBufferResizeEvent>(EventService))
-		{
-			RenderService->PushFrameBufferResize({ Event.GetX(), Event.GetY() });
-			RenderGraph->Passes[1].Pass.Info.RenderArea = { Event.GetX(), Event.GetY() };
-			RenderGraph->Passes[2].Pass.Info.RenderArea = { Event.GetX(), Event.GetY() };
-			RenderGraph->Passes[3].Pass.Info.RenderArea = { Event.GetX(), Event.GetY() };
-		}
-	}
-
-	void OnRenderExtensionScreenPassRender(BackBone::SystemContext& Ctxt, RenderPassInfo& Pass)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		auto RenderCommandService = Command.GetService<RenderCommand>();
-		auto RenderService = Command.GetService<Renderer>();
-		auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
-
-		auto DefferedResource = Command.GetResource< DefferedRenderingResource>();
-
-		auto ActiveMaterial = DefferedResource->ScreenMaterial.ValPtr;
-		auto ActiveShader = DefferedResource->ScreenShaderProgram;
-
-		RenderService->BindShaderProgram(DefferedResource->ScreenShaderProgram.ValPtr->RawProgramHandle);
-		RenderService->BindMaterailData(MaterialSystem->GetRawMaterialHandle(DefferedResource->ScreenMaterial));
-
-		if (MaterialSystem->ShouldMaterialShaderDataUpdate(DefferedResource->ScreenMaterial))
-		{
-			MaterialShaderData MaterialData = MaterialSystem->GetMaterialShaderData(DefferedResource->ScreenMaterial);
-			RenderService->UpdateMaterialShaderData(MaterialSystem->GetRawMaterialHandle(DefferedResource->ScreenMaterial), MaterialData);
-		}
-
-		auto MatIndex = RenderService->GetMaterialShaderIndex(MaterialSystem->GetRawMaterialHandle(DefferedResource->ScreenMaterial));
-
-		DrawPushShaderInlineUniformData PushData;
-		PushData.MaterialIndex = MatIndex;
-
-		RenderService->PushInlineUniformData(ActiveShader.ValPtr->RawProgramHandle,
-			SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, &PushData, sizeof(PushData), 0);
-
-		uint32_t Buffers[16] = { 0 };
-		uint32_t BindingCount = 0;
-
-		for (int i = 0; i < DefferedResource->ScreenRenderMesh.ValPtr->ActiveVBHandlesCount; i++)
-		{
-			Buffers[i] = DefferedResource->ScreenRenderMesh.ValPtr->VertexBufferHandles[i].ValPtr->RawBufferHandle;
-			BindingCount++;
-		}
-
-		RenderService->BindVertexBuffer(Buffers, BindingCount);
-
-		RenderService->BindIndexBuffer(DefferedResource->ScreenRenderMesh.ValPtr->IBHandle.ValPtr->RawBufferHandle,
-			DefferedResource->ScreenRenderMesh.ValPtr->IBType);
-
-		RenderService->DrawIndexed(DefferedResource->ScreenRenderMesh.ValPtr->IndexCount, 1, 0, 0, 0);
-	}
-
-	void OnRenderExtensionGeometryPassRender(BackBone::SystemContext& Ctxt, RenderPassInfo& Pass)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		auto RenderCommandService = Command.GetService<RenderCommand>();
-		auto RenderService = Command.GetService<Renderer>();
-		auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
-		auto RenderResource = Command.GetResource<Chilli::RenderResource>();
-
-		for (auto [Entity, Transform, MeshComp] : BackBone::QueryWithEntities<TransformComponent, MeshComponent>(*Ctxt.Registry))
-		{
-			uint32_t RawMaterialHandle = 1;
-			BackBone::AssetHandle<Material> ActiveMaterial = MeshComp->MaterialHandle;
-			BackBone::AssetHandle<ShaderProgram> ActiveShader;
-
-			if (MeshComp->MaterialHandle.IsValid() == false)
-			{
-				RawMaterialHandle = MaterialSystem->GetRawMaterialHandle(RenderResource->DeafultMaterial);
-				ActiveShader = RenderResource->DeafultShaderProgram;
-				ActiveMaterial = RenderResource->DeafultMaterial;
-			}
-			else
-			{
-				RawMaterialHandle = MaterialSystem->GetRawMaterialHandle(MeshComp->MaterialHandle);
-				ActiveShader = MaterialSystem->GetShaderProgramID(MeshComp->MaterialHandle);
-			}
-
-			auto ActiveMesh = MeshComp->MeshHandle.ValPtr;
-
-			RenderService->BindShaderProgram(ActiveShader.ValPtr->RawProgramHandle);
-			RenderService->BindMaterailData(RawMaterialHandle);
-
-			uint32_t Buffers[16] = { 0 };
-			uint32_t BindingCount = 0;
-
-			for (int i = 0; i < ActiveMesh->ActiveVBHandlesCount; i++)
-			{
-				Buffers[i] = ActiveMesh->VertexBufferHandles[i].ValPtr->RawBufferHandle;
-				BindingCount++;
-			}
-
-			RenderService->BindVertexBuffer(Buffers, BindingCount);
-			RenderService->BindIndexBuffer(ActiveMesh->IBHandle.ValPtr->RawBufferHandle, ActiveMesh->IBType);
-
-			if (MaterialSystem->ShouldMaterialShaderDataUpdate(ActiveMaterial))
-			{
-				MaterialShaderData MaterialData = MaterialSystem->GetMaterialShaderData(ActiveMaterial);
-				RenderService->UpdateMaterialShaderData(MaterialSystem->GetRawMaterialHandle(ActiveMaterial), MaterialData);
-			}
-
-			if (Transform->IsDirty())
-			{
-				ObjectShaderData Data;
-				Data.TransformationMat = Transform->GetWorldMatrix();
-				RenderService->UpdateObjectShaderData(Entity, Data);
-			}
-
-			auto MatIndex = RenderService->GetMaterialShaderIndex(RawMaterialHandle);
-
-			DrawPushShaderInlineUniformData PushData;
-			PushData.MaterialIndex = MatIndex;
-			PushData.ObjectIndex = RenderService->GetObjectShaderIndex(Entity);
-
-			RenderService->PushInlineUniformData(ActiveShader.ValPtr->RawProgramHandle,
-				SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, &PushData, sizeof(PushData), 0);
-
-			RenderService->DrawIndexed(ActiveMesh->IndexCount, 1, 0, 0, 0);
-		}
-	}
-
-	void OnRenderExtensionRenderBegin(BackBone::SystemContext& Ctxt)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		auto RenderService = Command.GetService<Renderer>();
-
-		RenderService->BeginFrame();
-
-		GlobalShaderData GlobalData;
-		GlobalData.ResolutionTime = { float(Command.GetActiveWindow()->GetWidth()), float(Command.GetActiveWindow()->GetHeight()),
-		GetWindowTime(), 0.0f };
-
-		RenderService->PushUpdateGlobalShaderData(GlobalData);
-	}
-
-	void OnRenderExtensionRender(BackBone::SystemContext& Ctxt)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		auto RenderService = Command.GetService<Renderer>();
-
-		auto RenderGraph = Command.GetResource<Chilli::RenderGraph>();
-
-		for (auto& Pass : *RenderGraph)
-		{
-			for (auto& Barrier : Pass.Pass.PrePassBarriers)
-				RenderService->PushPipelienBarrier(Barrier, RenderStreamTypes::GRAPHICS);
-			RenderService->BeginRenderPass(Pass.Pass.Info);
-			Pass.Info.SampleCount = Pass.Pass.Info.Samples;
-			RenderService->SetFullPipelineState(Pass.Info);
-			RenderService->SetVertexInputLayout(Pass.Layout);
-
-			Pass.RenderFn(Ctxt, Pass.Pass.Info);
-
-			for (auto& SubPass : Pass.SubPasses)
-			{
-				SubPass.Info.SampleCount = Pass.Pass.Info.Samples;
-				RenderService->SetFullPipelineState(SubPass.Info);
-				RenderService->SetVertexInputLayout(SubPass.Layout);
-				SubPass.RenderFn(Ctxt, Pass.Pass.Info);
-			}
-
-			RenderService->EndRenderPass();
-			for (auto& Barrier : Pass.Pass.PostPassBarriers)
-				RenderService->PushPipelienBarrier(Barrier, RenderStreamTypes::GRAPHICS);
-		}
-	}
-
-	void OnRenderExtensionRenderEnd(BackBone::SystemContext& Ctxt)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		auto RenderService = Command.GetService<Renderer>();
-
-		RenderService->EndFrame();
-	}
-
-	void OnRenderExtensionDefferedRenderingSetup(BackBone::SystemContext& Ctxt)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		auto RenderCommandService = Command.GetService<RenderCommand>();
-		auto RenderService = Command.GetService<Renderer>();
-
-		auto RenderGraph = Command.GetResource<Chilli::RenderGraph>();
-		Command.AddResource< DefferedRenderingResource>();
-		auto DefferedResource = Command.GetResource< DefferedRenderingResource>();
-
-		auto ActiveWindow = Command.GetActiveWindow();
-		IVec2 WindowSize = { ActiveWindow->GetWidth(), ActiveWindow->GetHeight() };
-
-		auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
-
-		RenderPassCompiler Compiler;
-		uint32_t GeometryPassIndex = 0;
-		uint32_t ScreenPassIndex = 0;
-		uint32_t UIPepperPassIndex = 0;
-		uint32_t PresentPassIndex = 0;
-		auto GeometryPassMSAA = IMAGE_SAMPLE_COUNT_8_BIT;
-
-		{
-			ImageSpec ColorMSAAImageSpec;
-			ColorMSAAImageSpec.Format = ImageFormat::RGBA8;
-			ColorMSAAImageSpec.ImageData = nullptr;
-			ColorMSAAImageSpec.MipLevel = 1;
-			ColorMSAAImageSpec.Resolution.Width = WindowSize.x;
-			ColorMSAAImageSpec.Resolution.Height = WindowSize.y;
-			ColorMSAAImageSpec.Resolution.Depth = 1;
-			ColorMSAAImageSpec.Type = ImageType::IMAGE_TYPE_2D;
-			ColorMSAAImageSpec.Usage = IMAGE_USAGE_COLOR_ATTACHMENT | IMAGE_USAGE_TRANSIENT_ATTACHMENT;
-			ColorMSAAImageSpec.State = ResourceState::RenderTarget;
-			ColorMSAAImageSpec.Sample = GeometryPassMSAA;
-			DefferedResource->GeometryColorMSAAImage = Command.AllocateImage(ColorMSAAImageSpec);
-
-			TextureSpec ColorMSAATextureSpec;
-			ColorMSAATextureSpec.Format = ColorMSAAImageSpec.Format;
-			DefferedResource->GeometryColorMSAATexture = Command.CreateTexture(DefferedResource->GeometryColorMSAAImage, ColorMSAATextureSpec);
-
-			ImageSpec ColorImageSpec;
-			ColorImageSpec.Format = ImageFormat::RGBA8;
-			ColorImageSpec.ImageData = nullptr;
-			ColorImageSpec.MipLevel = 1;
-			ColorImageSpec.Resolution.Width = WindowSize.x;
-			ColorImageSpec.Resolution.Height = WindowSize.y;
-			ColorImageSpec.Resolution.Depth = 1;
-			ColorImageSpec.Type = ImageType::IMAGE_TYPE_2D;
-			ColorImageSpec.Usage = IMAGE_USAGE_COLOR_ATTACHMENT | IMAGE_USAGE_SAMPLED_IMAGE;
-			ColorImageSpec.State = ResourceState::ShaderRead;
-			DefferedResource->GeometryColorImage = Command.AllocateImage(ColorImageSpec);
-
-			TextureSpec ColorTextureSpec;
-			ColorTextureSpec.Format = ColorImageSpec.Format;
-			DefferedResource->GeometryColorTexture = Command.CreateTexture(DefferedResource->GeometryColorImage, ColorTextureSpec);
-
-			ImageSpec DepthImageSpec;
-			DepthImageSpec.Format = ImageFormat::D32F_S8I;
-			DepthImageSpec.ImageData = nullptr;
-			DepthImageSpec.MipLevel = 1;
-			DepthImageSpec.Resolution.Width = WindowSize.x;
-			DepthImageSpec.Resolution.Height = WindowSize.y;
-			DepthImageSpec.Resolution.Depth = 1;
-			DepthImageSpec.Type = ImageType::IMAGE_TYPE_2D;
-			DepthImageSpec.Usage = IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT | IMAGE_USAGE_SAMPLED_IMAGE;
-			DepthImageSpec.State = ResourceState::ShaderRead;
-			DepthImageSpec.Sample = GeometryPassMSAA;
-			DefferedResource->GeometryDepthImage = Command.AllocateImage(DepthImageSpec);
-
-			TextureSpec NewTextureSpec;
-			NewTextureSpec.Format = DepthImageSpec.Format;
-			DefferedResource->GeometryDepthTexture = Command.CreateTexture(DefferedResource->GeometryDepthImage, NewTextureSpec);
-
-			TextureSpec DepthViewTextureSpec;
-			DepthViewTextureSpec.Format = DepthImageSpec.Format;
-			DepthViewTextureSpec.Aspect = IMAGE_ASPECT_DEPTH;
-			DefferedResource->GeometryDepthViewTexture = Command.CreateTexture(DefferedResource->GeometryDepthImage, DepthViewTextureSpec);
-
-			// 1. The Color Attachment (The Multisampled Buffer)
-			ColorAttachment Color;
-			// This MUST be the 4-sample MSAA image
-			Color.ColorTexture = DefferedResource->GeometryColorMSAAImage.ValPtr->RawImageHandle;
-			// This MUST be the 1-sample texture you want to use later
-			Color.ResolveTexture = DefferedResource->GeometryColorImage.ValPtr->RawImageHandle;
-			Color.LoadOp = AttachmentLoadOp::CLEAR;
-			// Optimization: We don't need the 4x data after the pass, just the 1x resolve
-			Color.StoreOp = AttachmentStoreOp::DONT_CARE;
-			Color.ResolveOp = ResolveMode::AVERAGE;
-			Color.ClearColor = { 0.2f, 0.8f, 0.2f, 1.0f };
-			Color.UseSwapChainImage = false;
-
-			DepthAttachment Depth;
-			Depth.DepthTexture = DefferedResource->GeometryDepthTexture.ValPtr->RawTextureHandle;
-			Depth.LoadOp = AttachmentLoadOp::CLEAR;
-			Depth.StoreOp = AttachmentStoreOp::STORE;
-
-			RenderPassBuilder GeometryPass("GeometryPass");
-
-			GeometryPass.AddImageBarrier(true, DefferedResource->GeometryColorImage.ValPtr->RawImageHandle,
-				ResourceState::ShaderRead, ResourceState::RenderTarget, false);
-			GeometryPass.AddImageBarrier(false, DefferedResource->GeometryColorImage.ValPtr->RawImageHandle,
-				ResourceState::RenderTarget, ResourceState::ShaderRead, false);
-
-			GeometryPass.AddImageBarrier(true, DefferedResource->GeometryDepthImage.ValPtr->RawImageHandle,
-				ResourceState::ShaderRead, ResourceState::DepthWrite, false);
-			GeometryPass.AddImageBarrier(false, DefferedResource->GeometryDepthImage.ValPtr->RawImageHandle,
-				ResourceState::DepthWrite, ResourceState::ShaderRead, false);
-			GeometryPass.AddColor(Color);
-			GeometryPass.SetDepth(Depth);
-
-			GeometryPass.SetArea(WindowSize.x, WindowSize.y);
-			GeometryPass.SetSampleCount(GeometryPassMSAA);
-
-			GeometryPassIndex = Compiler.PushPass(GeometryPass.Build());
-		}
-
-		{
-			Chilli::MeshCreateInfo SquareInfo{};
-
-			std::vector<Chilli::Vertex2D> SquareVertices = {
-				// Position              // UV
-				{ { -1.0f, -1.0f, 0.0f }, { 0.0f, 1.0f } }, // Bottom-left
-				{ {  1.0f, -1.0f, 0.0f }, { 1.0f, 1.0f } }, // Bottom-right
-				{ {  1.0f,  1.0f, 0.0f }, { 1.0f, 0.0f } }, // Top-right
-				{ { -1.0f,  1.0f, 0.0f }, { 0.0f, 0.0f } }  // Top-left
-			};
-
-			std::vector<uint32_t> SquareIndices = {
-				0, 1, 2, // First triangle
-				2, 3, 0  // Second triangle
-			};
-
-			SquareInfo.VertCount = SquareVertices.size();
-			SquareInfo.Vertices = SquareVertices.data();
-			SquareInfo.IndexCount = SquareIndices.size();
-			SquareInfo.Indicies = SquareIndices.data();
-			SquareInfo.IndexType = Chilli::IndexBufferType::UINT32_T;
-			SquareInfo.IndexBufferState = BufferState::STATIC_DRAW;
-
-			SquareInfo.MeshLayout.BeginBinding(0, false);
-			SquareInfo.MeshLayout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
-			SquareInfo.MeshLayout.AddAttribute(ShaderObjectTypes::FLOAT2, "InTexCoords", 1);
-
-			DefferedResource->ScreenRenderMesh = Command.CreateMesh(SquareInfo);
-
-			// Create Shaders
-			auto GeometryPassVertexShader = Command.CreateShaderModule("Assets/Shaders/screen_vert.spv",
-				Chilli::ShaderStageType::SHADER_STAGE_VERTEX);
-			auto GeometryPassFragShader = Command.CreateShaderModule("Assets/Shaders/screen_frag.spv",
-				Chilli::ShaderStageType::SHADER_STAGE_FRAGMENT);
-
-			auto GeometryShaderProgram = Command.CreateShaderProgram();
-			Command.AttachShaderModule(GeometryShaderProgram, GeometryPassVertexShader);
-			Command.AttachShaderModule(GeometryShaderProgram, GeometryPassFragShader);
-			Command.LinkShaderProgram(GeometryShaderProgram);
-			DefferedResource->ScreenShaderProgram = GeometryShaderProgram;
-
-			Chilli::SamplerSpec SamplerSpec;
-			SamplerSpec.Filter = Chilli::SamplerFilter::NEAREST;
-			SamplerSpec.Mode = Chilli::SamplerMode::REPEAT;
-			auto Sampler = Command.CreateSampler(SamplerSpec);
-
-			DefferedResource->ScreenMaterial = Command.CreateMaterial(GeometryShaderProgram);
-			MaterialSystem->SetAlbedoColor(DefferedResource->ScreenMaterial, { 1.0f, 1.0f, 1.0f, 1.0f });
-			MaterialSystem->SetAlbedoTexture(DefferedResource->ScreenMaterial, DefferedResource->GeometryColorTexture);
-			MaterialSystem->SetAlbedoSampler(DefferedResource->ScreenMaterial, Sampler);
-
-			ColorAttachment Color;
-			Color.LoadOp = AttachmentLoadOp::CLEAR;
-			Color.StoreOp = AttachmentStoreOp::STORE;
-			Color.UseSwapChainImage = true;
-			Color.ClearColor = { 0.2f, 0.2f, 0.2f, 1.0f };
-
-			RenderPassBuilder ScreenPass("ScreenPass");
-			ScreenPass.AddColor(Color);
-			ScreenPass.AddImageBarrier(true, UINT32_MAX, ResourceState::Present, ResourceState::RenderTarget, true);
-			ScreenPass.SetArea(WindowSize.x, WindowSize.y);
-			ScreenPass.SetSampleCount(IMAGE_SAMPLE_COUNT_1_BIT);
-
-			ScreenPassIndex = Compiler.PushPass(ScreenPass.Build());
-		}
-
-		{
-			ColorAttachment Color;
-			Color.LoadOp = AttachmentLoadOp::LOAD;
-			Color.StoreOp = AttachmentStoreOp::STORE;
-			Color.UseSwapChainImage = true;
-
-			RenderPassBuilder UIPepperPass("UIPepperPass");
-			UIPepperPass.AddColor(Color);
-			UIPepperPass.SetArea(WindowSize.x, WindowSize.y);
-			UIPepperPass.SetSampleCount(IMAGE_SAMPLE_COUNT_1_BIT);
-
-			auto UIPepperPrePassBarriers = GetPepperPrePassPipelineBarrier(Ctxt);
-			for (auto& Barrier : UIPepperPrePassBarriers)
-				UIPepperPass.AddPrePipelineBarrier(Barrier);
-
-			auto UIPepperPostPassBarriers = GetPepperPostPassPipelineBarrier(Ctxt);
-			for (auto& Barrier : UIPepperPostPassBarriers)
-				UIPepperPass.AddPostPipelineBarrier(Barrier);
-
-			auto PrePass = GetEmberPrePassPipelineBarrier(Ctxt);
-			for (auto& Barrier : PrePass)
-				UIPepperPass.AddPrePipelineBarrier(Barrier);
-
-			PrePass = GetEmberPostPassPipelineBarrier(Ctxt);
-			for (auto& Barrier : PrePass)
-				UIPepperPass.AddPostPipelineBarrier(Barrier);
-
-			UIPepperPassIndex = Compiler.PushPass(UIPepperPass.Build());
-		}
-
-		{
-			ColorAttachment Color;
-			Color.LoadOp = AttachmentLoadOp::LOAD;
-			Color.StoreOp = AttachmentStoreOp::STORE;
-			Color.UseSwapChainImage = true;
-
-			RenderPassBuilder PresentPass("PresentPass");
-			PresentPass.AddColor(Color);
-			PresentPass.AddPostPipelineBarrier(UINT32_MAX, ResourceState::RenderTarget, ResourceState::Present,
-				false, true);
-			PresentPass.SetArea(WindowSize.x, WindowSize.y);
-			PresentPass.SetSampleCount(IMAGE_SAMPLE_COUNT_1_BIT);
-
-			PresentPassIndex = Compiler.PushPass(PresentPass.Build());
-		}
-
-		auto CompiledPasses = Compiler.Compile();
-
-		PipelineBuilder PipelineBuilder;
-
-		VertexInputShaderLayout GeometryLayout;
-		GeometryLayout.BeginBinding(0);
-		GeometryLayout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
-		GeometryLayout.AddAttribute(ShaderObjectTypes::FLOAT3, "InNormal", 1);
-		GeometryLayout.AddAttribute(ShaderObjectTypes::FLOAT2, "InTexCoords", 2);
-		GeometryLayout.AddAttribute(ShaderObjectTypes::FLOAT3, "InColor", 3);
-
-		RenderGraphPass GeometryGraphPass;
-		GeometryGraphPass.DebugName = "GeometryPass";
-		GeometryGraphPass.Pass = CompiledPasses[GeometryPassIndex];
-		GeometryGraphPass.RenderFn = OnRenderExtensionGeometryPassRender;
-		GeometryGraphPass.Info = PipelineBuilder.Default()
-			.AddColorBlend(ColorBlendAttachmentState::OpaquePass())
-			.SetDepth(true, true, CompareOp::LESS)
-			.SetMSAA(
-				GeometryPassMSAA, // samples: Must match your MSAA image (4)
-				0xFFFFFFFF,               // mask: Enable all 32 possible samples (standard)
-				false                     // alphaToCoverage: Keep false unless doing foliage/fences
-			)
-			//.SetPolygonMode(PolygonMode::Wireframe)
-			.Build();
-		GeometryGraphPass.Layout = GeometryLayout;
-		GeometryGraphPass.SortOrder = 0;
-
-		{
-			// Define a standard Alpha Blend attachment for UI/Overlay
-			ColorBlendAttachmentState AlphaBlend;
-			AlphaBlend.BlendEnable = true;
-			AlphaBlend.SrcColorFactor = BlendFactor::SRC_ALPHA;
-			AlphaBlend.DstColorFactor = BlendFactor::ONE_MINUS_SRC_ALPHA;
-			AlphaBlend.ColorBlendOp = BlendOp::ADD;
-			AlphaBlend.SrcAlphaFactor = BlendFactor::ONE;
-			AlphaBlend.DstAlphaFactor = BlendFactor::ZERO;
-			AlphaBlend.AlphaBlendOp = BlendOp::ADD;
-			AlphaBlend.ColorWriteMask = 0xF; // RGBA
-
-			// WorldSpace: Depth ON, Write ON
-			PipelineStateInfo WorldSpaceState = PipelineBuilder::Default()
-				.SetTopology(InputTopologyMode::Line_List)
-				.SetRasterizer(CullMode::None)
-				.SetDepth(true, true, CompareOp::LESS) // Standard depth behavior
-				.SetMSAA(GeometryPassMSAA)             // Must match Chilli's MSAA
-				.AddColorBlend(ColorBlendAttachmentState::OpaquePass())
-				.Build();
-
-			VertexInputShaderLayout Layout;
-			Layout.BeginBinding(0);
-			Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
-
-			SubGraphPass WorldSpaceBlazeSubPass;
-			WorldSpaceBlazeSubPass.DebugName = "WorldSpaceBlazeSubPass";
-			WorldSpaceBlazeSubPass.Info = WorldSpaceState;
-			WorldSpaceBlazeSubPass.Layout = Layout;
-			WorldSpaceBlazeSubPass.RenderFn = OnBlazeRenderWorldSpace;
-
-			// X-Ray: Depth Test ON (Greater), Depth Write OFF
-	// We use AlphaBlend because X-Ray lines usually look better semi-transparent
-			PipelineStateInfo XRayState = PipelineBuilder::Default()
-				.SetTopology(InputTopologyMode::Line_List)
-				.SetRasterizer(CullMode::None)
-				.SetDepth(true, false, CompareOp::GREATER) // Pass ONLY if behind geometry
-				.SetMSAA(GeometryPassMSAA)
-				.ClearColorBlends()
-				.AddColorBlend(AlphaBlend)
-				.Build();
-
-			// Uses the same Vertex Layout as WorldSpace
-			SubGraphPass XRayBlazeSubPass;
-			XRayBlazeSubPass.DebugName = "XRayBlazeSubPass";
-			XRayBlazeSubPass.Info = XRayState;
-			XRayBlazeSubPass.Layout = Layout;
-			XRayBlazeSubPass.RenderFn = OnBlazeRenderXRay;
-
-			// Gizmo: Depth Test OFF, Depth Write OFF
-	// We use OpaquePass because Gizmos are usually solid vibrant colors (RGB)
-			PipelineStateInfo GizmoState = PipelineBuilder::Default()
-				.SetTopology(InputTopologyMode::Line_List)
-				.SetRasterizer(CullMode::None)
-				.SetDepth(false, false) // Always visible, never writes to depth
-				.SetMSAA(GeometryPassMSAA)
-				.AddColorBlend(ColorBlendAttachmentState::OpaquePass())
-				.Build();
-
-			SubGraphPass GizmoBlazeSubPass;
-			GizmoBlazeSubPass.DebugName = "GizmoBlazeSubPass";
-			GizmoBlazeSubPass.Info = GizmoState;
-			GizmoBlazeSubPass.Layout = Layout;
-			GizmoBlazeSubPass.RenderFn = OnBlazeRenderGizmo;
-
-			GeometryGraphPass.SubPasses.push_back(WorldSpaceBlazeSubPass);
-			GeometryGraphPass.SubPasses.push_back(XRayBlazeSubPass);
-			GeometryGraphPass.SubPasses.push_back(GizmoBlazeSubPass);
-		}
-
-		VertexInputShaderLayout ScreenLayout;
-		ScreenLayout.BeginBinding(0);
-		ScreenLayout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
-		ScreenLayout.AddAttribute(ShaderObjectTypes::FLOAT2, "InTexCoords", 1);
-
-		RenderGraphPass ScreenGraphPass;
-		ScreenGraphPass.DebugName = "ScreenPass";
-		ScreenGraphPass.Pass = CompiledPasses[ScreenPassIndex];
-		ScreenGraphPass.RenderFn = OnRenderExtensionScreenPassRender;
-		ScreenGraphPass.Info = PipelineBuilder.Default()
-			.AddColorBlend(ColorBlendAttachmentState::OpaquePass())
-			.Build();
-		ScreenGraphPass.Layout = ScreenLayout;
-		ScreenGraphPass.SortOrder = 1;
-
-		SubGraphPass UIPepperBlazeSubPass;
-		{
-			// Define a standard Alpha Blend attachment for UI/Overlay
-			ColorBlendAttachmentState AlphaBlend;
-			AlphaBlend.BlendEnable = true;
-			AlphaBlend.SrcColorFactor = BlendFactor::SRC_ALPHA;
-			AlphaBlend.DstColorFactor = BlendFactor::ONE_MINUS_SRC_ALPHA;
-			AlphaBlend.ColorBlendOp = BlendOp::ADD;
-			AlphaBlend.SrcAlphaFactor = BlendFactor::ONE;
-			AlphaBlend.DstAlphaFactor = BlendFactor::ZERO;
-			AlphaBlend.AlphaBlendOp = BlendOp::ADD;
-			AlphaBlend.ColorWriteMask = 0xF; // RGBA
-
-			// Build the "SingeMode::Overlay" State
-			PipelineStateInfo OverlayState = PipelineBuilder::Default()
-				.SetTopology(InputTopologyMode::Line_List)   // Essential for Blaze lines
-				.SetRasterizer(CullMode::None)               // Don't cull lines in screen space
-				.SetDepth(false, false)                      // Disable depth test & write (Always on top)
-				.ClearColorBlends()                          // Clear defaults if any
-				.AddColorBlend(AlphaBlend)                   // Add our transparency support
-				.Build();
-
-			VertexInputShaderLayout Layout;
-			Layout.BeginBinding(0);
-			Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
-
-			UIPepperBlazeSubPass.DebugName = "PepperBlazeSubPass";
-			UIPepperBlazeSubPass.Info = OverlayState;
-			UIPepperBlazeSubPass.Layout = Layout;
-			UIPepperBlazeSubPass.RenderFn = OnBlazeRenderOverlay;
-		}
-
-		VertexInputShaderLayout UIPepperLayout;
-		UIPepperLayout.BeginBinding(0);
-		UIPepperLayout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
-		UIPepperLayout.AddAttribute(ShaderObjectTypes::FLOAT2, "InTexCoords", 1);
-		UIPepperLayout.AddAttribute(ShaderObjectTypes::UINT1, "InPepperMaterialIndex", 2);
-
-		RenderGraphPass UIPepperGraphPass;
-		UIPepperGraphPass.DebugName = "UIPepperGraphPass";
-		UIPepperGraphPass.Pass = CompiledPasses[UIPepperPassIndex];
-		UIPepperGraphPass.RenderFn = OnPepperRender;
-		UIPepperGraphPass.Info = PipelineBuilder.Default()
-			.AddColorBlend(ColorBlendAttachmentState::OpaquePass())
-			.Build();
-		UIPepperGraphPass.Layout = UIPepperLayout;
-		UIPepperGraphPass.SortOrder = 2;
-		UIPepperGraphPass.SubPasses.push_back(UIPepperBlazeSubPass);
-
-		RenderGraphPass PresentGraphPass;
-		PresentGraphPass.DebugName = "PresentPass";
-		PresentGraphPass.Pass = CompiledPasses[PresentPassIndex];
-		PresentGraphPass.RenderFn = [](BackBone::SystemContext& Ctxt, RenderPassInfo& Pass) {};
-		PresentGraphPass.Info = PipelineBuilder.Default()
-			.AddColorBlend(ColorBlendAttachmentState::OpaquePass())
-			.Build();
-		PresentGraphPass.SortOrder = 3;
-
-		RenderGraph->PushGraphPass(GeometryGraphPass);
-		RenderGraph->PushGraphPass(ScreenGraphPass);
-		RenderGraph->PushGraphPass(UIPepperGraphPass);
-		RenderGraph->PushGraphPass(PresentGraphPass);
-	}
-
-	void RenderExtension::Build(BackBone::App& App)
-	{
-		App.Registry.AddResource<RenderGraph>();
-		App.Registry.AddResource<RenderExtensionConfig>();
-		auto Command = Chilli::Command(App.Ctxt);
-
-		auto Config = App.Registry.GetResource<RenderExtensionConfig>();
-		*Config = _Config;
-
-		App.Registry.Register<Chilli::MeshComponent>();
-
-		App.AssetRegistry.RegisterStore<Buffer>();
-		App.AssetRegistry.RegisterStore<Mesh>();
-		App.AssetRegistry.RegisterStore<Image>();
-		App.AssetRegistry.RegisterStore<Texture>();
-		App.AssetRegistry.RegisterStore<Sampler>();
-		App.AssetRegistry.RegisterStore<ShaderModule>();
-		App.AssetRegistry.RegisterStore<ShaderProgram>();
-		App.AssetRegistry.RegisterStore<Material>();
-		App.AssetRegistry.RegisterStore<ImageData>();
-		App.ServiceRegistry.RegisterService<SceneManager>(std::make_shared<SceneManager>(App.Ctxt.Registry));
-
-		App.SystemScheduler.AddSystemOverLayBefore(BackBone::ScheduleTimer::START_UP, OnRenderExtensionsSetup);
-		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::START_UP, OnRenderExtensionDefferedRenderingSetup);
-
-		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::UPDATE, OnRenderExtensionDefferedRenderingUpdate);
-
-		App.SystemScheduler.AddSystemOverLayBefore(BackBone::ScheduleTimer::RENDER, OnRenderExtensionRenderBegin);
-		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::RENDER,
-			OnRenderExtensionRender);
-		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::RENDER, OnRenderExtensionRenderEnd);
-
-		App.SystemScheduler.AddSystemOverLayBefore(BackBone::ScheduleTimer::SHUTDOWN, OnRenderExtensionFinishRendering);
-		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::SHUTDOWN, OnRenderExtensionsCleanUp);
-
-		if (Config->BlazeConfig.Enable)
-			App.Extensions.AddExtension(std::make_unique<BlazeExtension>(Config->BlazeConfig), true, &App);
-	}
-#pragma endregion
-
-#pragma region Blaze 
-
-	void OnBlazeSetup(BackBone::SystemContext& Ctxt)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		auto BlazeResource = Command.GetResource<Chilli::BlazeResource>();
-
-		BlazeResource->Shader = Command.CreateShaderProgram();
-		auto BlazeVertShader = Command.CreateShaderModule("Assets/Shaders/blaze_vert.spv", ShaderStageType::SHADER_STAGE_VERTEX);
-		auto BlazeFragShader = Command.CreateShaderModule("Assets/Shaders/blaze_frag.spv", ShaderStageType::SHADER_STAGE_FRAGMENT);
-
-		Command.AttachShaderModule(BlazeResource->Shader, BlazeVertShader);
-		Command.AttachShaderModule(BlazeResource->Shader, BlazeFragShader);
-		Command.LinkShaderProgram(BlazeResource->Shader);
-	}
-
-	void OnBlazeUpdate(BackBone::SystemContext& Ctxt)
-	{
-	}
-
-	void OnBlazeShutDown(BackBone::SystemContext& Ctxt)
-	{
-	}
-
-	void OnBlazeRenderOverlay(BackBone::SystemContext& Ctxt, RenderPassInfo& Info)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		auto RenderCommandService = Command.GetService<RenderCommand>();
-		auto RenderService = Command.GetService<Renderer>();
-		auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
-		auto BlazeResource = Command.GetResource<Chilli::BlazeResource>();
-
-		for (auto [Mesh] : BackBone::Query<BlazeMeshComponent>(*Ctxt.Registry))
-		{
-			if (Mesh->Mode != BlazeMode::OVERLAY)
-				continue;
-
-			auto ActiveShader = BlazeResource->Shader;
-
-			if (RenderService->GetActivePipelineStateInfo().LineWidth != Mesh->LineWidth)
-				RenderService->SetLineWidth(Mesh->LineWidth);
-
-			RenderService->BindShaderProgram(ActiveShader.ValPtr->RawProgramHandle);
-
-			BlazeInlineUniformDataStruct Data{
-				.ModeFlag = uint32_t(Mesh->Mode),
-				.Color = Mesh->Color
-			};
-
-			RenderService->BindVertexBuffer({ Mesh->VertexBuffer.ValPtr->RawBufferHandle });
-			RenderService->PushInlineUniformData(ActiveShader.ValPtr->RawProgramHandle,
-				SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, &Data, sizeof(Data), 0);
-
-			RenderService->DrawArray(Mesh->LineCount, 1, 0, 0, 0);
-		}
-	}
-
-	void OnBlazeRenderWorldSpace(BackBone::SystemContext& Ctxt, RenderPassInfo& Info)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		auto RenderCommandService = Command.GetService<RenderCommand>();
-		auto RenderService = Command.GetService<Renderer>();
-		auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
-		auto BlazeResource = Command.GetResource<Chilli::BlazeResource>();
-
-		for (auto [Mesh] : BackBone::Query<BlazeMeshComponent>(*Ctxt.Registry))
-		{
-			if (Mesh->Mode != BlazeMode::WORLDSPACE)
-				continue;
-
-			auto ActiveShader = BlazeResource->Shader;
-
-			if (RenderService->GetActivePipelineStateInfo().LineWidth != Mesh->LineWidth)
-				RenderService->SetLineWidth(Mesh->LineWidth);
-
-			RenderService->BindShaderProgram(ActiveShader.ValPtr->RawProgramHandle);
-
-			BlazeInlineUniformDataStruct Data{
-				.ModeFlag = uint32_t(Mesh->Mode),
-				.Color = Mesh->Color
-			};
-
-			RenderService->BindVertexBuffer({ Mesh->VertexBuffer.ValPtr->RawBufferHandle });
-			RenderService->PushInlineUniformData(ActiveShader.ValPtr->RawProgramHandle,
-				SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, &Data, sizeof(Data), 0);
-
-			RenderService->DrawArray(Mesh->LineCount, 1, 0, 0, 0);
-		}
-	}
-
-	void OnBlazeRenderXRay(BackBone::SystemContext& Ctxt, RenderPassInfo& Info)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		auto RenderCommandService = Command.GetService<RenderCommand>();
-		auto RenderService = Command.GetService<Renderer>();
-		auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
-		auto BlazeResource = Command.GetResource<Chilli::BlazeResource>();
-
-		for (auto [Mesh] : BackBone::Query<BlazeMeshComponent>(*Ctxt.Registry))
-		{
-			if (Mesh->Mode != BlazeMode::XRAY)
-				continue;
-
-			if (RenderService->GetActivePipelineStateInfo().LineWidth != Mesh->LineWidth)
-				RenderService->SetLineWidth(Mesh->LineWidth);
-
-			auto ActiveShader = BlazeResource->Shader;
-
-			RenderService->BindShaderProgram(ActiveShader.ValPtr->RawProgramHandle);
-
-			BlazeInlineUniformDataStruct Data{
-				.ModeFlag = uint32_t(Mesh->Mode),
-				.Color = Mesh->Color
-			};
-
-			RenderService->BindVertexBuffer({ Mesh->VertexBuffer.ValPtr->RawBufferHandle });
-			RenderService->PushInlineUniformData(ActiveShader.ValPtr->RawProgramHandle,
-				SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, &Data, sizeof(Data), 0);
-
-			RenderService->DrawArray(Mesh->LineCount, 1, 0, 0, 0);
-		}
-	}
-
-	void OnBlazeRenderGizmo(BackBone::SystemContext& Ctxt, RenderPassInfo& Info)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		auto RenderCommandService = Command.GetService<RenderCommand>();
-		auto RenderService = Command.GetService<Renderer>();
-		auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
-		auto BlazeResource = Command.GetResource<Chilli::BlazeResource>();
-
-		for (auto [Mesh] : BackBone::Query<BlazeMeshComponent>(*Ctxt.Registry))
-		{
-			if (Mesh->Mode != BlazeMode::GiIZMO)
-				continue;
-
-			if (RenderService->GetActivePipelineStateInfo().LineWidth != Mesh->LineWidth)
-				RenderService->SetLineWidth(Mesh->LineWidth);
-
-			auto ActiveShader = BlazeResource->Shader;
-
-			RenderService->BindShaderProgram(ActiveShader.ValPtr->RawProgramHandle);
-
-			BlazeInlineUniformDataStruct Data{
-				.ModeFlag = uint32_t(Mesh->Mode),
-				.Color = Mesh->Color
-			};
-
-			RenderService->BindVertexBuffer({ Mesh->VertexBuffer.ValPtr->RawBufferHandle });
-			RenderService->PushInlineUniformData(ActiveShader.ValPtr->RawProgramHandle,
-				SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, &Data, sizeof(Data), 0);
-
-			RenderService->DrawArray(Mesh->LineCount, 1, 0, 0, 0);
-		}
-	}
-
-	void BlazeExtension::Build(BackBone::App& App)
-	{
-		App.Registry.AddResource<BlazeResource>();
-
-		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::START_UP, OnBlazeSetup);
-		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::UPDATE, OnBlazeUpdate);
-		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::SHUTDOWN, OnBlazeShutDown);
-	}
-#pragma endregion
-
 #pragma region Deafult Extension
+	void OnTransformComponentParentChild(BackBone::SystemContext& Ctxt)
+	{
+		auto Command = Chilli::Command(Ctxt);
+		auto Table = Command.GetService< ParentChildMapTable>();
+
+		for (auto [Entity, Transform] : BackBone::QueryWithEntities<TransformComponent>(*Ctxt.Registry))
+		{
+			if (Transform->HasParent())
+			{
+				auto IsOurCurrentParent = Table->IsChildOf(Transform->GetParent(), Entity);
+				if (!IsOurCurrentParent)
+				{
+					auto ChildMap = Table->ChildParentMap.Get(Entity);
+
+					// First Time being a child
+					if (ChildMap == nullptr)
+						Table->PushChild(Transform->GetParent(), Entity);
+					else {
+						auto OldParent = *Table->ChildParentMap.Get(Entity);
+
+						Table->PushChild(Transform->GetParent(), Entity);
+						Table->EraseChild(OldParent.Parent, Entity);
+					}
+				}
+			}
+		}
+	}
+
+	void HandleParentChildTransformRecursive(BackBone::SystemContext& Ctxt, BackBone::Entity Entity, const glm::mat4& ParentWorldMatrix, bool IsParentDirty)
+	{
+		auto Command = Chilli::Command(Ctxt);
+		auto Table = Command.GetService< ParentChildMapTable>();
+
+		auto TransformComp = Command.GetComponent<TransformComponent>(Entity);
+		auto IsThisParentDirty = TransformComp->IsDirty();
+
+		TransformComp->UpdateWorldMatrix(ParentWorldMatrix, IsParentDirty);
+
+		if (Table->IsParent(Entity))
+		{
+			if (Table->GetChildMap(Entity) != nullptr)
+				for (auto& Child : *Table->GetChildMap(Entity))
+					HandleParentChildTransformRecursive(Ctxt, Child, ParentWorldMatrix, IsThisParentDirty);
+		}
+	}
+
+	void HandleParentChildTransform(BackBone::SystemContext& Ctxt)
+	{
+		auto Command = Chilli::Command(Ctxt);
+		auto Table = Command.GetService< ParentChildMapTable>();
+
+		for (auto [Entity, Transform] : BackBone::QueryWithEntities<TransformComponent>(*Ctxt.Registry))
+		{
+			if (Transform->HasParent() == false)
+			{
+				auto ChildMap = Table->GetChildMap(Entity);
+				bool ParentDirty = Transform->IsDirty();
+				Transform->UpdateWorldMatrix(glm::mat4(1.0f), false);
+				auto ParentWorldMatrix = Transform->GetWorldMatrix();
+
+				if (ChildMap != nullptr)
+					for (auto& Child : *ChildMap)
+						HandleParentChildTransformRecursive(Ctxt, Child, ParentWorldMatrix, ParentDirty);
+			}
+		}
+	}
 	void DeafultExtension::Build(BackBone::App& App)
 	{
+		App.Registry.AddResource<ParentChildMapTable>();
 		App.Registry.Register<Chilli::TransformComponent>();
 
 		_Config.PepperConfig.MaxFramesInFlight = _Config.RenderConfig.Spec.MaxFrameInFlight;
 
+		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::UPDATE, OnTransformComponentParentChild);
+		App.SystemScheduler.AddSystemOverLayAfter(BackBone::ScheduleTimer::UPDATE, HandleParentChildTransform);
+
 		App.Extensions.AddExtension(std::make_unique<WindowExtension>(_Config.WindowConfig), true, &App);
-		App.Extensions.AddExtension(std::make_unique<CameraExtension>(), true, &App);
-		App.Extensions.AddExtension(std::make_unique<PepperExtension>(_Config.PepperConfig), true, &App);
 		App.Extensions.AddExtension(std::make_unique<RenderExtension>(_Config.RenderConfig), true, &App);
+		//App.Extensions.AddExtension(std::make_unique<CameraExtension>(), true, &App);
+		//App.Extensions.AddExtension(std::make_unique<PepperExtension>(_Config.PepperConfig), true, &App);
 
 		if (_Config.SimPhysicsConfig.Enabled)
 		{
-			App.Extensions.AddExtension(std::make_unique<JoltPhysicsExtension>(_Config.SimPhysicsConfig), true, &App);
+			//App.Extensions.AddExtension(std::make_unique<JoltPhysicsExtension>(_Config.SimPhysicsConfig), true, &App);
 		}
 		if (_Config.NoiseExtensionConfig.EnableFastNoise2Provider)
 		{
-			App.ServiceRegistry.RegisterService<FastNoiseProvider>(std::make_shared<FastNoiseProvider>());
+			//App.ServiceRegistry.RegisterService<FastNoiseProvider>(std::make_shared<FastNoiseProvider>());
 		}
 		// Services etc...
 	}
@@ -1124,6 +247,30 @@ namespace Chilli
 		std::vector<Chilli::Vertex>  Vertices;
 		std::vector<uint32_t>        Indices;
 		GenerateCylinder(Segments, Radius, Height, Vertices, Indices);
+
+		VertexInputShaderLayout Layout;
+		Layout.BeginBinding(0);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InNormal", 1);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT2, "InTexCoords", 2);
+		Layout.AddAttribute(ShaderObjectTypes::FLOAT3, "InColor", 3);
+
+		MeshCreateInfo Info{};
+		Info.VertCount = Vertices.size();
+		Info.Vertices = Vertices.data();
+		Info.IndexCount = Indices.size();
+		Info.Indicies = Indices.data();
+		Info.IndexType = IndexBufferType::UINT32_T;
+		Info.MeshLayout = Layout;
+		Info.IndexBufferState = BufferState::STATIC_DRAW;
+		return CreateMesh(Info);
+	}
+
+	BackBone::AssetHandle<Mesh> Command::CreateCapsule(int Segments, float Radius, float Height)
+	{
+		std::vector<Chilli::Vertex>  Vertices;
+		std::vector<uint32_t>        Indices;
+		GenerateCapsule(Segments, Radius, Height, Vertices, Indices);
 
 		VertexInputShaderLayout Layout;
 		Layout.BeginBinding(0);
@@ -1502,6 +649,72 @@ namespace Chilli
 		}
 	}
 
+	void Command::GenerateCapsule(int Segments, float Radius, float Height, std::vector<Chilli::Vertex>& OutVerts, std::vector<uint32_t>& OutIndices)
+	{
+		OutVerts.clear();
+		OutIndices.clear();
+
+		// Ensure we don't have a height smaller than the diameter
+		float CylinderHeight = std::max(0.0f, Height - (2.0f * Radius));
+		float HalfCylHeight = CylinderHeight * 0.5f;
+		int HalfSegments = Segments / 2; // Latitude steps for the caps
+		float Step = 2.0f * 3.14159265f / Segments;
+
+		// 1. Generate Vertices
+		// We iterate through latitude (y-axis) then longitude (circular)
+		for (int lat = 0; lat <= HalfSegments; lat++)
+		{
+			// Calculate vertical angle and Y position
+			// Top cap goes from 0 to PI/2, Bottom cap from PI/2 to PI
+			float theta = lat * (3.14159265f / 2.0f) / (HalfSegments * 0.5f);
+
+			// We split the generation: 
+			// lat 0 to HalfSegments/2 = Top Hemisphre
+			// lat HalfSegments/2 to HalfSegments = Bottom Hemisphere
+
+			float phi = lat * (3.14159265f / HalfSegments);
+			float yOffset = (phi < 3.14159265f * 0.5f) ? HalfCylHeight : -HalfCylHeight;
+
+			float currY = std::cos(phi) * Radius + yOffset;
+			float ringRadius = std::sin(phi) * Radius;
+
+			for (int lon = 0; lon <= Segments; lon++)
+			{
+				float angle = lon * Step;
+				float x = std::cos(angle) * ringRadius;
+				float z = std::sin(angle) * ringRadius;
+
+				Chilli::Vertex v;
+				v.Position = { x, currY, z };
+				// Normal for a capsule is just the vector from the nearest 
+				// point on the central line segment to the vertex
+				v.Normal = Chilli::Normalize(Chilli::Vec3{ x, currY - yOffset, z });
+				v.UV = { (float)lon / Segments, (float)lat / HalfSegments };
+				OutVerts.push_back(v);
+			}
+		}
+
+		// 2. Generate Indices (Grid-based stitching)
+		for (int lat = 0; lat < HalfSegments; lat++)
+		{
+			for (int lon = 0; lon < Segments; lon++)
+			{
+				uint32_t first = (lat * (Segments + 1)) + lon;
+				uint32_t second = first + Segments + 1;
+
+				// Triangle 1
+				OutIndices.push_back(first);
+				OutIndices.push_back(first + 1);
+				OutIndices.push_back(second);
+
+				// Triangle 2
+				OutIndices.push_back(second);
+				OutIndices.push_back(first + 1);
+				OutIndices.push_back(second + 1);
+			}
+		}
+	}
+
 	void Command::GenerateTorus(int MajorSegments, int MinorSegments, float MajorRadius, float MinorRadius, std::vector<Chilli::Vertex>& OutVerts, std::vector<uint32_t>& OutIndices)
 	{
 		OutVerts.clear();
@@ -1716,6 +929,50 @@ namespace Chilli
 		return Vertices;
 	}
 
+	// This is the "Bridge" function you need
+	std::vector<uint8_t> RebuildDataVertexBuffer(
+		void* Vertices, uint32_t InBytesVerticesSize, const Chilli::VertexInputShaderLayout& Current,
+		const Chilli::VertexInputShaderLayout& Desired)
+	{
+		uint32_t fileStride = Current.Bindings[0].Stride;
+		uint32_t desiredStride = Desired.Bindings[0].Stride;
+		size_t vertCount = InBytesVerticesSize / fileStride;
+
+		std::vector<uint8_t> NewBuffer(vertCount * desiredStride);
+
+		for (size_t i = 0; i < vertCount; ++i) {
+			uint8_t* destVert = NewBuffer.data() + (i * desiredStride);
+			uint8_t* srcVert = (uint8_t*)Vertices + (i * fileStride);
+
+			// For every attribute the USER wants...
+			for (const auto& destAttr : Desired.Bindings[0].Attribs) {
+
+				// 1. Try to find this attribute in the FILE
+				bool foundInFile = false;
+				for (const auto& srcAttr : Current.Bindings[0].Attribs) {
+					if (destAttr.Location == srcAttr.Location) {
+						// MATCH! Copy from File to New Buffer
+						memcpy(destVert + destAttr.Offset, srcVert + srcAttr.Offset, Chilli::ShaderTypeToSize(destAttr.Type));
+						foundInFile = true;
+						break;
+					}
+				}
+
+				// 2. If NOT found in file, Inject Defaults
+				if (!foundInFile) {
+					float* padPtr = (float*)(destVert + destAttr.Offset);
+					if (destAttr.Location == (int)Chilli::MeshAttribute::COLOR) {
+						padPtr[0] = 1.0f; padPtr[1] = 1.0f; padPtr[2] = 1.0f; // White
+					}
+					else {
+						memset(padPtr, 0, Chilli::ShaderTypeToSize(destAttr.Type)); // Zero out (UVs, etc)
+					}
+				}
+			}
+		}
+		return NewBuffer;
+	}
+
 	BackBone::AssetHandle<Mesh> Command::CreateMesh(BasicShapes Shape)
 	{
 		std::vector<Chilli::Vertex> Vertices;
@@ -1726,9 +983,9 @@ namespace Chilli
 		case BasicShapes::TRIANGLE:
 		{
 			Vertices = {
-				{ {  0.0f,  0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.5f, 0.0f } },
-				{ {  0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f } },
-				{ { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f } }
+				{ {  0.0f,  0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.5f, 0.0f }, {0,0,0} },
+				{ {  0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f }, {0,0,0} },
+				{ { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f }, {0,0,0} }
 			};
 			Indices = { 0, 1, 2 };
 			break;
@@ -1781,6 +1038,10 @@ namespace Chilli
 		case BasicShapes::CONE:
 		{
 			return CreateCone(32, 0.5f, 2.0f);
+		}
+		case BasicShapes::CAPSULE:
+		{
+			return CreateCapsule(32, 0.5f, 2.0f);
 		}
 		}
 
@@ -1931,9 +1192,19 @@ namespace Chilli
 		return ReturnIndex;
 	}
 
+	uint32_t Command::GetEntityGeneration(uint32_t EntityID)
+	{
+		return _Ctxt.Registry->GetEntityGeneration(EntityID);
+	}
+
 	void Command::DestroyEntity(uint32_t EntityID)
 	{
 		_Ctxt.Registry->Destroy(EntityID);
+	}
+
+	bool Command::IsEntityValid(uint32_t EntityID)
+	{
+		return _Ctxt.Registry->IsEntityValid(EntityID);
 	}
 
 	BackBone::AssetHandle<ShaderModule> Command::CreateShaderModule(const char* FilePath, ShaderStageType Type)
@@ -2371,7 +1642,7 @@ namespace Chilli
 				// Constrain Pitch to avoid flipping the camera over the poles
 				Control->Pitch = glm::clamp(Control->Pitch, -89.0f, 89.0f);
 
-				Transform->SetRotation({ Control->Pitch, Control->Yaw, 0.0f });
+				Transform->SetEulerRotation({ Control->Pitch, Control->Yaw, 0.0f });
 			}
 
 			// 2. Handle Movement (WASD + Space/Ctrl)
@@ -2626,10 +1897,13 @@ namespace Chilli
 		EmberResource->EmberInstanceData.clear();
 		EmberResource->GeoCharacterCount = 0;
 		EmberResource->UICharacterCount = 0;
+
 		// --- PASS 1: GEOMETRY (World Space) ---
 		for (auto [Transform, Text] : BackBone::Query<TransformComponent, EmberTextComponent>(*Ctxt.Registry))
 		{
 			if (!Text->Font.IsValid())
+				continue;
+			if (!Text->IsRender)
 				continue;
 
 			auto fontData = Text->Font.ValPtr->FontSource.ValPtr;
@@ -2686,6 +1960,8 @@ namespace Chilli
 			BackBone::Query<PepperTransform, EmberTextComponent>(*Ctxt.Registry))
 		{
 			if (!Text->Font.IsValid())
+				continue;
+			if (!Text->IsRender)
 				continue;
 
 			auto fontData = Text->Font.ValPtr->FontSource.ValPtr;
@@ -2784,6 +2060,69 @@ namespace Chilli
 		}
 	}
 
+	void OnEmberRenderGeoPass(BackBone::SystemContext& Ctxt)
+	{
+		auto Command = Chilli::Command(Ctxt);
+		auto RenderCommandService = Command.GetService<RenderCommand>();
+		auto RenderService = Command.GetService<Renderer>();
+
+		auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
+
+		auto EmberResource = Command.GetResource<Chilli::EmberResource>();
+
+		auto ActiveMaterial = EmberResource->ContextMaterial.ValPtr;
+		auto ActiveShader = EmberResource->EmberShaderProgram;
+		auto ActiveWindow = Command.GetActiveWindow();
+
+		VertexInputShaderLayout EmberLayout;
+
+		// Binding 0: Static Unit Quad (Standard Vertex Rate)
+		// This buffer typically contains 4-6 vertices forming a (0,0) to (1,1) square
+		EmberLayout.BeginBinding(0, false); // isInstanced = false
+		EmberLayout.AddAttribute(ShaderObjectTypes::FLOAT2, "inVertexPos", 0);
+
+		// Binding 1: Character Instance Data (Instance Rate)
+		// The GPU will step through this buffer once per character drawn
+		EmberLayout.BeginBinding(1, true); // isInstanced = true
+		EmberLayout.AddAttribute(ShaderObjectTypes::FLOAT2, "instPos", 1);
+		EmberLayout.AddAttribute(ShaderObjectTypes::FLOAT2, "instSize", 2);
+		EmberLayout.AddAttribute(ShaderObjectTypes::FLOAT2, "instUVOffset", 3);
+		EmberLayout.AddAttribute(ShaderObjectTypes::FLOAT2, "instUVRange", 4);
+		EmberLayout.AddAttribute(ShaderObjectTypes::INT1, "instFontIndex", 5);
+		RenderService->SetVertexInputLayout(EmberLayout);
+
+		PipelineBuilder UITextPipelineInfoBuilder;
+		RenderService->SetFullPipelineState(UITextPipelineInfoBuilder.
+			Default()
+			.AddColorBlend(ColorBlendAttachmentState::AlphaBlend())
+			.SetRasterizer(CullMode::None, FrontFaceMode::Counter_Clock_Wise, PolygonMode::Fill)
+			.Build());
+
+		RenderService->BindShaderProgram(EmberResource->EmberShaderProgram.ValPtr->RawProgramHandle);
+		RenderService->BindMaterailData(MaterialSystem->GetRawMaterialHandle(EmberResource->ContextMaterial));
+
+		struct Push {
+			alignas(16) glm::mat4 projection;
+			alignas(16) Vec4 textColor;
+		}pc;
+
+
+		//pc.projection[1][1] *= -1; // Flip Y for Vulkan coordinate system
+		//pc.projection = glm::mat4(1.0f);
+		pc.textColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+		RenderService->PushInlineUniformData(ActiveShader.ValPtr->RawProgramHandle,
+			SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, &pc, sizeof(pc), 0);
+
+		RenderService->BindVertexBuffer({
+			EmberResource->EmberVertexVB.ValPtr->RawBufferHandle,
+			EmberResource->EmberFontVBs[RenderService->GetCurrentFrameIndex()].ValPtr->RawBufferHandle
+			});
+		RenderService->BindIndexBuffer(EmberResource->EmberVertexIB.ValPtr->RawBufferHandle, IndexBufferType::UINT32_T);
+
+		RenderService->DrawIndexed(6, EmberResource->GeoCharacterCount, 0, 0, 0);
+	}
+
 	void OnEmberRenderUIPass(BackBone::SystemContext& Ctxt)
 	{
 		auto Command = Chilli::Command(Ctxt);
@@ -2864,9 +2203,9 @@ namespace Chilli
 		auto EmberResource = Command.GetResource<Chilli::EmberResource>();
 
 		PipelineBarrier InstanceVertexBarrier{};
-		InstanceVertexBarrier.BufferBarrier.Handle = EmberResource->EmberFontVBs[RenderService->GetCurrentFrameIndex()].ValPtr->RawBufferHandle;
-		InstanceVertexBarrier.BufferBarrier.Offset = 0;
-		InstanceVertexBarrier.BufferBarrier.Size = CH_BUFFER_WHOLE_SIZE;
+		InstanceVertexBarrier.Buffer.Handle = EmberResource->EmberFontVBs[RenderService->GetCurrentFrameIndex()].ValPtr->RawBufferHandle;
+		InstanceVertexBarrier.Buffer.Offset = 0;
+		InstanceVertexBarrier.Buffer.Size = CH_BUFFER_WHOLE_SIZE;
 		InstanceVertexBarrier.OldState = ResourceState::HostWrite;
 		InstanceVertexBarrier.NewState = ResourceState::VertexRead;
 
@@ -2880,9 +2219,9 @@ namespace Chilli
 		auto EmberResource = Command.GetResource<Chilli::EmberResource>();
 
 		PipelineBarrier InstanceVertexBarrier{};
-		InstanceVertexBarrier.BufferBarrier.Handle = EmberResource->EmberFontVBs[RenderService->GetCurrentFrameIndex()].ValPtr->RawBufferHandle;
-		InstanceVertexBarrier.BufferBarrier.Offset = 0;
-		InstanceVertexBarrier.BufferBarrier.Size = CH_BUFFER_WHOLE_SIZE;
+		InstanceVertexBarrier.Buffer.Handle = EmberResource->EmberFontVBs[RenderService->GetCurrentFrameIndex()].ValPtr->RawBufferHandle;
+		InstanceVertexBarrier.Buffer.Offset = 0;
+		InstanceVertexBarrier.Buffer.Size = CH_BUFFER_WHOLE_SIZE;
 		InstanceVertexBarrier.OldState = ResourceState::VertexRead;
 		InstanceVertexBarrier.NewState = ResourceState::HostWrite;
 
@@ -2899,6 +2238,7 @@ namespace Chilli
 
 		RenderService->UpdateMaterialTextureData(MaterialSystem->GetRawMaterialHandle(this->ContextMaterial),
 			Tex.ValPtr->RawTextureHandle, "fontAtlas", ResourceState::ShaderRead, _FontAtlasTextureMapCount);
+		_FontAtlasTextureMapCount++;
 	}
 
 	void EmberExtension::Build(BackBone::App& App)
@@ -3040,6 +2380,8 @@ namespace Chilli
 		RenderMeshInfo.VertCount = PepperResource->MeshQuadCount * 4;
 		RenderMeshInfo.IndexType = IndexBufferType::UINT32_T;
 		RenderMeshInfo.MeshLayout = Layout;
+		CH_CORE_INFO("Layout Binding Count: {}", Layout.Bindings.size());
+		CH_CORE_INFO("Layout Binding Count: {}", RenderMeshInfo.MeshLayout.Bindings.size());
 		PepperResource->RenderMesh = Command.CreateMesh(RenderMeshInfo);
 
 		PepperResource->QuadVertices.reserve(RenderMeshInfo.VertCount);
@@ -3465,7 +2807,7 @@ namespace Chilli
 		Command.FreeMesh(PepperResource->RenderMesh);
 	}
 
-	void OnPepperRender(BackBone::SystemContext& Ctxt, RenderPassInfo& Pass)
+	void OnPepperRender(BackBone::SystemContext& Ctxt, RenderPassDesc& Pass)
 	{
 		auto Command = Chilli::Command(Ctxt);
 
@@ -3503,23 +2845,23 @@ namespace Chilli
 		auto RenderService = Command.GetService<Renderer>();
 
 		PipelineBarrier PrepareVertexBarrier{};
-		PrepareVertexBarrier.BufferBarrier.Handle = PepperResource->RenderMesh.ValPtr->VertexBufferHandles[0].ValPtr->RawBufferHandle;
-		PrepareVertexBarrier.BufferBarrier.Offset = 0;
-		PrepareVertexBarrier.BufferBarrier.Size = CH_BUFFER_WHOLE_SIZE;
+		PrepareVertexBarrier.Buffer.Handle = PepperResource->RenderMesh.ValPtr->VertexBufferHandles[0].ValPtr->RawBufferHandle;
+		PrepareVertexBarrier.Buffer.Offset = 0;
+		PrepareVertexBarrier.Buffer.Size = CH_BUFFER_WHOLE_SIZE;
 		PrepareVertexBarrier.OldState = ResourceState::HostWrite;
 		PrepareVertexBarrier.NewState = ResourceState::VertexRead;
 
 		PipelineBarrier PrepareIndexBarrier{};
-		PrepareIndexBarrier.BufferBarrier.Handle = PepperResource->RenderMesh.ValPtr->IBHandle.ValPtr->RawBufferHandle;
-		PrepareIndexBarrier.BufferBarrier.Offset = 0;
-		PrepareIndexBarrier.BufferBarrier.Size = CH_BUFFER_WHOLE_SIZE;
+		PrepareIndexBarrier.Buffer.Handle = PepperResource->RenderMesh.ValPtr->IBHandle.ValPtr->RawBufferHandle;
+		PrepareIndexBarrier.Buffer.Offset = 0;
+		PrepareIndexBarrier.Buffer.Size = CH_BUFFER_WHOLE_SIZE;
 		PrepareIndexBarrier.OldState = ResourceState::HostWrite;
 		PrepareIndexBarrier.NewState = ResourceState::IndexRead;
 
 		PipelineBarrier PrepareMaterialBarrier{};
-		PrepareMaterialBarrier.BufferBarrier.Handle = PepperResource->PepperMaterialSSBO[RenderService->GetCurrentFrameIndex()].ValPtr->RawBufferHandle;
-		PrepareMaterialBarrier.BufferBarrier.Offset = 0;
-		PrepareMaterialBarrier.BufferBarrier.Size = CH_BUFFER_WHOLE_SIZE;
+		PrepareMaterialBarrier.Buffer.Handle = PepperResource->PepperMaterialSSBO[RenderService->GetCurrentFrameIndex()].ValPtr->RawBufferHandle;
+		PrepareMaterialBarrier.Buffer.Offset = 0;
+		PrepareMaterialBarrier.Buffer.Size = CH_BUFFER_WHOLE_SIZE;
 		PrepareMaterialBarrier.OldState = ResourceState::HostWrite;
 		PrepareMaterialBarrier.NewState = ResourceState::ShaderRead;
 
@@ -3533,23 +2875,23 @@ namespace Chilli
 		auto RenderService = Command.GetService<Renderer>();
 
 		PipelineBarrier VertexBarrier{};
-		VertexBarrier.BufferBarrier.Handle = PepperResource->RenderMesh.ValPtr->VertexBufferHandles[0].ValPtr->RawBufferHandle;
-		VertexBarrier.BufferBarrier.Offset = 0;
-		VertexBarrier.BufferBarrier.Size = CH_BUFFER_WHOLE_SIZE;
+		VertexBarrier.Buffer.Handle = PepperResource->RenderMesh.ValPtr->VertexBufferHandles[0].ValPtr->RawBufferHandle;
+		VertexBarrier.Buffer.Offset = 0;
+		VertexBarrier.Buffer.Size = CH_BUFFER_WHOLE_SIZE;
 		VertexBarrier.OldState = ResourceState::VertexRead;
 		VertexBarrier.NewState = ResourceState::HostWrite;
 
 		PipelineBarrier IndexBarrier{};
-		IndexBarrier.BufferBarrier.Handle = PepperResource->RenderMesh.ValPtr->IBHandle.ValPtr->RawBufferHandle;
-		IndexBarrier.BufferBarrier.Offset = 0;
-		IndexBarrier.BufferBarrier.Size = CH_BUFFER_WHOLE_SIZE;
+		IndexBarrier.Buffer.Handle = PepperResource->RenderMesh.ValPtr->IBHandle.ValPtr->RawBufferHandle;
+		IndexBarrier.Buffer.Offset = 0;
+		IndexBarrier.Buffer.Size = CH_BUFFER_WHOLE_SIZE;
 		IndexBarrier.OldState = ResourceState::IndexRead;
 		IndexBarrier.NewState = ResourceState::HostWrite;
 
 		PipelineBarrier PrepareMaterialBarrier{};
-		PrepareMaterialBarrier.BufferBarrier.Handle = PepperResource->PepperMaterialSSBO[RenderService->GetCurrentFrameIndex()].ValPtr->RawBufferHandle;
-		PrepareMaterialBarrier.BufferBarrier.Offset = 0;
-		PrepareMaterialBarrier.BufferBarrier.Size = CH_BUFFER_WHOLE_SIZE;
+		PrepareMaterialBarrier.Buffer.Handle = PepperResource->PepperMaterialSSBO[RenderService->GetCurrentFrameIndex()].ValPtr->RawBufferHandle;
+		PrepareMaterialBarrier.Buffer.Offset = 0;
+		PrepareMaterialBarrier.Buffer.Size = CH_BUFFER_WHOLE_SIZE;
 		PrepareMaterialBarrier.OldState = ResourceState::ShaderRead;
 		PrepareMaterialBarrier.NewState = ResourceState::HostWrite;
 
@@ -3862,6 +3204,7 @@ namespace Chilli
 	{
 		bool Active = false;
 		JPH::BodyID BodyID;
+		uint32_t GenerationVersion = 1;
 		uint32_t RigidBodyVersion = 0;
 		uint32_t ColliderVersion = 0;
 	};
@@ -3872,6 +3215,7 @@ namespace Chilli
 		JPH::PhysicsSystem PhysicsSystem;
 		JPH::BodyInterface* BodyInterFace;
 		SparseSet<JoltBodyShapeMetaData> BodiesMetaData;
+		std::vector<uint32_t> BodiesMetaDataEntitiesList;
 		std::unique_ptr<JPH::TempAllocatorImpl> TempAllocator;
 		std::unique_ptr<JPH::JobSystemThreadPool> JobSystem;
 		std::unique_ptr<BPLayerInterfaceImpl >Broad_Phase_Layer_Interface;
@@ -3962,6 +3306,7 @@ namespace Chilli
 				NewMetaData.ColliderVersion = 0;
 
 				JoltData->BodiesMetaData.Insert(Entity, NewMetaData);
+				JoltData->BodiesMetaDataEntitiesList.push_back(Entity);
 				MetaDataPtr = JoltData->BodiesMetaData.Get(Entity);
 
 				// FIX #2: Check insert didn't fail
@@ -3978,24 +3323,39 @@ namespace Chilli
 
 			if (Create)
 			{
-				JPH::ShapeSettings::ShapeResult ShapeResult;
+				JPH::Shape::ShapeResult ShapeResult;
 
-				if (Collider->Type == ColliderType::BOX)
+				switch (Collider->Type)
 				{
-					auto BoxHalfExtents = JPH::RVec3(Collider->Shape.AABB.HalfExtent.x,
-						Collider->Shape.AABB.HalfExtent.y, Collider->Shape.AABB.HalfExtent.z);
-
-					JPH::BoxShapeSettings floor_shape_settings(BoxHalfExtents);
-					floor_shape_settings.SetEmbedded();
-					ShapeResult = floor_shape_settings.Create();
+				case ColliderType::BOX:
+				{
+					// Jolt uses HalfExtents for boxes
+					JPH::BoxShapeSettings BoxShape(JPH::Vec3(
+						Collider->Shape.AABB.HalfExtent.x,
+						Collider->Shape.AABB.HalfExtent.y,
+						Collider->Shape.AABB.HalfExtent.z));
+					BoxShape.SetEmbedded();
+					ShapeResult = BoxShape.Create();
+					break;
 				}
-				if (Collider->Type == ColliderType::SPHERE)
+
+				case ColliderType::SPHERE:
 				{
 					JPH::SphereShapeSettings SphereShape(Collider->Shape.Sphere.Radius);
 					SphereShape.SetEmbedded();
 					ShapeResult = SphereShape.Create();
+					break;
 				}
 
+				case ColliderType::CAPSULE:
+				{
+					// Jolt Capsule takes HalfHeight of the cylinder part
+					JPH::CapsuleShapeSettings CapsuleShape(Collider->Shape.Capsule.HalfHeight, Collider->Shape.Capsule.Radius);
+					CapsuleShape.SetEmbedded();
+					ShapeResult = CapsuleShape.Create();
+					break;
+				}
+				}
 				JPH::ShapeRefC ShapeRef = ShapeResult.Get(); // We don't expect an error here, but you can check floor_shape_result for HasError() / GetError()
 
 				if (ShapeResult.HasError())
@@ -4072,6 +3432,7 @@ namespace Chilli
 
 				MetaDataPtr->BodyID = Body->GetID();
 				MetaDataPtr->Active = true;
+				MetaDataPtr->GenerationVersion = Command.GetEntityGeneration(Entity);
 			}
 		}
 	}
@@ -4144,11 +3505,37 @@ namespace Chilli
 		auto Config = Command.GetResource<JoltPhysicsExtensionConfig>();
 		auto JoltData = (JoltPhysicsResourceImpl*)Resource->Data;
 
+		for (auto& Entity : JoltData->BodiesMetaDataEntitiesList)
+		{
+			bool Destroy = false;
+			auto MetaDataPtr = JoltData->BodiesMetaData.Get(Entity);
+
+			if (Command.IsEntityValid(Entity) == false && MetaDataPtr->Active)
+				Destroy = true;
+			if (Command.GetEntityGeneration(Entity) != MetaDataPtr->GenerationVersion
+				&& MetaDataPtr->Active)
+				Destroy = true;
+			if (Ctxt.Registry->HasComponent<RigidBody>(Entity) == false
+				&& MetaDataPtr->Active)
+				Destroy = true;
+
+			if (Destroy)
+			{
+				MetaDataPtr->Active = false;
+
+				// Remove and destroy the floor
+				JoltData->BodyInterFace->RemoveBody(MetaDataPtr->BodyID);
+				JoltData->BodyInterFace->DestroyBody(MetaDataPtr->BodyID);
+			}
+		}
+
 		// If you take larger steps than 1 / 60th of a second you need to do multiple collision steps in order to keep the simulation stable. Do 1 collision step per 1 / 60th of a second (round up).
 		const int cCollisionSteps = 1;
 
-		// Step the world
-		JoltData->PhysicsSystem.Update(FrameData->FixedPhysicsData.Ticks, cCollisionSteps, JoltData->TempAllocator.get(), JoltData->JobSystem.get());
+		{
+			// Step the world
+			JoltData->PhysicsSystem.Update(FrameData->FixedPhysicsData.Ticks, cCollisionSteps, JoltData->TempAllocator.get(), JoltData->JobSystem.get());
+		}
 	}
 
 	void OnJoltSyncBack(BackBone::SystemContext& Ctxt)
@@ -4184,11 +3571,13 @@ namespace Chilli
 
 		for (auto& MetaData : JoltData->BodiesMetaData)
 		{
+			if (MetaData.Active == true)
+			{
+				JoltData->BodyInterFace->RemoveBody(MetaData.BodyID);
+				JoltData->BodyInterFace->DestroyBody(MetaData.BodyID);
+			}
 			MetaData.Active = false;
-
 			// Remove and destroy the floor
-			JoltData->BodyInterFace->RemoveBody(MetaData.BodyID);
-			JoltData->BodyInterFace->DestroyBody(MetaData.BodyID);
 		}
 
 		JoltData->BodiesMetaData.Clear();
@@ -4277,7 +3666,6 @@ namespace Chilli
 		auto Entity1 = (BackBone::Entity)inBody1.GetUserData();
 		auto Entity2 = (BackBone::Entity)inBody2.GetUserData();
 
-		CH_CORE_INFO("Contact Validate!, {} with {}", Entity1, Entity2);
 		// Allows you to ignore a contact before it is created (using layers to not make objects collide is cheaper!)
 		return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
 	}

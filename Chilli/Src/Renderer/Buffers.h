@@ -1,6 +1,6 @@
 #pragma once
 
-#include "UUID\UUID.h"
+#include "RenderCore.h"
 
 namespace Chilli
 {
@@ -54,5 +54,6 @@ namespace Chilli
 		uint32_t RawBufferHandle = UINT32_MAX;
 		BufferCreateInfo CreateInfo;
 		char DebugName[CH_BUFFER_MAX_DEBUG_NAME_SIZE];
+		ResourceState ResourceState = Chilli::ResourceState::VertexRead;
 	};
 }

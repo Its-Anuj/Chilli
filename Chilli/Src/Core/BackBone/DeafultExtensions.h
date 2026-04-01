@@ -11,557 +11,120 @@
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <FastNoise/FastNoise.h>
+
+#include "BasicComponents.h"
+#include "RenderExtension.h"
 
 inline glm::vec3 ToGlmVec3(Chilli::Vec3 Data) { return glm::vec3(Data.x, Data.y, Data.z); }
 inline Chilli::Vec3 FromGlmVec3(glm::vec3 Data) { return Chilli::Vec3(Data.x, Data.y, Data.z); }
 
 namespace Chilli
 {
-	using EventID = std::uint32_t;
-
-#pragma region Event Manager
-	struct __IPerEventStorage__
+#pragma region ParentChildMapTable
+	struct ParentChildMapTable
 	{
-		virtual void Clear() = 0;
-		virtual uint32_t GetActiveSize() const = 0;
-	};
-
-	template<typename _EventType>
-	struct PerEventStorage : __IPerEventStorage__
-	{
-	private:
-		std::vector< _EventType> Events;
-		uint32_t ActiveSize = 0;
-
-	public:
-
-		void Push(const _EventType& e) {
-			Events.push_back(e);
-			ActiveSize++;
-		}
-
-		virtual uint32_t GetActiveSize() const override { return ActiveSize; }
-		virtual void Clear() override { Events.clear(); ActiveSize = 0; }
-
-		_EventType* Data() { return Events.data(); }
-		const _EventType* Data() const { return Events.data(); }
-
-		std::vector< _EventType>::iterator begin() { return Events.begin(); }
-		std::vector< _EventType>::iterator end() { return Events.end(); }
-
-		std::vector< _EventType>::const_iterator begin()  const { return Events.begin(); }
-		std::vector< _EventType>::const_iterator end() const { return Events.end(); }
-	};
-
-	uint32_t GetNewEventID();
-
-	template<typename _Type>
-	uint32_t GetEventID()
-	{
-		static uint32_t ID = GetNewEventID();
-		return ID;
-	}
-
-	struct EventHandler
-	{
-	public:
-		EventHandler() {}
-		~EventHandler()
+		// 1 to 1 Map
+		struct ParentChildMapStruct
 		{
-			// free all allocated storages
-			for (auto& storage : _Storage)
-				delete storage;
+			bool Initiated = false;
 
-			_Storage.clear();
-		}
-
-		template<typename _EventType>
-			requires std::derived_from<_EventType, Event>
-		void Register()
-		{
-			EventID id = GetEventID<_EventType>();
-			if (id < _Storage.size())
-				return;
-
-			_Storage.push_back(new PerEventStorage<_EventType>());
-		}
-
-		template<typename _EventType>
-			requires std::derived_from<_EventType, Event>
-		PerEventStorage<_EventType>* GetEventStorage()
-		{
-			EventID id = GetEventID<_EventType>();
-			if (id >= _Storage.size())
-				return nullptr;
-
-			return static_cast<PerEventStorage<_EventType>*>(_Storage[id]);
-		}
-
-		template<typename _EventType>
-			requires std::derived_from<_EventType, Event>
-		void Add(const _EventType& e)
-		{
-			auto* storage = GetEventStorage<_EventType>();
-			storage->Push(e);
-		}
-
-		template<typename _EventType>
-			requires std::derived_from<_EventType, Event>
-		void Clear()
-		{
-			EventID id = GetEventID<_EventType>();
-			if (id >= _Storage.size())
-				return;
-
-			auto Storage = static_cast<PerEventStorage<_EventType>*>(_Storage[id]);
-			Storage->Clear();
-		}
-
-		void ClearAll()
-		{
-			for (auto& storage : _Storage)
-				storage->Clear();
-		}
-	private:
-		std::vector<__IPerEventStorage__*> _Storage;
-	};
-
-	template<typename _EventType>
-		requires std::derived_from<_EventType, Event>
-	struct EventReader {
-		PerEventStorage<_EventType>* storage = nullptr;
-
-		EventReader() = default;
-		EventReader(EventHandler* Handler) {
-			storage = Handler->GetEventStorage<_EventType>();
-		}
-
-		// --- Range-for support using custom iterator ---
-		struct Iterator {
-			PerEventStorage<_EventType>* storage;
-			uint32_t idx;
-
-			using value_type = const _EventType;
-			using reference = const _EventType&;
-			using pointer = const _EventType*;
-
-			Iterator(PerEventStorage<_EventType>* s, uint32_t i)
-				: storage(s), idx(i) {
-			}
-
-			bool operator!=(const Iterator& other) const {
-				return idx != other.idx;
-			}
-
-			reference operator*() const {
-				return storage->Data()[idx];
-			}
-
-			Iterator& operator++() {
-				idx++;
-				return *this;
-			}
+			std::vector<BackBone::Entity> Map;
+			ParentChildMapStruct(bool I = false) :Initiated(I) {}
 		};
 
-		// begin = first unread event
-		Iterator begin() {
-			return Iterator(storage, 0);
-		}
-
-		// end = storage->ActiveSize
-		Iterator end() {
-			return Iterator(storage, storage->GetActiveSize());
-		}
-	};
-
-	template<typename _EventType>
-		requires std::derived_from<_EventType, Event>
-	struct EventWriter {
-		PerEventStorage<_EventType>* storage = nullptr;
-		EventWriter(const EventHandler& Handler) :storage(Handler.GetEventStorage<_EventType>()) {}
-
-		void Write(const _EventType& e) {
-			storage->Push(e);
-		}
-	};
-#pragma endregion 
-
-	struct TransformComponent
-	{
-	public:
-		TransformComponent(
-			const Vec3& Pos = { 0, 0, 0 },
-			const Vec3& Scle = { 1, 1, 1 },
-			const Vec3& Rot = { 0, 0, 0 }
-		)
-			: _Position(Pos),
-			_Scale(Scle),
-			_Rotation(Rot),
-			_Version(1),
-			_WorldMatrix(1.0f)
+		struct ChildParentMapStruct
 		{
+			bool Initiated = false;
+			BackBone::Entity Parent;
+			ChildParentMapStruct(bool I = false) :Initiated(I) {}
+		};
+
+		SparseSet<ParentChildMapStruct> ParentChildMap;
+		SparseSet<ChildParentMapStruct> ChildParentMap;
+
+		void PushChild(BackBone::Entity Parent, BackBone::Entity Child) {
+			// 1. Ensure the child isn't already attached elsewhere (Prevents logic leaks)
+			RemoveFromCurrentParent(Child);
+
+			auto Map = ParentChildMap.Get(Parent);
+			if (!Map) {
+				InsertParent(Parent);
+				Map = ParentChildMap.Get(Parent);
+			}
+
+			Map->Map.push_back(Child);
+
+			ChildParentMapStruct ChildStruct;
+			ChildStruct.Initiated = true;
+			ChildStruct.Parent = Parent;
+
+			ChildParentMap.Insert(Child, Parent);
 		}
 
-		// --- Absolute Setters ---
-		void SetPosition(const Vec3& Pos)
-		{
-			if (_Position != Pos) {
-				_Position = Pos;
-				IncrementVersion();
+		void EraseChild(BackBone::Entity Parent, BackBone::Entity Child) {
+			auto Map = ParentChildMap.Get(Parent);
+			if (!Map || !Map->Initiated) return;
+
+			auto it = std::find(Map->Map.begin(), Map->Map.end(), Child);
+			if (it != Map->Map.end()) {
+				Map->Map.erase(it);
+			}
+
+			ChildParentMapStruct ChildStruct;
+			ChildStruct.Initiated = false;
+			ChildStruct.Parent = BackBone::npos;
+
+			ChildParentMap.Insert(Child, ChildStruct);
+		}
+
+		bool DoesParentExist(BackBone::Entity Parent) {
+			return ParentChildMap.Contains(Parent); // Assuming SparseSet has Contains()
+		}
+
+		// Crucial helper to keep both maps in sync
+		void RemoveFromCurrentParent(BackBone::Entity Child) {
+			auto CurrentParent = ChildParentMap.Get(Child);
+			if (CurrentParent && CurrentParent->Initiated != false) {
+				// Find the child in the old parent's list and remove it
+				auto Map = ParentChildMap.Get(CurrentParent->Parent);
+				if (Map) {
+					auto& v = Map->Map;
+					v.erase(std::remove(v.begin(), v.end(), Child), v.end());
+				}
+				ChildParentMap.Destroy(Child); // Fully remove the entry
 			}
 		}
 
-		void SetScale(const Vec3& Scle)
+		bool IsChildOf(BackBone::Entity Parent, BackBone::Entity Child) {
+			auto Map = ChildParentMap.Get(Child);
+			if (!Map || Map->Initiated == false) return false;
+
+			if ((Map->Parent) == Parent)
+				return true;
+			return false;
+		}
+
+		const std::vector<BackBone::Entity>* GetChildMap(BackBone::Entity Parent) {
+			auto Map = ParentChildMap.Get(Parent);
+			if (!Map) return nullptr; // Safer than returning a reference to garbage
+			return &Map->Map;
+		}
+
+		void InsertParent(BackBone::Entity Parent)
 		{
-			if (_Scale != Scle) {
-				_Scale = Scle;
-				IncrementVersion();
-			}
+			ParentChildMapStruct Map{ true };
+			ParentChildMap.Insert(Parent, Map);
 		}
 
-		void SetRotation(const Vec3& Rot)
+		bool IsParent(BackBone::Entity Parent)
 		{
-			if (_Rotation != Rot) {
-				_Rotation = Rot;
-				IncrementVersion();
-			}
-		}
-
-		// --- Relative Movement ---
-		void Move(const Vec3& Delta) { _Position += Delta; IncrementVersion(); }
-		void MoveX(float Delta) { _Position.x += Delta; IncrementVersion(); }
-		void MoveY(float Delta) { _Position.y += Delta; IncrementVersion(); }
-		void MoveZ(float Delta) { _Position.z += Delta; IncrementVersion(); }
-
-		// --- Relative Scaling ---
-		void AddScale(const Vec3& Delta) { _Scale += Delta; IncrementVersion(); }
-		void ScaleX(float Delta) { _Scale.x += Delta; IncrementVersion(); }
-		void ScaleY(float Delta) { _Scale.y += Delta; IncrementVersion(); }
-		void ScaleZ(float Delta) { _Scale.z += Delta; IncrementVersion(); }
-
-		// --- Relative Rotation ---
-		void Rotate(const Vec3& Delta) { _Rotation += Delta; IncrementVersion(); }
-		void RotateX(float Delta) { _Rotation.x += Delta; IncrementVersion(); }
-		void RotateY(float Delta) { _Rotation.y += Delta; IncrementVersion(); }
-		void RotateZ(float Delta) { _Rotation.z += Delta; IncrementVersion(); }
-
-		// --- Getters ---
-		const Vec3& GetPosition() const { return _Position; }
-		const Vec3& GetScale()    const { return _Scale; }
-		const Vec3& GetRotation() const { return _Rotation; }
-		uint32_t    GetVersion()  const { return _Version; }
-
-		const glm::mat4& GetWorldMatrix() {
-			if (_LastUpdatedVersion != _Version)
-				CalculateWorldMatrix();
-			return _WorldMatrix;
-		}
-
-		// --- System Internal ---
-		void SetWorldMatrix(const glm::mat4& Matrix)
-		{
-			_WorldMatrix = Matrix;
-			IncrementVersion();
-		}
-
-		bool IsDirty()
-		{
-			return _Version != _LastUpdatedVersion;
-		}
-
-	private:
-		void CalculateWorldMatrix()
-		{
-			glm::mat4 Transform(1.0f);
-
-			Transform = glm::translate(
-				Transform,
-				glm::vec3(_Position.x, _Position.y, _Position.z)
-			);
-
-			Transform = glm::rotate(Transform, glm::radians(_Rotation.x), glm::vec3(1, 0, 0));
-			Transform = glm::rotate(Transform, glm::radians(_Rotation.y), glm::vec3(0, 1, 0));
-			Transform = glm::rotate(Transform, glm::radians(_Rotation.z), glm::vec3(0, 0, 1));
-
-			Transform = glm::scale(
-				Transform,
-				glm::vec3(_Scale.x, _Scale.y, _Scale.z)
-			);
-
-			_WorldMatrix = Transform;
-			_LastUpdatedVersion = _Version;
-		}
-
-		void IncrementVersion()
-		{
-			++_Version;
-			if (_Version == 0) _Version = 1;
-		}
-
-	private:
-		Vec3 _Position;
-		Vec3 _Scale;
-		Vec3 _Rotation;
-
-		uint32_t _Version = 1;
-		uint32_t _LastUpdatedVersion = 0;
-		glm::mat4 _WorldMatrix;
-	};
-
-
-	// Specifies that the entity with this component is visible
-	struct VisibilityComponent;
-
-	struct RenderSurfaceComponent
-	{
-		// --- Surface / Swapchain handles ---
-		void* NativeSurface = nullptr;             // Platform-specific surface (VkSurfaceKHR, etc.)
-		void* SwapchainHandle = nullptr;           // Backend-managed swapchain (can be stored as a backend handle)
-
-		// --- Dimensions / Viewport ---
-		IVec2 Size = { 0, 0 };
-		bool  Resized = false;
-
-		// --- Synchronization / Frame info ---
-		uint32_t CurrentFrame = 0;
-		uint32_t MaxFramesInFlight = 2;
-
-		// --- Optional: Callbacks or flags ---
-		bool EnableVSync = true;
-	};
-
-	struct MeshComponent
-	{
-		BackBone::AssetHandle<Mesh> MeshHandle;
-		BackBone::AssetHandle<Material> MaterialHandle;
-	};
-
-	struct SceneRenderSurfaceComponent
-	{
-		BackBone::AssetHandle<Mesh> ScreenMeshHandle;
-		BackBone::AssetHandle<Material> ScreenMaterialHandle;
-	};
-
-	struct PresentRenderSurfaceComponent
-	{
-		BackBone::AssetHandle<Mesh> Mesh;
-		BackBone::AssetHandle<Material> Mat;
-	};
-
-	struct MaterialComponent
-	{
-		Vec4 AlbedoColor;
-	};
-
-	// Line Renderer
-#pragma region Blaze
-
-	enum class BlazeMode : uint32_t
-	{
-		// 1. SCREEN SPACE (Pepper UI)
-	// No depth test, no depth write. Coordinates are usually 0->1 or Pixels.
-	// Used for: UI Borders, selection boxes, crosshairs.
-		OVERLAY = 0,
-
-		// 2. INTERACTIVE DEPTH (Geometry/World)
-		// Depth test ON, Depth write ON.
-		// Used for: Laser beams, fences, actual 3D objects made of lines.
-		WORLDSPACE = 1,
-
-		// 3. OCCLUDED / X-RAY (Debug/Analysis)
-		// Depth test ON (Compare), but Depth write OFF. 
-		// Often rendered with a specific "Ghost" color or bias.
-		// Used for: Seeing player skeletons through walls, debug paths.
-		XRAY = 2,
-
-		// 4. PERSISTENT OVERLAY (Gizmos)
-		// Depth test OFF, Depth write OFF, but rendered in 3D space.
-		// Used for: Transform gizmos (RGB axes) that must always be visible.
-		GiIZMO = 3
-	};
-
-	struct BlazeVertex
-	{
-		Vec3 Vertices;
-	};
-
-	struct BlazeInlineUniformDataStruct
-	{
-		uint32_t ModeFlag;
-		Vec4 Color;
-	};
-
-	struct BlazeMeshComponent
-	{
-		BackBone::AssetHandle<Buffer> VertexBuffer;
-
-		uint32_t LineCount;
-		BlazeMode Mode;
-		Vec4 Color;
-		float LineWidth = 1.0f;
-	};
-
-	struct BlazeResource
-	{
-		BackBone::AssetHandle<ShaderProgram> Shader;
-	};
-
-	struct BlazeExtensionConfig
-	{
-		bool Enable = true;
-	};
-
-	class BlazeExtension : public BackBone::Extension
-	{
-	public:
-		BlazeExtension(const BlazeExtensionConfig& Config = BlazeExtensionConfig())
-			:_Config(Config)
-		{
-		}
-		~BlazeExtension() {}
-
-		virtual void Build(BackBone::App& App) override;
-
-		virtual const char* Name() const override { return "BlazeExtension"; }
-	private:
-		BlazeExtensionConfig _Config;
-	};
-
-	void OnBlazeSetup(BackBone::SystemContext& Ctxt);
-	void OnBlazeUpdate(BackBone::SystemContext& Ctxt);
-	void OnBlazeShutDown(BackBone::SystemContext& Ctxt);
-
-	void OnBlazeRenderOverlay(BackBone::SystemContext& Ctxt, RenderPassInfo& Info);
-	void OnBlazeRenderWorldSpace(BackBone::SystemContext& Ctxt, RenderPassInfo& Info);
-	void OnBlazeRenderXRay(BackBone::SystemContext& Ctxt, RenderPassInfo& Info);
-	void OnBlazeRenderGizmo(BackBone::SystemContext& Ctxt, RenderPassInfo& Info);
-
-
-#pragma endregion 
-
-#pragma region Render Extension
-	struct DefferedRenderingConfig
-	{
-		bool GeometryPass = true;
-		bool ScenePass = true;
-		bool UIPass = true;
-	};
-
-	struct DefferedRenderingResource
-	{
-		BackBone::AssetHandle<Image> GeometryColorMSAAImage;
-		BackBone::AssetHandle<Image> GeometryColorImage;
-		BackBone::AssetHandle<Image> GeometryDepthImage;
-		BackBone::AssetHandle<Texture> GeometryColorMSAATexture;
-		BackBone::AssetHandle<Texture> GeometryColorTexture;
-		BackBone::AssetHandle<Texture> GeometryDepthTexture;
-		BackBone::AssetHandle<Texture> GeometryDepthViewTexture;
-		//BackBone::AssetHandle<GraphicsPipeline> ScenePipeline;
-		BackBone::AssetHandle<Mesh> ScreenRenderMesh;
-		BackBone::AssetHandle<ShaderProgram> ScreenShaderProgram;
-		BackBone::AssetHandle<Material> ScreenMaterial;
-	};
-
-	enum class RendererType
-	{
-		DEFFERED,
-		FOWARD_PLUS
-	};
-
-	struct RenderExtensionConfig
-	{
-		bool Enable = true;
-		GraphcisBackendCreateSpec Spec;
-		DefferedRenderingConfig DefferedConfig{};
-		RendererType UsingType = RendererType::DEFFERED;
-		BlazeExtensionConfig BlazeConfig;
-
-		RenderExtensionConfig(const GraphcisBackendCreateSpec& spec = GraphcisBackendCreateSpec())
-		{
-			Spec = spec;
+			auto Map = ParentChildMap.Get(Parent);
+			if (!Map) return false;
+			return Map->Initiated;
 		}
 	};
-
-	class RenderExtension : public BackBone::Extension
-	{
-	public:
-		RenderExtension(const RenderExtensionConfig& Config)
-			:_Config(Config)
-		{
-		}
-		~RenderExtension() {}
-
-		virtual void Build(BackBone::App& App) override;
-
-		virtual const char* Name() const override { return "RenderExtension"; }
-	private:
-		RenderExtensionConfig _Config;
-	};
-
-	struct RenderResource
-	{
-		std::vector<CommandBufferAllocInfo> CommandBuffers;
-		uint32_t CurrentFrameCount = 0;
-		uint32_t MaxFrameInFlight = 0;
-		uint32_t TotalFrames = 0;
-		EventReader < WindowResizeEvent> ResizeEvent;
-		FrameBufferResizeEvent	FrameBufferSize{ 0,0 };
-		bool FrameBufferReSized = false;
-		bool ContinueRender = false;
-		CommandBufferAllocInfo ActiveCommandBuffer;
-
-		struct {
-			uint32_t  DrawCallsCount = 0;
-			uint32_t VertexCount = 0;
-			uint32_t IndexCount = 0;
-			uint32_t PipelineCount = 0;
-		} RenderDebugInfo;
-		std::vector<TransformComponent> OldTransformComponents;
-		BackBone::AssetHandle<ShaderProgram> DeafultShaderProgram;
-		BackBone::AssetHandle<Material> DeafultMaterial;
-		BackBone::AssetHandle<Image> DeafultImage;
-		BackBone::AssetHandle<Texture> DeafultTexture;
-		BackBone::AssetHandle<Sampler> DeafultSampler;
-	};
-
-	struct SubGraphPass
-	{
-		const char* DebugName = nullptr;
-		std::function<void(BackBone::SystemContext&, RenderPassInfo&)> RenderFn;
-		PipelineStateInfo Info;
-		VertexInputShaderLayout Layout;
-	};
-
-	struct RenderGraphPass
-	{
-		const char* DebugName = nullptr;
-		CompiledPass Pass;
-		std::function<void(BackBone::SystemContext&, RenderPassInfo&)> RenderFn;
-		PipelineStateInfo Info;
-		VertexInputShaderLayout Layout;
-		std::vector<SubGraphPass> SubPasses;
-		uint32_t SortOrder = 0;
-	};
-
-	struct RenderGraph
-	{
-		std::vector<RenderGraphPass> Passes;
-
-		void PushGraphPass(const RenderGraphPass& Pass)
-		{
-			Passes.push_back(Pass);
-		}
-
-		std::vector<RenderGraphPass>::iterator begin() { return Passes.begin(); }
-		std::vector<RenderGraphPass>::iterator end() { return Passes.end(); }
-	};
-	class Renderer;
-	class RenderCommand;
-
-	void OnPresentRender(BackBone::SystemContext& Ctxt, RenderPassInfo& Pass);
-	void OnRenderExtensionsSetup(BackBone::SystemContext& Ctxt);
-
 #pragma endregion
 
 #pragma region Window Extensions
@@ -841,6 +404,7 @@ namespace Chilli
 		float FontSize = 32.0f;
 		Vec4 Color = { 1, 1, 1, 1 };
 		bool IsDirty = true; // Flag to tell the system to rebuild the instances
+		bool IsRender = true;
 	};
 
 	// ---- Basic Extensions ----
@@ -1049,7 +613,7 @@ namespace Chilli
 	// Systems
 	void OnPepperStartUp(BackBone::SystemContext& Ctxt);
 	void OnPepperUpdate(BackBone::SystemContext& Ctxt);
-	void OnPepperRender(BackBone::SystemContext& Ctxt, RenderPassInfo& Pass);
+	void OnPepperRender(BackBone::SystemContext& Ctxt, RenderPassDesc& Pass);
 	std::vector<PipelineBarrier> GetPepperPrePassPipelineBarrier(BackBone::SystemContext& Ctxt);
 	std::vector<PipelineBarrier> GetPepperPostPassPipelineBarrier(BackBone::SystemContext& Ctxt);
 
@@ -1347,7 +911,12 @@ namespace Chilli
 	{
 		BOX,
 		SPHERE,
-		CAPSULE
+		CAPSULE,
+		CYLINDER,
+		TORUS,
+		CONE,
+		TAPERED_CYLINDER,
+		TAPERED_CAPSULE
 	};
 
 	struct CollisionEnterEvent : public Event
@@ -1413,8 +982,44 @@ namespace Chilli
 		{
 			struct { Vec3 HalfExtent; } AABB;
 			struct { float Radius; } Sphere;
-			struct { float SphereRadius; } Capsule;
 
+			struct
+			{
+				float Radius;
+				float HalfHeight;  // half height of cylinder part only, not including end spheres
+			} Capsule;
+
+			struct
+			{
+				float Radius;
+				float HalfHeight;
+			} Cylinder;
+
+			struct
+			{
+				float MajorRadius;  // distance from torus center to tube center
+				float MinorRadius;  // radius of the tube itself
+			} Torus;
+
+			struct
+			{
+				float Radius;
+				float HalfHeight;
+			} Cone;
+
+			struct
+			{
+				float TopRadius;     // radius at top — 0 makes a cone
+				float BottomRadius;  // radius at bottom
+				float HalfHeight;
+			} TaperedCylinder;
+
+			struct
+			{
+				float TopRadius;
+				float BottomRadius;
+				float HalfHeight;
+			} TaperedCapsule;
 			// Explicit default constructor to initialize the union
 			ShapeUnion() : AABB{ {0,0,0} } {}
 
@@ -1430,70 +1035,48 @@ namespace Chilli
 		// Collision ENDS - called once
 		std::function<void(BackBone::Entity, BackBone::SystemContext&)> OnExit = [](BackBone::Entity, BackBone::SystemContext&) {};;
 
+		// Helper method to handle Union Copying
+		void CopyShapeFrom(const Collider& other)
+		{
+			Type = other.Type;
+			switch (other.Type)
+			{
+			case ColliderType::BOX:              Shape.AABB = other.Shape.AABB; break;
+			case ColliderType::SPHERE:           Shape.Sphere = other.Shape.Sphere; break;
+			case ColliderType::CAPSULE:          Shape.Capsule = other.Shape.Capsule; break;
+			case ColliderType::CYLINDER:         Shape.Cylinder = other.Shape.Cylinder; break;
+			case ColliderType::TORUS:            Shape.Torus = other.Shape.Torus; break;
+			case ColliderType::CONE:             Shape.Cone = other.Shape.Cone; break;
+			case ColliderType::TAPERED_CYLINDER: Shape.TaperedCylinder = other.Shape.TaperedCylinder; break;
+			case ColliderType::TAPERED_CAPSULE:  Shape.TaperedCapsule = other.Shape.TaperedCapsule; break;
+			}
+		}
 		// Default constructor
 		Collider() : Type(ColliderType::BOX), IsTrigger(false), Shape() {}
-
-		// Copy constructor (needed for vector operations)
-		Collider(const Collider& other) : Type(other.Type), IsTrigger(other.IsTrigger)
-			, OnEnter(other.OnEnter), OnStay(other.OnStay), OnExit(other.OnExit)
-		{
-			switch (other.Type)
-			{
-			case ColliderType::BOX:
-				Shape.AABB = other.Shape.AABB;
-				break;
-			case ColliderType::SPHERE:
-				Shape.Sphere = other.Shape.Sphere;
-				break;
-			case ColliderType::CAPSULE:
-				Shape.Capsule = other.Shape.Capsule;
-				break;
-			}
-		}
-
-		// Move constructor (needed for vector operations)
-		Collider(Collider&& other) noexcept : Type(other.Type), IsTrigger(other.IsTrigger)
-			, OnEnter(other.OnEnter), OnStay(other.OnStay), OnExit(other.OnExit)
-		{
-			switch (other.Type)
-			{
-			case ColliderType::BOX:
-				Shape.AABB = other.Shape.AABB;
-				break;
-			case ColliderType::SPHERE:
-				Shape.Sphere = other.Shape.Sphere;
-				break;
-			case ColliderType::CAPSULE:
-				Shape.Capsule = other.Shape.Capsule;
-				break;
-			}
-		}
-
-		// Destructor
 		~Collider() {}
+
+		// Copy constructor
+		Collider(const Collider& other) : IsTrigger(other.IsTrigger), OnEnter(other.OnEnter), OnStay(other.OnStay), OnExit(other.OnExit)
+		{
+			CopyShapeFrom(other);
+		}
+
+		// Move constructor
+		Collider(Collider&& other) noexcept : IsTrigger(other.IsTrigger), OnEnter(std::move(other.OnEnter)), OnStay(std::move(other.OnStay)), OnExit(std::move(other.OnExit))
+		{
+			CopyShapeFrom(other);
+		}
 
 		// Copy assignment operator
 		Collider& operator=(const Collider& other)
 		{
 			if (this != &other)
 			{
-				Type = other.Type;
 				IsTrigger = other.IsTrigger;
 				OnEnter = other.OnEnter;
 				OnStay = other.OnStay;
 				OnExit = other.OnExit;
-				switch (other.Type)
-				{
-				case ColliderType::BOX:
-					Shape.AABB = other.Shape.AABB;
-					break;
-				case ColliderType::SPHERE:
-					Shape.Sphere = other.Shape.Sphere;
-					break;
-				case ColliderType::CAPSULE:
-					Shape.Capsule = other.Shape.Capsule;
-					break;
-				}
+				CopyShapeFrom(other);
 			}
 			return *this;
 		}
@@ -1503,23 +1086,11 @@ namespace Chilli
 		{
 			if (this != &other)
 			{
-				Type = other.Type;
 				IsTrigger = other.IsTrigger;
-				OnEnter = other.OnEnter;
-				OnStay = other.OnStay;
-				OnExit = other.OnExit;
-				switch (other.Type)
-				{
-				case ColliderType::BOX:
-					Shape.AABB = other.Shape.AABB;
-					break;
-				case ColliderType::SPHERE:
-					Shape.Sphere = other.Shape.Sphere;
-					break;
-				case ColliderType::CAPSULE:
-					Shape.Capsule = other.Shape.Capsule;
-					break;
-				}
+				OnEnter = std::move(other.OnEnter);
+				OnStay = std::move(other.OnStay);
+				OnExit = std::move(other.OnExit);
+				CopyShapeFrom(other);
 			}
 			return *this;
 		}
@@ -1535,7 +1106,7 @@ namespace Chilli
 		uint32_t MaxContactConstraints = 1024;
 		uint32_t MaxPhysicsJobs = 2048;
 		uint32_t MaxPhysicsBarriers = 8;
-		uint32_t NumThreads = 2;
+		uint32_t NumThreads = 1;
 		float DeafultLinearDamping = 0.3f;
 		float DeafultRestitution = 0.3f;
 		float DeafultFriction = 0.3f;
@@ -1702,6 +1273,7 @@ namespace Chilli
 		// Render Services Related
 		BackBone::AssetHandle<Mesh> CreateSphere(int XSegments, int YSegments);
 		BackBone::AssetHandle<Mesh> CreateCylinder(int Segments, float Radius, float Height);
+		BackBone::AssetHandle<Mesh> CreateCapsule(int Segments, float Radius, float Height);
 		BackBone::AssetHandle<Mesh> CreateTorus(int MajorSegments, int MinorSegments,
 			float MajorRadius, float MinorRadius);
 		BackBone::AssetHandle<Mesh> CreateCone(int Segments, float Radius, float Height);
@@ -1739,6 +1311,7 @@ namespace Chilli
 		void GenerateCone(int Segments, float Radius, float Height,
 			std::vector<Chilli::Vertex>& OutVerts,
 			std::vector<uint32_t>& OutIndices);
+		void GenerateCapsule(int Segments, float Radius, float Height, std::vector<Chilli::Vertex>& OutVerts, std::vector<uint32_t>& OutIndices);
 
 		void Displace(std::vector<Chilli::Vertex>& ModelVerts, const std::vector<uint32_t>& Indices, float Strength, float Limit);
 		void RecalculateNormals(std::vector<Chilli::Vertex>& Verts, const std::vector<uint32_t>& Indices);
@@ -1853,7 +1426,9 @@ namespace Chilli
 		}
 
 		uint32_t CreateEntity();
+		uint32_t GetEntityGeneration(uint32_t EntityID);
 		void DestroyEntity(uint32_t EntityID);
+		bool IsEntityValid(uint32_t EntityID);
 
 		BackBone::AssetHandle<Sampler> CreateSampler(const SamplerSpec& Spec);
 		void DestroySampler(const BackBone::AssetHandle<Sampler>& sampler);

@@ -87,6 +87,128 @@ namespace Chilli
 		IVec2 FrameBufferSize;
 	};
 
+	struct SyncMapping {
+		PipelineStage Stage;
+		AccessType Access;
+	};
+
+	static SyncMapping GetSyncInfo(ResourceState state) {
+		switch (state) {
+		case ResourceState::Undefined:
+			return { PipelineStage::TOP_OF_PIPE, AccessType::NONE };
+
+		case ResourceState::HostWrite:
+			// Assuming CPU upload before GPU reads
+			return { PipelineStage::TOP_OF_PIPE, AccessType::NONE };
+
+		case ResourceState::VertexRead:
+			// Usually linked to the Vertex Input stage
+			return { PipelineStage::VERTEX_SHADER, AccessType::SHADER_READ };
+
+		case ResourceState::IndexRead:
+			// Specific to the Index Input stage (Add to your enum if needed)
+			return { PipelineStage::TOP_OF_PIPE, AccessType::NONE };
+
+		case ResourceState::RenderTarget:
+			return { PipelineStage::COLOR_ATTACHMENT_OUTPUT, AccessType::COLOR_ATTACHMENT_WRITE };
+
+		case ResourceState::DepthWrite:
+			return { PipelineStage::DEPTH_STENCIL_OUTPUT, AccessType::DEPTH_STENCIL_WRITE };
+
+		case ResourceState::ShaderRead:
+			// TODO: Dont Assume Fragment Shader
+			return { PipelineStage::FRAGMENT_SHADER , AccessType::SHADER_READ };
+
+		case ResourceState::ComputeRead:
+			return { PipelineStage::COMPUTE_SHADER, AccessType::SHADER_READ };
+
+		case ResourceState::ComputeWrite:
+			return { PipelineStage::COMPUTE_SHADER, AccessType::SHADER_WRITE };
+
+		case ResourceState::CopySrc:
+			return { PipelineStage::TRANSFER, AccessType::TRANSFER_READ };
+
+		case ResourceState::CopyDst:
+			return { PipelineStage::TRANSFER, AccessType::TRANSFER_WRITE };
+
+		case ResourceState::Present:
+			// Presentation requires the bottom of the pipe to finish
+			return { PipelineStage::BOTTOM_OF_PIPE, AccessType::NONE };
+
+		default:
+			return { PipelineStage::TOP_OF_PIPE, AccessType::NONE };
+		}
+	}
+
+	inline PipelineBarrier FillBufferPipelineBarrier(uint32_t BufferHandle,
+		ResourceState SrcState,
+		ResourceState DstState,
+		uint64_t Offset = 0,
+		uint64_t Size = UINT64_MAX)
+	{
+		PipelineBarrier payload{}; // Zero-initialize everything
+		// Automatic Lookup
+		SyncMapping src = GetSyncInfo(SrcState);
+		SyncMapping dst = GetSyncInfo(DstState);
+
+		payload.SrcStage = src.Stage;
+		payload.DstStage = dst.Stage;
+		payload.SrcAccess = src.Access;
+		payload.DstAccess = dst.Access;
+
+		payload.OldState = SrcState;
+		payload.NewState = DstState;
+		// Buffer-specific data
+		payload.Buffer.Handle = BufferHandle;
+		payload.Buffer.Offset = Offset;
+		payload.Buffer.Size = Size;
+
+		payload.OldStream = RenderStreamTypes::GRAPHICS;
+		payload.NewStream = RenderStreamTypes::GRAPHICS;
+
+		return payload;
+	}
+
+	inline PipelineBarrier FillImagePipelineBarrier(
+		uint32_t TextureHandle,
+		bool IsSwapChain,
+		ResourceState SrcState,
+		ResourceState DstState,
+		uint32_t BaseMip = 0,
+		uint32_t MipCount = 1,
+		uint32_t BaseLayer = 0,
+		uint32_t LayerCount = 1)
+	{
+		PipelineBarrier payload{}; // Zero-initialize everything (Handles become UINT32_MAX)
+		// Automatic Lookup
+		SyncMapping src = GetSyncInfo(SrcState);
+		SyncMapping dst = GetSyncInfo(DstState);
+
+		payload.SrcStage = src.Stage;
+		payload.DstStage = dst.Stage;
+		payload.SrcAccess = src.Access;
+		payload.DstAccess = dst.Access;
+
+		payload.OldState = SrcState;
+		payload.NewState = DstState;
+
+		// Image-specific data
+		payload.Image.Handle = TextureHandle;
+		payload.Image.IsSwapChain = IsSwapChain;
+		payload.Image.SubresourceRange.BaseMip = static_cast<uint16_t>(BaseMip);
+		payload.Image.SubresourceRange.MipCount = static_cast<uint16_t>(MipCount);
+		payload.Image.SubresourceRange.BaseLayer = static_cast<uint16_t>(BaseLayer);
+		payload.Image.SubresourceRange.LayerCount = static_cast<uint16_t>(LayerCount);
+
+		// Note: You may want to deduce SrcStage/DstStage and Access flags here 
+		// or inside your backend's PushPipelineBarriers implementation.
+		// For now, we populate the states:
+		payload.OldStream = RenderStreamTypes::GRAPHICS;
+		payload.NewStream = RenderStreamTypes::GRAPHICS;
+
+		return payload;
+	}
+
 	struct RenderCommandBuffer
 	{
 	protected:
@@ -198,26 +320,18 @@ namespace Chilli
 			memcpy(&_Stream[current_size], other._Stream.data(), other._Stream.size());
 		}
 
-		void PushImagePipelineBarrier(uint32_t TextureHandle, bool IsSwapChain, ResourceState SrcState,
-			ResourceState DstState, uint32_t BaseMip = 0, uint32_t MipCount = 1, uint32_t BaseLayer = 0,
+		void PushImagePipelineBarrier(
+			uint32_t TextureHandle,
+			bool IsSwapChain,
+			ResourceState SrcState,
+			ResourceState DstState,
+			uint32_t BaseMip = 0,
+			uint32_t MipCount = 1,
+			uint32_t BaseLayer = 0,
 			uint32_t LayerCount = 1)
 		{
-			PipelineBarrier payload;
-
-			// Image barrier info
-			payload.ImageBarrier.ImageHandle = TextureHandle;
-			payload.ImageBarrier.IsSwapChain = IsSwapChain;
-
-			payload.ImageBarrier.SubresourceRange.baseMip = static_cast<uint16_t>(BaseMip);
-			payload.ImageBarrier.SubresourceRange.mipCount = static_cast<uint16_t>(MipCount);
-			payload.ImageBarrier.SubresourceRange.baseLayer = static_cast<uint16_t>(BaseLayer);
-			payload.ImageBarrier.SubresourceRange.layerCount = static_cast<uint16_t>(LayerCount);
-
-			// States
-			payload.OldState = SrcState;
-			payload.NewState = DstState;
-
-			PushPipelineBarriers({ payload });
+			PushPipelineBarriers({ FillImagePipelineBarrier(TextureHandle, IsSwapChain,
+				SrcState, DstState, BaseMip, MipCount, BaseLayer, LayerCount)});
 		}
 
 		void PushBufferPipelineBarrier(
@@ -227,24 +341,18 @@ namespace Chilli
 			uint64_t Offset = 0,
 			uint64_t Size = UINT64_MAX)
 		{
-			PipelineBarrier payload{};
-
-			// Buffer barrier info
-			payload.BufferBarrier.Handle = BufferHandle;
-			payload.BufferBarrier.Offset = Offset;
-			payload.BufferBarrier.Size = Size;
-
-			// States
-			payload.OldState = SrcState;
-			payload.NewState = DstState;
-
-			// Push command
-			PushPipelineBarriers({ payload });
+			PushPipelineBarriers({ FillBufferPipelineBarrier(BufferHandle, SrcState, DstState, 
+				Offset, Size)});
 		}
 
 		void PushPipelineBarriers(const std::vector<PipelineBarrier>& Barriers)
 		{
 			const uint8_t BarrierCount = Barriers.size();
+			PushPipelineBarriers(Barriers.data(), BarrierCount);
+		}
+
+		void PushPipelineBarriers(const PipelineBarrier* Barriers, uint8_t BarrierCount)
+		{
 			size_t current_size = _Stream.size();
 			const uint16_t payload_size = sizeof(PipelineBarrierCmdPayload) + (sizeof(PipelineBarrier) * BarrierCount);
 
@@ -265,7 +373,7 @@ namespace Chilli
 			Dst += sizeof(BarrierPayload);
 
 			// First Copy Data then set the inital point in BarrierPayload
-			memcpy(Dst, Barriers.data(), sizeof(PipelineBarrier) * BarrierCount);
+			memcpy(Dst, Barriers, sizeof(PipelineBarrier) * BarrierCount);
 		}
 
 		void Clear() { _Stream.clear(); }
@@ -280,7 +388,7 @@ namespace Chilli
 
 	struct BeginRenderPassCmdPayload
 	{
-		RenderPassInfo Pass;
+		RenderPassDesc Pass;
 	};
 
 	struct EndRenderPassCmdPayload
@@ -442,7 +550,7 @@ namespace Chilli
 			PushCommand<ResolveImageCmdPayload>(RenderOpCode::RESOLVE_IMAGE, Payload);
 		}
 
-		void BeginRenderPass(const RenderPassInfo& Pass)
+		void BeginRenderPass(const RenderPassDesc& Pass)
 		{
 			PushCommand<BeginRenderPassCmdPayload>(RenderOpCode::BEGIN_RENDER_PASS, { Pass });
 		}

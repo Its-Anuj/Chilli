@@ -216,6 +216,7 @@ namespace Chilli
 			ComponentStorage Storage;
 			std::vector<bool> ActiveEntities;
 			std::vector<uint32_t> FreeList;
+			std::vector<uint32_t> GenerationList;
 			Entity NextEntityId = 0;
 
 			std::vector<std::shared_ptr<void>> Resources;
@@ -249,6 +250,7 @@ namespace Chilli
 					Entity Id = FreeList[FreeList.size() - 1];
 					FreeList.pop_back();
 					ActiveEntities[Id] = true;
+					GenerationList[Id] += 1;
 					return Id;
 				}
 
@@ -256,6 +258,7 @@ namespace Chilli
 				if (id >= ActiveEntities.size())
 				{
 					ActiveEntities.resize(id + 1, false);
+					GenerationList.resize(id + 1, 1);
 
 					// ensure all component sparse arrays match new size
 					for (auto* s : Storage.Storage)
@@ -287,6 +290,13 @@ namespace Chilli
 			void Register()
 			{
 				Storage.Register<_T>(ActiveEntities.size());
+			}
+
+			uint32_t GetEntityGeneration(Entity Entity)
+			{
+				if (GenerationList.size() < Entity)
+					return npos;
+				return GenerationList[Entity];
 			}
 
 			template<typename _T>
@@ -706,11 +716,11 @@ namespace Chilli
 			const uint32_t GetSparseCount() const { return _Sparse.size(); }
 
 			// For range-based for loops:
-			template<typename T>
+			template<typename _ViewType>
 			class HandleView {
 			public:
 				struct Iterator {
-					const AssetStore<T>* _Store;
+					const AssetStore<_ViewType>* _Store;
 					size_t _Index;
 
 					Iterator& operator++() {
@@ -722,17 +732,17 @@ namespace Chilli
 						return _Index != other._Index;
 					}
 
-					AssetHandle<T> operator*() const {
+					AssetHandle<_ViewType> operator*() const {
 						// No bounds check needed - assume _Index is always valid when dereferenced
-						AssetHandle<T> handle;
+						AssetHandle<_ViewType> handle;
 						handle.Handle = _Store->_Dense[_Index];
 						handle.ValPtr = _Store->_Data[_Index].get();
 						return handle;
 					}
 				};
-				const AssetStore<T>* _Store;
+				const AssetStore<_ViewType>* _Store;
 
-				HandleView<T> GetHandles() const {
+				HandleView<_ViewType> GetHandles() const {
 					return HandleView(this);
 				}
 
@@ -748,11 +758,11 @@ namespace Chilli
 			HandleView<T> GetHandles() const { return HandleView(this); }
 
 			// For range-based for loops:
-			template<typename T>
+			template<typename _RefType>
 			class RefView {
 			public:
 				struct Iterator {
-					const AssetStore<T>* _Store;
+					const AssetStore<_RefType>* _Store;
 					size_t _Index;
 
 					Iterator& operator++() {
@@ -769,9 +779,9 @@ namespace Chilli
 						return _Store->_Data[_Index].get();
 					}
 				};
-				const AssetStore<T>* _Store;
+				const AssetStore<_RefType>* _Store;
 
-				RefView<T> GetHandles() const {
+				RefView<_RefType> GetHandles() const {
 					return RefView(this);
 				}
 

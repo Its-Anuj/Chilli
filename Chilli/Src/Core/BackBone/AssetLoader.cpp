@@ -5,7 +5,7 @@
 #include "AssetLoader.h"
 #include "AssetLoader.h"
 #include "AssetLoader.h"
-#include "Ch_PCH.h"-
+#include "Ch_PCH.h"
 #include "AssetLoader.h"
 #include "Profiling\Timer.h"
 

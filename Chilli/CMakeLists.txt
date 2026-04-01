@@ -4,7 +4,7 @@ file(GLOB_RECURSE CHILLI_CORE_SOURCES Src/Core/*.cpp Src/Core/*/*.cpp Src/Render
 if(MSVC)
     string(REPLACE "/WX" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 endif()
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDebug")
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 include_directories("Src/")
 include_directories("Src/Core/")
@@ -40,11 +40,21 @@ add_library(SPIRV-Reflect STATIC  Libs/SPIRV-Reflect/spirv_reflect.c)
 add_library(ufbx STATIC  Libs/UFBX/ufbx.c)
 
 add_library(ChilliCore STATIC ${CHILLI_CORE_SOURCES})
-target_link_libraries(ChilliCore ufbx FastNoise2 Jolt)
+target_link_libraries(ChilliVulkan PRIVATE ${Vulkan_LIBRARIES} VulkanMemoryAllocator )
+
+target_link_libraries(ChilliCore ufbx FastNoise2 Jolt glm::glm kernel32 user32 glfw)
 
 target_precompile_headers(ChilliCore PRIVATE "Src/Core/Ch_PCH.h" )
 
 set(CHILLI_BUILD_JOLT TRUE)
+
+if(CHILLI_LOG MATCHES TRUE)
+	message("Can Log")
+	target_compile_definitions(ChilliCore PUBLIC CHILLI_ENABLE_LOG=true)
+else()
+	message("Cant Log")
+	target_compile_definitions(ChilliCore PUBLIC CHILLI_ENABLE_LOG=false)
+endif()
 
 if(CHILLI_BUILD_JOLT MATCHES TRUE)
 	message("Build Jolt")

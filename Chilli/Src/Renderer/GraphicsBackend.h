@@ -90,7 +90,7 @@ namespace Chilli
 	{
 		uint32_t AlbedoTextureIndex;
 		uint32_t AlbedoSamplerIndex;
-		uint32_t Padding[2];
+		uint32_t Padding[2] = { 0,0 };
 		Vec4 AlbedoColor;
 	};
 

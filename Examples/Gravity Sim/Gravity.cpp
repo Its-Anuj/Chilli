@@ -10,11 +10,18 @@
 struct Simulation
 {
 	Chilli::BackBone::Entity Window;
-	Chilli::BackBone::Entity Cube;
-	Chilli::BackBone::Entity Ground;
-	Chilli::BackBone::Entity Camera;
-	Chilli::BackBone::AssetHandle<Chilli::Mesh> SphereMesh;
 	Chilli::Scene Scene;
+};
+
+struct HealthComponent
+{
+	uint32_t MaxHealth = 100;
+	uint32_t CurrentHealth = 0;
+};
+
+struct AttackComponent
+{
+	uint32_t Damage = 10;
 };
 
 void OnWindowCreate(Chilli::BackBone::SystemContext& Ctxt)
@@ -26,100 +33,29 @@ void OnWindowCreate(Chilli::BackBone::SystemContext& Ctxt)
 	Command.GetResource<Simulation>()->Window = Command.SpwanWindow(Chilli::WindowSpec{ "Gravity Sim", {800, 600} });
 }
 
-void SimulationCameraUpdate(Chilli::BackBone::SystemContext& Ctxt)
+void OnStartUp(Chilli::BackBone::SystemContext& Ctxt)
 {
 	auto Command = Chilli::Command(Ctxt);
-	auto Data = Command.GetResource<Simulation>();
+	auto[Image, ImageData] = Command.AllocateImage("Assets/Textures/Deafult.png", Chilli::ImageFormat::RGBA8, Chilli::IMAGE_USAGE_SAMPLED_IMAGE, Chilli::ImageType::IMAGE_TYPE_2D, 1, true);
 
-	Chilli::CameraBundle::Update3DCamera(Data->Camera, Ctxt);
+	Chilli::TextureSpec TexSpec{};
+	TexSpec.Format = Chilli::ImageFormat::RGBA8;
+	auto Texturre = Command.CreateTexture(Image, TexSpec);
+
+	auto Index = Command.GetService<Chilli::Renderer>()->GetTextureShaderIndex(Texturre.ValPtr->RawTextureHandle);
+
+	auto SquareMesh = Command.CreateMesh(Chilli::BasicShapes::TRIANGLE);
+	auto Square = Command.CreateEntity();
+	Command.AddComponent<Chilli::TransformComponent>(Square, {});
+	Command.AddComponent<Chilli::MeshComponent>(Square, Chilli::MeshComponent{
+		.MeshHandle = SquareMesh });
 }
 
-void SimulationSetup(Chilli::BackBone::SystemContext& Ctxt)
+void InputTest(Chilli::BackBone::SystemContext& Ctxt)
 {
 	auto Command = Chilli::Command(Ctxt);
-	auto Data = Command.GetResource<Simulation>();
-
-	auto CubeMesh = Command.CreateMesh(Chilli::BasicShapes::CUBE);
-	auto SphereMesh = Command.CreateMesh(Chilli::BasicShapes::SPHERE);
-	auto ConeMesh = Command.CreateMesh(Chilli::BasicShapes::CONE);
-
-	auto Cone = Command.CreateEntity();
-	Command.AddComponent<Chilli::TransformComponent>(Cone, Chilli::TransformComponent{});
-
-	Command.AddComponent<Chilli::MeshComponent>(Cone, Chilli::MeshComponent{
-		.MeshHandle = ConeMesh
-		});
-
-	Data->Cube = Command.CreateEntity();
-	Command.AddComponent<Chilli::TransformComponent>(Data->Cube, Chilli::TransformComponent{});
-
-	Chilli::RigidBody CubeRigidBody;
-	CubeRigidBody.GravityFactor = 1.0f;
-	CubeRigidBody.Mass = 10.0f;
-	CubeRigidBody.Layer = Chilli::Layers::DYNAMIC;
-	CubeRigidBody.MotionType = Chilli::MotionType::DYNAMIC;
-	CubeRigidBody.Velocity = { 0, -0, 0 };
-	CubeRigidBody.Restitution = 0.8f;
-
-	Command.AddComponent<Chilli::RigidBody>(Data->Cube, CubeRigidBody);
-
-	Chilli::Collider CubeCollider;
-	CubeCollider.Type = Chilli::ColliderType::SPHERE;
-	CubeCollider.IsTrigger = false;
-	CubeCollider.Shape.Sphere.Radius = 0.5f;
-
-	Command.AddComponent<Chilli::Collider>(Data->Cube, CubeCollider);
-
-	Command.AddComponent<Chilli::MeshComponent>(Data->Cube, Chilli::MeshComponent{
-		.MeshHandle = SphereMesh
-		});
-
-	Data->Ground = Command.CreateEntity();
-	Command.AddComponent<Chilli::TransformComponent>(Data->Ground, Chilli::TransformComponent{
-		{0.0f, -5.0f, 0.0f}, {10.0f, 1.0f, 10.0f } });
-
-	Command.AddComponent<Chilli::MeshComponent>(Data->Ground, Chilli::MeshComponent{
-		.MeshHandle = CubeMesh
-		});
-
-	Chilli::RigidBody PlatformRigidBody;
-	PlatformRigidBody.GravityFactor = 1.0f;
-	PlatformRigidBody.Mass = 10.0f;
-	PlatformRigidBody.Layer = Chilli::Layers::STATIC;
-	PlatformRigidBody.MotionType = Chilli::MotionType::STATIC;
-
-	Command.AddComponent<Chilli::RigidBody>(Data->Ground, PlatformRigidBody);
-
-	Chilli::Collider PlatformCollider;
-	PlatformCollider.Type = Chilli::ColliderType::BOX;
-	PlatformCollider.IsTrigger = false;
-	PlatformCollider.Shape.AABB.HalfExtent = { 5, 0.5f, 5 };
-
-	Command.AddComponent<Chilli::Collider>(Data->Ground, PlatformCollider);
-
-	Data->Camera = Chilli::CameraBundle::Create3D(Ctxt, { 0.0f, 0.0f, 5 });
-	Command.AddComponent<Chilli::Deafult3DCameraController>(Data->Camera, Chilli::Deafult3DCameraController());
-
-	Data->Scene.MainCamera = Data->Camera;
-
-	auto SceneManager = Command.GetService<Chilli::SceneManager>();
-	SceneManager->SetActiveScene(&Data->Scene);
-}
-
-void OnCubeMovement(Chilli::BackBone::SystemContext& Ctxt)
-{
-	auto Command = Chilli::Command(Ctxt);
-	auto Data = Command.GetResource<Simulation>();
-
-	auto PlayerRigidBody = Command.GetComponent<Chilli::RigidBody>(Data->Cube);
-	if (Command.GetService<Chilli::Input>()->IsKeyDown(Chilli::Input_key_P))
-		PlayerRigidBody->AddImpulse({ 0.0f, 0.0f, 20.0f });
-}
-
-void SimulationShutDown(Chilli::BackBone::SystemContext& Ctxt)
-{
-	auto Command = Chilli::Command(Ctxt);
-	auto Data = Command.GetResource<Simulation>();
+	if (Command.IsKeyPressed(Chilli::Input_key_T))
+		CH_CORE_INFO("T");
 }
 
 int main()
@@ -127,6 +63,7 @@ int main()
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 
 	Chilli::Log::Init();
+	CH_CORE_INFO("LOG");
 
 	Chilli::BackBone::App App;
 
@@ -138,13 +75,14 @@ int main()
 
 	Chilli::DeafultExtensionConfig DeafultConfig;
 	DeafultConfig.RenderConfig = RenderConfig;
-
+	
 	App.Extensions.AddExtension(std::make_unique<Chilli::DeafultExtension>(DeafultConfig), true, &App);
-	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::START_UP, SimulationSetup);
-	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::FIXED_PHYSICS, OnCubeMovement);
-	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::UPDATE, SimulationCameraUpdate);
-	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::SHUTDOWN, SimulationShutDown);
-
-
+	App.SystemScheduler.AddSystemOverLayBefore(Chilli::BackBone::ScheduleTimer::UPDATE, InputTest);
+	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::START_UP, OnStartUp);
+	CH_CORE_INFO("LOG");
+	
 	App.Run();
+
+	std::cin.get();
+	return true;
 }

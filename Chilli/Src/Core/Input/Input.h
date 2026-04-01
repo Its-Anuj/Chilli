@@ -38,7 +38,9 @@ namespace Chilli
 
     enum class InputResult
     {
+        INPUT_NONE,
         INPUT_PRESS,
+        INPUT_HELD,
         INPUT_REPEAT,
         INPUT_RELEASE
     };
@@ -73,7 +75,8 @@ namespace Chilli
 
         bool IsKeyDown(Input_key key) const {
             return _KeyStates[key] == InputResult::INPUT_PRESS ||
-                _KeyStates[key] == InputResult::INPUT_REPEAT;
+                _KeyStates[key] == InputResult::INPUT_REPEAT ||
+                _KeyStates[key] == InputResult::INPUT_HELD;
         }
 
         bool IsKeyReleased(Input_key key) const {

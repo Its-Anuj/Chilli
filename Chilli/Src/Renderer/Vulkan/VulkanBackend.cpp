@@ -67,6 +67,7 @@ namespace Chilli
 	{
 		_Spec = Spec;
 		_Data.MaxSets = CH_MATERIAL_SHADER_DATA_AMOUNT * Spec.MaxFrameInFlight * int(BindlessSetTypes::COUNT_USER);
+		VULKAN_PRINTLN("Vulkan Init!");
 
 		_CreateInstance();
 		_CreateDebugMessenger();
@@ -201,9 +202,7 @@ namespace Chilli
 		RenderingInfo.renderArea.extent.height = Payload.RenderArea.y;
 
 		// Use a local vector or a small_vector to avoid static thread-safety issues if needed
-		static std::vector<VkRenderingAttachmentInfo> ColorAttachments;
-		ColorAttachments.clear();
-		ColorAttachments.reserve(Payload.ColorAttachmentCount);
+		VkRenderingAttachmentInfo ColorAttachments[CHILLI_MAX_COLOR_ATTACHMENT]; 
 
 		for (int i = 0; i < Payload.ColorAttachmentCount; i++)
 		{
@@ -217,10 +216,7 @@ namespace Chilli
 			// --- 1. HANDLE RESOLVE LOGIC ---
 			if (ActiveColorAttachmentInfo.ResolveTexture != UINT32_MAX)
 			{
-				// If resolving, we almost always want to DONT_CARE about the MSAA buffer 
-				// after the resolve is finished to save bandwidth.
 				colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-
 				colorAttachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT; // Standard for color
 				colorAttachment.resolveImageView = _ImageDataManager.GetTexture(ActiveColorAttachmentInfo.ResolveTexture)->GetHandle();
 				colorAttachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -246,16 +242,16 @@ namespace Chilli
 				colorAttachment.imageView = _ImageDataManager.GetTexture(ActiveColorAttachmentInfo.ColorTexture)->GetHandle();
 			}
 
-			ColorAttachments.push_back(colorAttachment);
+			ColorAttachments[i] = (colorAttachment);
 		}
 
 		// --- 2. DEPTH ATTACHMENT ---
 		RenderingInfo.pDepthAttachment = nullptr;
 		VkRenderingAttachmentInfo depthAttach{}; // Renamed to avoid shadowing
 
-		if (Payload.DepthAttachment.DepthTexture != UINT32_MAX)
+		if (Payload.HasDepthStencil)
 		{
-			auto& ActiveAttachment = Payload.DepthAttachment;
+			auto& ActiveAttachment = Payload.DepthStencil;
 			depthAttach.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 			depthAttach.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 			depthAttach.storeOp = StoreOpToVk(ActiveAttachment.StoreOp);
@@ -263,13 +259,11 @@ namespace Chilli
 			depthAttach.imageView = _ImageDataManager.GetTexture(ActiveAttachment.DepthTexture)->GetHandle();
 			depthAttach.clearValue.depthStencil.depth = ActiveAttachment.Depth;
 
-			// Note: Depth Resolve is possible in 1.3, but usually not needed for 
-			// post-processing quads. We leave it as a simple store for now.
 			RenderingInfo.pDepthAttachment = &depthAttach;
 		}
 
-		RenderingInfo.colorAttachmentCount = static_cast<uint32_t>(ColorAttachments.size());
-		RenderingInfo.pColorAttachments = ColorAttachments.data();
+		RenderingInfo.colorAttachmentCount = static_cast<uint32_t>(Payload.ColorAttachmentCount);
+		RenderingInfo.pColorAttachments = ColorAttachments;
 
 		vkCmdBeginRendering(CmdBuffer, &RenderingInfo);
 		_SetViewPortSize(CmdBuffer, Payload.RenderArea.x, Payload.RenderArea.y);
@@ -331,10 +325,11 @@ namespace Chilli
 
 	VkCommandBuffer VulkanGraphicsBackend::_TranslateGraphicsCommandBuffer(const GraphicsCommandBuffer& CmdBuffer)
 	{
-		int Offset = 0;
-		auto Dst = CmdBuffer.Data();
+		volatile int Offset = (int)0;
+		volatile auto Dst = (uint8_t*)CmdBuffer.Data();
+		volatile auto Buffasda = (const GraphicsCommandBuffer*)&CmdBuffer;
 
-		VkCommandBuffer ActiveCommandBuffer = VK_NULL_HANDLE;
+		volatile VkCommandBuffer ActiveCommandBuffer = (VkCommandBuffer)VK_NULL_HANDLE;
 
 		while (Offset < CmdBuffer.Size())
 		{
@@ -600,11 +595,11 @@ namespace Chilli
 				size_t BindingCount = Payload->BindingCount;
 				size_t AttribCount = Payload->AttribsCount;
 
-				VkVertexInputBindingDescription2EXT* BindingDescriptions = (VkVertexInputBindingDescription2EXT*)alloca(
-					sizeof(VkVertexInputBindingDescription2EXT) * BindingCount
-				);
+				std::vector< VkVertexInputBindingDescription2EXT> BindingDescVector(BindingCount);
+				VkVertexInputBindingDescription2EXT* BindingDescriptions = BindingDescVector.data();
 
-				VkVertexInputAttributeDescription2EXT* AttribDescriptions = (VkVertexInputAttributeDescription2EXT*)alloca(sizeof(VkVertexInputAttributeDescription2EXT) * AttribCount);
+				std::vector< VkVertexInputAttributeDescription2EXT> AttribDescVector(AttribCount);
+				VkVertexInputAttributeDescription2EXT* AttribDescriptions = AttribDescVector.data();
 
 				int ioffset = 0;
 				int DstOffset = sizeof(SetVertexLayoutCmdPayload);
@@ -909,97 +904,69 @@ namespace Chilli
 		}
 	}
 
-	// ------------------------------------------------------------------------------------------------
-	// HELPER: Resolve ResourceState to Vulkan Access Flags and Layouts
-	// ------------------------------------------------------------------------------------------------
-	std::pair<VkAccessFlags, VkImageLayout> GetAccessAndLayout(ResourceState state) {
+	std::pair<VkAccessFlags, VkImageLayout> GetAccessAndLayout(ResourceState state, AccessType access) {
+		VkAccessFlags accessFlags = 0;
+
+		// 1. Map AccessType bitmask to VkAccessFlags
+		if (uint32_t(access) & uint32_t(AccessType::COLOR_ATTACHMENT_WRITE)) accessFlags |= VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		if (uint32_t(access) & uint32_t(AccessType::COLOR_ATTACHMENT_READ))  accessFlags |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+		if (uint32_t(access) & uint32_t(AccessType::DEPTH_STENCIL_WRITE))    accessFlags |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		if (uint32_t(access) & uint32_t(AccessType::DEPTH_STENCIL_READ))     accessFlags |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+		if (uint32_t(access) & uint32_t(AccessType::SHADER_READ))            accessFlags |= VK_ACCESS_SHADER_READ_BIT;
+		if (uint32_t(access) & uint32_t(AccessType::SHADER_WRITE))           accessFlags |= VK_ACCESS_SHADER_WRITE_BIT;
+		if (uint32_t(access) & uint32_t(AccessType::TRANSFER_READ))          accessFlags |= VK_ACCESS_TRANSFER_READ_BIT;
+		if (uint32_t(access) & uint32_t(AccessType::TRANSFER_WRITE))         accessFlags |= VK_ACCESS_TRANSFER_WRITE_BIT;
+
+		// 2. Map ResourceState to VkImageLayout
+		VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
 		switch (state) {
-		case ResourceState::Undefined:
-			return { 0, VK_IMAGE_LAYOUT_UNDEFINED };
-		case ResourceState::RenderTarget:
-			return { VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
-		case ResourceState::DepthWrite:
-			return { VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
-		case ResourceState::ShaderRead:
-			return { VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-		case ResourceState::ComputeRead:
-			return { VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL };
-		case ResourceState::ComputeWrite:
-			return { VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL };
-		case ResourceState::CopySrc:
-			return { VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL };
-		case ResourceState::CopyDst:
-			return { VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL };
-		case ResourceState::Present:
-			return { 0, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR };
-		case ResourceState::HostWrite:
-			return { VK_ACCESS_HOST_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED };
-		case ResourceState::VertexRead:
-			return { VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT, VK_IMAGE_LAYOUT_UNDEFINED };
-		case ResourceState::IndexRead:
-			return { VK_ACCESS_INDEX_READ_BIT, VK_IMAGE_LAYOUT_UNDEFINED };
-		default:
-			return { 0, VK_IMAGE_LAYOUT_UNDEFINED };
+		case ResourceState::Undefined:    layout = VK_IMAGE_LAYOUT_UNDEFINED; break;
+		case ResourceState::RenderTarget: layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; break;
+		case ResourceState::DepthWrite:   layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL; break;
+		case ResourceState::ShaderRead:   layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; break;
+		case ResourceState::ComputeRead:  layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; break;
+		case ResourceState::ComputeWrite: layout = VK_IMAGE_LAYOUT_GENERAL; break;
+		case ResourceState::CopySrc:      layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL; break;
+		case ResourceState::CopyDst:      layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL; break;
+		case ResourceState::Present:      layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR; break;
+			// Buffers don't use layouts, so for Buffer-only states, we use GENERAL or UNDEFINED
+		default:                          layout = VK_IMAGE_LAYOUT_GENERAL; break;
 		}
+
+		return { accessFlags, layout };
 	}
 
-	// ------------------------------------------------------------------------------------------------
-	// HELPER: Resolve Pipeline Stages based on State and Stream Type
-	// ------------------------------------------------------------------------------------------------
-	VkPipelineStageFlags GetPipelineStage(ResourceState state, RenderStreamTypes stream) {
-		// 1. Explicit State Mappings
-		switch (state) {
-		case ResourceState::Undefined:    return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-		case ResourceState::RenderTarget: return VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-		case ResourceState::DepthWrite:   return VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-		case ResourceState::CopySrc:
-		case ResourceState::CopyDst:      return VK_PIPELINE_STAGE_TRANSFER_BIT;
-		case ResourceState::ComputeRead:
-		case ResourceState::ComputeWrite: return VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-		case ResourceState::HostWrite:  return VK_PIPELINE_STAGE_HOST_BIT;
-		case ResourceState::VertexRead:
-		case ResourceState::IndexRead:   return VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
-		case ResourceState::Present:      return VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-		default: break;
-		}
-
-		// 2. Fallback based on Stream Context
-		switch (stream) {
-		case RenderStreamTypes::GRAPHICS:
-			if (state == ResourceState::ShaderRead)
-				return VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT;
-			return VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT;
-		case RenderStreamTypes::COMPUTE:
-			return VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-		case RenderStreamTypes::TRANSFER:
-			return VK_PIPELINE_STAGE_TRANSFER_BIT;
-		}
-		return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+	VkPipelineStageFlags GetPipelineStage(PipelineStage stage) {
+		VkPipelineStageFlags flags = 0;
+		if (uint32_t(stage) & uint32_t(PipelineStage::TOP_OF_PIPE))            flags |= VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+		if (uint32_t(stage) & uint32_t(PipelineStage::VERTEX_SHADER))          flags |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT;
+		if (uint32_t(stage) & uint32_t(PipelineStage::FRAGMENT_SHADER))        flags |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		if (uint32_t(stage) & uint32_t(PipelineStage::COLOR_ATTACHMENT_OUTPUT)) flags |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		if (uint32_t(stage) & uint32_t(PipelineStage::DEPTH_STENCIL_OUTPUT))    flags |= VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+		if (uint32_t(stage) & uint32_t(PipelineStage::COMPUTE_SHADER))         flags |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+		if (uint32_t(stage) & uint32_t(PipelineStage::TRANSFER))               flags |= VK_PIPELINE_STAGE_TRANSFER_BIT;
+		if (uint32_t(stage) & uint32_t(PipelineStage::BOTTOM_OF_PIPE))         flags |= VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+		if (uint32_t(stage) & uint32_t(PipelineStage::ALL_GRAPHICS))           flags |= VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT;
+		return flags;
 	}
 
 	void VulkanGraphicsBackend::_ExecutePipelineBarriers(const PipelineBarrier* barriers, uint32_t count, VkCommandBuffer cmdBuffer)
 	{
 		if (count == 0) return;
 
-		// Use the 2-suffix versions for Vulkan 1.3
-		static std::vector<VkImageMemoryBarrier2> imageBarriers;
-		static std::vector<VkBufferMemoryBarrier2> bufferBarriers;
-
-		imageBarriers.clear();
-		bufferBarriers.clear();
-		imageBarriers.reserve(count);
-		bufferBarriers.reserve(count);
+		VkImageMemoryBarrier2 imgBarriersStack[CHILLI_MAX_PASS_BARRIERS];
+		VkBufferMemoryBarrier2 bufBarriersStack[CHILLI_MAX_PASS_BARRIERS];
+		uint32_t imgCount = 0;
+		uint32_t bufCount = 0;
 
 		for (uint32_t i = 0; i < count; ++i) {
 			const PipelineBarrier& bar = barriers[i];
 
-			// 1. Resolve Access, Layouts, and Stages
-			auto [srcAccess, oldLayout] = GetAccessAndLayout(bar.OldState);
-			auto [dstAccess, newLayout] = GetAccessAndLayout(bar.NewState);
-
-			// Cast these to the 64-bit Flags2 versions required by Sync 2
-			VkPipelineStageFlags2 stageSrc = (VkPipelineStageFlags2)GetPipelineStage(bar.OldState, bar.OldStream);
-			VkPipelineStageFlags2 stageDst = (VkPipelineStageFlags2)GetPipelineStage(bar.NewState, bar.NewStream);
+			// 1. Resolve Access, Layouts, and Stage
+			auto [srcAccess, oldLayout] = GetAccessAndLayout(bar.OldState, bar.SrcAccess);
+			auto [dstAccess, newLayout] = GetAccessAndLayout(bar.NewState, bar.DstAccess);
+			VkPipelineStageFlags srcStage = GetPipelineStage(bar.SrcStage);
+			VkPipelineStageFlags dstStage = GetPipelineStage(bar.DstStage);
 
 			// 2. Resolve Queue Ownership
 			uint32_t srcQueueFamily = VK_QUEUE_FAMILY_IGNORED;
@@ -1011,31 +978,30 @@ namespace Chilli
 
 			// 3. Handle Image Barriers
 			VkImage targetImage = VK_NULL_HANDLE;
-			bool isImageBarrier = false;
 
-			if (bar.ImageBarrier.IsSwapChain) {
-				targetImage = _Data.SwapChainKHR.GetImages()[_FrameResource.CurrentFrameIndex];
-				isImageBarrier = true;
-			}
-			else if (bar.ImageBarrier.ImageHandle != UINT32_MAX) {
-				auto Image = _ImageDataManager.GetImage(_ImageDataManager.GetTexture(bar.ImageBarrier.ImageHandle)->GetImageHandle());
+			if (bar.IsImageBarrier())
+			{
+				if (bar.Image.IsSwapChain) {
+					targetImage = _Data.SwapChainKHR.GetImages()[_FrameResource.CurrentFrameIndex];
+				}
+				else if (bar.Image.Handle != UINT32_MAX) {
+					auto Image = _ImageDataManager.GetImage(_ImageDataManager.GetTexture(bar.Image.Handle)->GetImageHandle());
 
-				// State Validation
-				if (bar.OldState != Image->GetSpec().State)
-					VULKAN_ERROR("The given state does not match images current state!");
-				if (!ValidateImageState(Image->GetSpec().Usage, bar.NewState))
-					VULKAN_ERROR("Usage and State not valid!");
+					// State Validation
+					if (bar.OldState != Image->GetSpec().State)
+						VULKAN_ERROR("The given state does not match images current state!");
+					if (!ValidateImageState(Image->GetSpec().Usage, bar.NewState))
+						VULKAN_ERROR("Usage and State not valid!");
+					// Better: use the format to determine if it's depth/stencil/color
 
-				Image->SetResourceState(bar.NewState);
-				targetImage = Image->GetHandle();
-				isImageBarrier = true;
-			}
-
-			if (isImageBarrier && targetImage != VK_NULL_HANDLE) {
+					Image->SetResourceState(bar.NewState);
+					targetImage = Image->GetHandle();
+				}
+				
 				VkImageMemoryBarrier2 imgBar = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-				imgBar.srcStageMask = stageSrc;
+				imgBar.srcStageMask = srcStage;
 				imgBar.srcAccessMask = (VkAccessFlags2)srcAccess;
-				imgBar.dstStageMask = stageDst;
+				imgBar.dstStageMask = dstStage;
 				imgBar.dstAccessMask = (VkAccessFlags2)dstAccess;
 				imgBar.oldLayout = oldLayout;
 				imgBar.newLayout = newLayout;
@@ -1043,50 +1009,52 @@ namespace Chilli
 				imgBar.dstQueueFamilyIndex = dstQueueFamily;
 				imgBar.image = targetImage;
 
-				imgBar.subresourceRange.baseMipLevel = bar.ImageBarrier.SubresourceRange.baseMip;
-				imgBar.subresourceRange.levelCount = bar.ImageBarrier.SubresourceRange.mipCount;
-				imgBar.subresourceRange.baseArrayLayer = bar.ImageBarrier.SubresourceRange.baseLayer;
-				imgBar.subresourceRange.layerCount = bar.ImageBarrier.SubresourceRange.layerCount;
+				imgBar.subresourceRange.baseMipLevel = bar.Image.SubresourceRange.BaseMip;
+				imgBar.subresourceRange.levelCount = bar.Image.SubresourceRange.MipCount;
+				imgBar.subresourceRange.baseArrayLayer = bar.Image.SubresourceRange.BaseLayer;
+				imgBar.subresourceRange.layerCount = bar.Image.SubresourceRange.LayerCount;
 
-				// Aspect Mask Logic
-				if (bar.NewState == ResourceState::DepthWrite || bar.OldState == ResourceState::DepthWrite) {
-					auto Image = _ImageDataManager.GetImage(_ImageDataManager.GetTexture(bar.ImageBarrier.ImageHandle)->GetImageHandle());
-					imgBar.subresourceRange.aspectMask = FormatToVkAspectMask(Image->GetSpec().Format, Image->GetSpec().Usage);
-				}
-				else {
+				// 2. Robust Aspect Mask
+				if (bar.Image.IsSwapChain) {
 					imgBar.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 				}
+				else {
+					auto Image = _ImageDataManager.GetImage(_ImageDataManager.GetTexture(bar.Image.Handle)->GetImageHandle());
 
-				imageBarriers.push_back(imgBar);
+					// Better: use the format to determine if it's depth/stencil/color
+					imgBar.subresourceRange.aspectMask = FormatToVkAspectMask(Image->GetSpec().Format, Image->GetSpec().Usage);
+				}
+
+				imgBarriersStack[imgCount++] = imgBar;
 			}
-			// 4. Handle Buffer Barriers
-			else if (bar.BufferBarrier.Handle != UINT32_MAX) {
+			else
+			{
 				VkBufferMemoryBarrier2 bufBar = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2 };
-				bufBar.srcStageMask = stageSrc;
+				bufBar.srcStageMask = srcStage;
 				bufBar.srcAccessMask = (VkAccessFlags2)srcAccess;
-				bufBar.dstStageMask = stageDst;
+				bufBar.dstStageMask = dstStage;
 				bufBar.dstAccessMask = (VkAccessFlags2)dstAccess;
 				bufBar.srcQueueFamilyIndex = srcQueueFamily;
 				bufBar.dstQueueFamilyIndex = dstQueueFamily;
-				bufBar.buffer = _BufferManager.Get(bar.BufferBarrier.Handle)->Buffer;
-				bufBar.offset = bar.BufferBarrier.Offset;
+				bufBar.buffer = _BufferManager.Get(bar.Buffer.Handle)->Buffer;
+				bufBar.offset = bar.Buffer.Offset;
 
-				if (bar.BufferBarrier.Size == CH_BUFFER_WHOLE_SIZE)
+				if (bar.Buffer.Size == CH_BUFFER_WHOLE_SIZE)
 					bufBar.size = VK_WHOLE_SIZE;
 				else
-					bufBar.size = bar.BufferBarrier.Size;
+					bufBar.size = bar.Buffer.Size;
 
-				bufferBarriers.push_back(bufBar);
+				bufBarriersStack[imgCount++] = bufBar;
 			}
 		}
 
 		// 5. Submit using Dependency Info
-		if (!imageBarriers.empty() || !bufferBarriers.empty()) {
+		if (imgCount > 0 || bufCount > 0) {
 			VkDependencyInfo depInfo = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-			depInfo.imageMemoryBarrierCount = static_cast<uint32_t>(imageBarriers.size());
-			depInfo.pImageMemoryBarriers = imageBarriers.data();
-			depInfo.bufferMemoryBarrierCount = static_cast<uint32_t>(bufferBarriers.size());
-			depInfo.pBufferMemoryBarriers = bufferBarriers.data();
+			depInfo.imageMemoryBarrierCount = static_cast<uint32_t>(imgCount);
+			depInfo.pImageMemoryBarriers = imgBarriersStack;
+			depInfo.bufferMemoryBarrierCount = static_cast<uint32_t>(bufCount);
+			depInfo.pBufferMemoryBarriers = bufBarriersStack;
 
 			vkCmdPipelineBarrier2(cmdBuffer, &depInfo);
 		}
@@ -1316,10 +1284,9 @@ namespace Chilli
 
 		const uint32_t attachmentCount = ColorBlendAttachmentCount;
 
-		auto blendEnables = (VkBool32*)alloca(attachmentCount * sizeof(VkBool32));
-		auto colorWriteMasks = (VkColorComponentFlags*)alloca(attachmentCount
-			* sizeof(VkColorComponentFlags));
-		auto blendEquations = (VkColorBlendEquationEXT*)alloca(attachmentCount * sizeof(VkColorBlendEquationEXT));
+		std::vector<VkBool32> blendEnables(attachmentCount);
+		std::vector<VkColorComponentFlags> colorWriteMasks(attachmentCount);
+		std::vector<VkColorBlendEquationEXT> blendEquations(attachmentCount);
 
 		for (uint32_t i = 0; i < attachmentCount; ++i)
 		{
@@ -1352,14 +1319,14 @@ namespace Chilli
 		uint32_t firstAttachment = 0; // Assuming we always start at slot 0
 
 		// 1. Set Blend Enable for all attachments
-		pfn_vkCmdSetColorBlendEnableEXT(CmdBuffer, firstAttachment, attachmentCount, blendEnables);
+		pfn_vkCmdSetColorBlendEnableEXT(CmdBuffer, firstAttachment, attachmentCount, blendEnables.data());
 
 		// 2. Set Color Write Mask for all attachments
-		pfn_vkCmdSetColorWriteMaskEXT(CmdBuffer, firstAttachment, attachmentCount, colorWriteMasks);
+		pfn_vkCmdSetColorWriteMaskEXT(CmdBuffer, firstAttachment, attachmentCount, colorWriteMasks.data());
 
 		// 3. Set Blend Equation for all attachments
 		// This command covers the factors (Src, Dst) and the operators (Add, Subtract, etc.)
-		pfn_vkCmdSetColorBlendEquationEXT(CmdBuffer, firstAttachment, attachmentCount, blendEquations);
+		pfn_vkCmdSetColorBlendEquationEXT(CmdBuffer, firstAttachment, attachmentCount, blendEquations.data());
 	}
 
 	void VulkanGraphicsBackend::SetPrimitiveTopology(VkCommandBuffer CmdBuffer, InputTopologyMode mode)
@@ -1826,9 +1793,11 @@ namespace Chilli
 
 		uint32_t glfwExtCount = 0;
 		const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtCount);
+		VULKAN_PRINTLN("Create Instance");
 
-		RequiredExts.push_back(glfwExtensions[0]);
-		RequiredExts.push_back(glfwExtensions[1]);
+		for (uint32_t i = 0; i < glfwExtCount; i++) {
+			RequiredExts.push_back(glfwExtensions[i]);
+		}
 
 		if (_Spec.EnableValidation)
 		{
@@ -1844,6 +1813,7 @@ namespace Chilli
 		appinfo.applicationVersion = VK_API_VERSION_1_3;
 		appinfo.engineVersion = VK_API_VERSION_1_3;
 
+		VULKAN_PRINTLN("Create App");
 		VkInstanceCreateInfo createInfo{};
 		createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 		createInfo.pApplicationInfo = &appinfo;
@@ -1859,16 +1829,17 @@ namespace Chilli
 			createInfo.ppEnabledExtensionNames = RequiredExts.data();
 
 		createInfo.pNext = nullptr;
+		VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
 
 		if (_Spec.EnableValidation)
 		{
-			VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
-
 			_PopulateDebugMessengerCreateInfo(debugCreateInfo);
 			createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&debugCreateInfo;
 		}
 
+		VULKAN_PRINTLN("Vulkan vkCreateInstance?!");
 		VULKAN_SUCCESS_ASSERT(vkCreateInstance(&createInfo, nullptr, &_Data.Instance), "Instance Creation Failed!");
+		VULKAN_PRINTLN("Vulkan vkCreateInstance  Success!");
 		VULKAN_PRINTLN("Instance Created! for: " << _Spec.Name);
 	}
 
@@ -1892,13 +1863,26 @@ namespace Chilli
 
 	void Chilli::VulkanGraphicsBackend::_PopulateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo)
 	{
+		createInfo = {}; // Global zero-init to prevent garbage memory in Release
 		createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-		createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-		createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+
+		// Enable EVERY severity level including INFO bit
+		createInfo.messageSeverity =
+			VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+			VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+			VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+			VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+
+		// Enable EVERY message type
+		createInfo.messageType =
+			VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+			VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+			VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+
 		createInfo.pfnUserCallback = debugCallback;
-		createInfo.pUserData = nullptr; // Optional
-		createInfo.pNext = nullptr;     // Optional
-		createInfo.flags = 0;           // Must be 0
+		createInfo.pUserData = nullptr;
+		createInfo.pNext = nullptr;
+		createInfo.flags = 0;
 	}
 
 	void Chilli::VulkanGraphicsBackend::_DestroyDebugMessenger()

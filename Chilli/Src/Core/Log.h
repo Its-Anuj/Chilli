@@ -16,7 +16,7 @@ namespace Chilli
 	};
 }
 
-#if CHILLI_ENGINE_DEBUG == true
+#if CHILLI_ENABLE_LOG == true
 // Core log macros
 #define CH_CORE_TRACE(...)    ::Chilli::Log::GetCoreLogger()->trace(__VA_ARGS__)
 #define CH_CORE_INFO(...)     ::Chilli::Log::GetCoreLogger()->info(__VA_ARGS__)

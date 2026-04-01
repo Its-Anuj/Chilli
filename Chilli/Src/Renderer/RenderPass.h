@@ -1,38 +1,70 @@
 #pragma once
-
 #include "RenderCore.h"
 
 namespace Chilli
 {
-	static constexpr uint32_t SWAPCHAIN_IMAGE_HANDLE = UINT32_MAX;
-
 	enum class AttachmentLoadOp { LOAD, CLEAR };
 	enum class AttachmentStoreOp { STORE, DONT_CARE };
 
+	enum class PipelineStage : uint32_t {
+		TOP_OF_PIPE = 1 << 0,
+		VERTEX_SHADER = 1 << 1,
+		FRAGMENT_SHADER = 1 << 2,
+		COLOR_ATTACHMENT_OUTPUT = 1 << 3,
+		DEPTH_STENCIL_OUTPUT = 1 << 4,
+		COMPUTE_SHADER = 1 << 5,
+		TRANSFER = 1 << 6,
+		BOTTOM_OF_PIPE = 1 << 7,
+		ALL_GRAPHICS = 1 << 8,
+	};
+
+	enum class AccessType : uint32_t {
+		NONE = 0,
+		COLOR_ATTACHMENT_WRITE = 1 << 0,
+		COLOR_ATTACHMENT_READ = 1 << 1,
+		DEPTH_STENCIL_WRITE = 1 << 2,
+		DEPTH_STENCIL_READ = 1 << 3,
+		SHADER_READ = 1 << 4,
+		SHADER_WRITE = 1 << 5,
+		TRANSFER_READ = 1 << 6,
+		TRANSFER_WRITE = 1 << 7,
+	};
+
 	struct PipelineBarrier {
-		struct {
-			uint32_t Handle = UINT32_MAX;
-			uint64_t Offset = 0;
-			uint64_t Size = UINT64_MAX;
-		} BufferBarrier;
-
-		struct {
-			uint32_t ImageHandle = UINT32_MAX;
-			bool IsSwapChain = false;
-
-			struct {
-				uint16_t baseMip = 0;
-				uint16_t mipCount = 1;
-				uint16_t baseLayer = 0;
-				uint16_t layerCount = 1;
-			} SubresourceRange;
-		} ImageBarrier;
+		// Shared synchronization data
+		PipelineStage SrcStage;  // Wait for these stages to finish
+		PipelineStage DstStage;  // Block these stages until transition is done
+		AccessType    SrcAccess; // Memory access to flush
+		AccessType    DstAccess; // Memory access to make visible
 
 		ResourceState OldState;
 		ResourceState NewState;
-
 		RenderStreamTypes OldStream;
 		RenderStreamTypes NewStream;
+
+		// Resource-specific data
+		struct BufferBarrierInfo {
+			uint32_t Handle = UINT32_MAX;
+			uint64_t Offset = 0;
+			uint64_t Size = UINT64_MAX; // Use UINT64_MAX for "whole buffer"
+		} Buffer;
+
+		struct ImageBarrierInfo {
+			uint32_t Handle = UINT32_MAX;
+			bool IsSwapChain = false;
+
+			struct {
+				uint16_t BaseMip = 0;
+				uint16_t MipCount = 1;
+				uint16_t BaseLayer = 0;
+				uint16_t LayerCount = 1;
+			} SubresourceRange;
+		} Image;
+
+		// Helper to determine barrier type at runtime
+		bool IsImageBarrier() const { return Image.Handle != UINT32_MAX || Image.IsSwapChain;
+	}
+		bool IsBufferBarrier() const { return Buffer.Handle != UINT32_MAX; }
 	};
 
 	struct PipelineBarrierCmdPayload {
@@ -46,17 +78,40 @@ namespace Chilli
 		MAX = 1 << 2,     // Keeps the largest value
 	};
 
-	struct ColorAttachment {
-		uint32_t ColorTexture = UINT32_MAX;
-		uint32_t ResolveTexture = UINT32_MAX;  // This is Image B (Sampled/Texture)
+	enum class RenderPassStage : uint8_t
+	{
+		BeforeDepthPrepass = 0,
+		AfterDepthPrepass = 1,
+		BeforeOpaque = 2,
+		AfterOpaque = 3,
+		BeforeSky = 4,
+		AfterSky = 5,
+		BeforeTransparent = 6,
+		AfterTransparent = 7,
+		BeforePostProcess = 8,
+		AfterPostProcess = 9,
+		BeforeUI = 10,
+		AfterUI = 11,
+		BeforePresent = 12,  // ADD — last chance before swapchain present
+		Compute = 13,  // ADD — async compute, not tied to graphics timeline
+	};
 
-		bool UseSwapChainImage = false;
+	struct ColorAttachment
+	{
+		uint32_t ColorTexture = UINT32_MAX;  // your existing handle
+		uint32_t ResolveTexture = UINT32_MAX;
 
-		Vec4 ClearColor = { 0, 0, 0, 1 };
-		AttachmentLoadOp LoadOp = AttachmentLoadOp::CLEAR;
-		AttachmentStoreOp StoreOp = AttachmentStoreOp::STORE;
+		AttachmentLoadOp             LoadOp = AttachmentLoadOp::CLEAR;
+		AttachmentStoreOp            StoreOp = AttachmentStoreOp::STORE;
 
 		ResolveMode ResolveOp = ResolveMode::AVERAGE;
+
+		ResourceState                InitialState = ResourceState::Undefined;
+		ResourceState                FinalState = ResourceState::ShaderRead;
+
+		// Clear values — used when LoadOp == Clear
+		Vec4 ClearColor = { 0,0,0, 1 };
+		bool UseSwapChainImage = false;
 	};
 
 	struct DepthAttachment {
@@ -70,134 +125,42 @@ namespace Chilli
 		float Stencil = 0.0f;
 	};
 
-	struct RenderPassInfo {
-		const char* DebugName;
+	struct BufferDependency {
+		uint32_t Handle = UINT32_MAX;
+		ResourceState RequiredState = ResourceState::Undefined;
+	};
 
-		IVec2 RenderArea;
+#define CHILLI_MAX_COLOR_ATTACHMENT 8
+#define CHILLI_MAX_INPUT_ATTACHMENT 8
+#define CHILLI_MAX_PASS_BARRIERS 16
+#define CHILLI_MAX_BUFFERS_DEPENDENCIES 16
 
+	struct RenderPassDesc
+	{
+		std::string     Name;
+		RenderPassStage Stage;
+
+		std::array<ColorAttachment , CHILLI_MAX_COLOR_ATTACHMENT> ColorAttachments;
 		uint32_t ColorAttachmentCount = 0;
-		ColorAttachment ColorAttachments[CH_MAX_COLOR_ATTACHMENT_COUNT];
+		bool             HasDepthStencil = false;
+		DepthAttachment DepthStencil;
 
-		DepthAttachment DepthAttachment;
-		SampleCount Samples = IMAGE_SAMPLE_COUNT_1_BIT;
-	};
+		// Use a fixed array and a counter instead of vector
+		std::array<uint32_t, CHILLI_MAX_INPUT_ATTACHMENT > InputAttachments;
+		uint32_t InputAttachmentCount = 0;
 
-	struct CompiledPass {
-		RenderPassInfo Info;
-		std::vector<PipelineBarrier> PrePassBarriers;
-		std::vector<PipelineBarrier> PostPassBarriers;
-	};
+		// Fixed-size barrier storage
+		std::array<PipelineBarrier, CHILLI_MAX_PASS_BARRIERS> PrePassBarriers;
+		uint32_t PrePassBarrierCount = 0;
 
-	class RenderPassBuilder {
-	public:
-		RenderPassBuilder(const char* name) { _info.DebugName = name; }
+		std::array<PipelineBarrier, CHILLI_MAX_PASS_BARRIERS> PostPassBarriers;
+		uint32_t PostPassBarrierCount = 0;
 
-		RenderPassBuilder& SetArea(int w, int h) { _info.RenderArea = { w, h }; return *this; }
+		std::array<BufferDependency, CHILLI_MAX_BUFFERS_DEPENDENCIES> BufferDependencies;
+		uint32_t BufferDependencyCount = 0;
 
-		RenderPassBuilder& AddColor(ColorAttachment col) {
-			_info.ColorAttachments[_info.ColorAttachmentCount] = col;
-			_info.ColorAttachmentCount++;
-			return *this;
-		}
-
-		RenderPassBuilder& AddSwapChain(Vec4 clear = { 0,0,0,1 }) {
-			ColorAttachment swap; swap.UseSwapChainImage = true;
-			swap.ClearColor = clear;
-			_info.ColorAttachments[_info.ColorAttachmentCount] = swap;
-			_info.ColorAttachmentCount++;
-			return *this;
-		}
-
-		RenderPassBuilder& SetDepth(uint32_t texHandle, AttachmentLoadOp load = AttachmentLoadOp::CLEAR, AttachmentStoreOp store = AttachmentStoreOp::STORE) {
-			_info.DepthAttachment.DepthTexture = texHandle;
-			_info.DepthAttachment.LoadOp = load;
-			_info.DepthAttachment.StoreOp = store;
-			return *this;
-		}
-
-		RenderPassBuilder& SetDepth(const DepthAttachment& Depth) {
-			_info.DepthAttachment = Depth;
-			return *this;
-		}
-
-		RenderPassBuilder& AddImageBarrier(bool prePass, uint32_t handle, ResourceState oldState, ResourceState newState, bool isSwapChain = false) {
-			PipelineBarrier barrier{};
-			barrier.ImageBarrier.ImageHandle = handle;
-			barrier.ImageBarrier.IsSwapChain = isSwapChain;
-			barrier.ImageBarrier.SubresourceRange = { 0, 1, 0, 1 }; // Default to 1 mip/layer
-			barrier.OldState = oldState;
-			barrier.NewState = newState;
-
-			if (prePass) _PrePipelineBarriers.push_back(barrier);
-			else _PostPipelineBarriers.push_back(barrier);
-			return *this;
-		}
-
-		// Custom Buffer Barrier
-		RenderPassBuilder& AddBufferBarrier(bool prePass, uint32_t handle, ResourceState oldState, ResourceState newState, uint64_t offset = 0, uint64_t size = (size_t)CH_BUFFER_WHOLE_SIZE) {
-			PipelineBarrier b{};
-			b.BufferBarrier.Handle = handle;
-			b.BufferBarrier.Offset = offset;
-			b.BufferBarrier.Size = size;
-			b.OldState = oldState;
-			b.NewState = newState;
-
-			if (prePass) _PrePipelineBarriers.push_back(b);
-			else _PostPipelineBarriers.push_back(b);
-			return *this;
-		}
-
-		// Sugar for the specific methods you asked for
-		RenderPassBuilder& AddPrePipelineBarrier(uint32_t handle, ResourceState src, ResourceState dst, bool isBuffer = true, bool isSwapChainImage = false) {
-			if (isBuffer) return AddBufferBarrier(true, handle, src, dst);
-			return AddImageBarrier(true, handle, src, dst, isSwapChainImage);
-		}
-
-		// Sugar for the specific methods you asked for
-		RenderPassBuilder& AddPrePipelineBarrier(const PipelineBarrier& Barrier) {
-			_PrePipelineBarriers.push_back(Barrier);
-			return *this;
-		}
-
-		// Sugar for the specific methods you asked for
-		RenderPassBuilder& AddPostPipelineBarrier(const PipelineBarrier& Barrier) {
-			_PrePipelineBarriers.push_back(Barrier);
-			return *this;
-		}
-
-		RenderPassBuilder& AddPostPipelineBarrier(uint32_t handle, ResourceState src, ResourceState dst, bool isBuffer = true, bool isSwapChainImage = false) {
-			if (isBuffer) return AddBufferBarrier(false, handle, src, dst
-			);
-			return AddImageBarrier(false, handle, src, dst, isSwapChainImage);
-		}
-
-		void SetSampleCount(SampleCount Count)
-		{
-			_info.Samples = Count;
-		}
-
-		CompiledPass Build() {
-			return { _info, _PrePipelineBarriers, _PostPipelineBarriers };
-		}
-
-	private:
-		RenderPassInfo _info;
-		std::vector<PipelineBarrier> _PrePipelineBarriers;
-		std::vector<PipelineBarrier> _PostPipelineBarriers;
-	};
-
-	// --- 5. The Compiler (Automation Logic) ---
-	class RenderPassCompiler {
-	private:
-
-	public:
-		int PushPass(const CompiledPass& pass) { _queue.push_back(pass); return _queue.size() - 1; }
-
-		std::vector<CompiledPass> Compile() {
-			return _queue;
-		}
-
-	private:
-		std::vector<CompiledPass> _queue;
+		uint32_t    SubpassIndex = UINT32_MAX;
+		SampleCount SampleCount = IMAGE_SAMPLE_COUNT_1_BIT;
+		IVec2 RenderArea{ 0,0 };
 	};
 }
