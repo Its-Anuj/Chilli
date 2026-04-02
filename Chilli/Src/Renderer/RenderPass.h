@@ -109,6 +109,9 @@ namespace Chilli
 		ResourceState                InitialState = ResourceState::Undefined;
 		ResourceState                FinalState = ResourceState::ShaderRead;
 
+		ResourceState                ResolveInitialState = ResourceState::Undefined;
+		ResourceState                ResolveFinalState = ResourceState::ShaderRead;
+
 		// Clear values — used when LoadOp == Clear
 		Vec4 ClearColor = { 0,0,0, 1 };
 		bool UseSwapChainImage = false;

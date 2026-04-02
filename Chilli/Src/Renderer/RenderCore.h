@@ -120,7 +120,6 @@ namespace Chilli
 	{
 		// --- Environment / Properties ---
 		Vec4 AmbientColor;    // Global light color/intensity
-		Vec4 FogColor;   // x: density, y: start, z: end
 		Vec4 FogProperties;   // x: density, y: start, z: end
 		Vec4 ScreenData;      // x: gamma, y: exposure, etc.
 
@@ -144,23 +143,30 @@ namespace Chilli
 	struct SceneManager
 	{
 	public:
-		SceneManager(BackBone::World* Reg) :_World(Reg) {}
+		SceneManager(BackBone::SystemContext& Ctxt):_Ctxt(Ctxt){}
 		~SceneManager() {}
 		// Lifecycle
-		void LoadScene(const std::string& path); // Clears and loads new
-		void SaveScene(const std::string& path);
-		void AppendScene(const std::string& path); // Adds entities without clearing
+		BackBone::AssetHandle<Scene> LoadScene(const std::string& path); // Clears and loads new
+		void SaveScene(BackBone::AssetHandle<Scene>, const std::string& path);
+		void AppendScene(BackBone::AssetHandle<Scene>, const std::string& path); // Adds entities without clearing
 
-		SceneSettings& GetSettings() { return _CurrentSettings; }
+		BackBone::AssetHandle<Scene> CreateScene(); // Clears and loads new
 
-		void PushUpdateShaderData();
+		void PushUpdateShaderData(BackBone::AssetHandle<Scene> UpdateScene);
 
-		void SetActiveScene(Scene* Sc);
-		const Scene* GetActiveScene()const;
+		uint32_t GetSceneShaderIndex(BackBone::AssetHandle<Scene> Scene)
+		{
+			if (_SceneShaderIndexMap.Get(Scene.Handle) == nullptr)
+			{
+				return UINT32_MAX;
+			}
+			return *_SceneShaderIndexMap.Get(Scene.Handle);
+		}
+
 	private:
-		BackBone::World* _World;
-		Scene* _ActiveScene;
-		SceneSettings _CurrentSettings; // Ambient, Fog, etc.
+		BackBone::SystemContext&  _Ctxt;
+		SparseSet<uint32_t> _SceneShaderIndexMap;
+		uint32_t _SceneIdx = 0;
 	};
 
 }

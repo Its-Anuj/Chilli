@@ -691,6 +691,7 @@ namespace Chilli
 		float Far_Clip = 1000.0f;
 		bool Is_Orthro = false;
 		Vec2 Orthro_Size = { 1.0f, 1.0f };
+		glm::mat4 ViewProjMat{ 1.0f };
 	};
 
 	// Standard FPS/Flight style controls
@@ -1430,6 +1431,9 @@ namespace Chilli
 		void DestroyEntity(uint32_t EntityID);
 		bool IsEntityValid(uint32_t EntityID);
 
+		BackBone::AssetHandle<Scene> CreateScene();
+		void SetActiveScene(BackBone::AssetHandle<Scene> Scene);
+
 		BackBone::AssetHandle<Sampler> CreateSampler(const SamplerSpec& Spec);
 		void DestroySampler(const BackBone::AssetHandle<Sampler>& sampler);
 
@@ -1605,6 +1609,8 @@ namespace Chilli
 
 		template<typename _ServiceType>
 		_ServiceType* GetService() { return _Ctxt.ServiceRegistry->GetService<_ServiceType>(); }
+
+		BackBone::SystemContext& Ctxt() { return _Ctxt; }
 
 		Window* GetActiveWindow();
 	private:

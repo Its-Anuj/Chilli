@@ -46,5 +46,6 @@ namespace Chilli
 		SparseSet<VulkanBuffer> _Buffers;
 		StagingBufferManager _StagingBuffer;
 		VulkanDataUploader* _Uploader;
+		VmaAllocator _Allocator;
 	};
 }

@@ -109,7 +109,22 @@ namespace Chilli
 		return Mat;
 	}
 
-	const MaterialShaderData& MaterialSystem::GetMaterialShaderData(BackBone::AssetHandle<Material> Handle)
+	void MaterialSystem::CopyMaterial(BackBone::AssetHandle<Material> Src, BackBone::AssetHandle<Material> Dst)
+	{
+		auto Command = Chilli::Command(_Ctxt);
+		auto MaterialStore = Command.GetStore<Chilli::Material>();
+
+		CH_CORE_ASSERT(MaterialStore->Get(Src) != nullptr, "Src Material Handle Not Found In Store!");
+		CH_CORE_ASSERT(MaterialStore->Get(Dst) != nullptr, "Dst Material Handle Not Found In Store!");
+
+		Dst.ValPtr->AlbedoColor = Src.ValPtr->AlbedoColor;
+		Dst.ValPtr->AlbedoSamplerHandle = Src.ValPtr->AlbedoSamplerHandle;
+		Dst.ValPtr->AlbedoTextureHandle = Src.ValPtr->AlbedoTextureHandle;
+		Dst.ValPtr->Version = Src.ValPtr->Version;
+		Dst.ValPtr->LastUploadedVersion = Src.ValPtr->Version;
+	}
+
+	MaterialShaderData MaterialSystem::GetMaterialShaderData(BackBone::AssetHandle<Material> Handle)
 	{
 		auto Command = Chilli::Command(_Ctxt);
 		auto RenderService = Command.GetService<Renderer>();
@@ -154,32 +169,54 @@ namespace Chilli
 		MaterialStore->Remove(Mat);
 	}
 
-	void SceneManager::LoadScene(const std::string& path) // Clears and loads new
+	BackBone::AssetHandle<Scene> SceneManager::LoadScene(const std::string& path)
+	{
+		return BackBone::AssetHandle<Scene>();
+	}
+
+	void SceneManager::SaveScene(BackBone::AssetHandle<Scene>, const std::string& path)
 	{
 
 	}
-		
-	void SceneManager::SaveScene(const std::string& path)
+
+	void SceneManager::AppendScene(BackBone::AssetHandle<Scene>, const std::string& path)
 	{
+
+	}
+	
+	BackBone::AssetHandle<Scene> SceneManager::CreateScene()
+	{
+		auto Command = Chilli::Command(_Ctxt);
+		auto RenderService = Command.GetService<Renderer>();
+		auto ScreenStore = Command.GetStore<Scene>();
+
+		Scene NewScene{};
+		return ScreenStore->Add(NewScene);
 	}
 
-	void SceneManager::AppendScene(const std::string& path)
+	void SceneManager::PushUpdateShaderData(BackBone::AssetHandle<Scene> UpdateScene)
 	{
-	}
+		auto Command = Chilli::Command(_Ctxt);
+		auto RenderService = Command.GetService<Renderer>();
+		auto ScreenStore = Command.GetStore<Scene>();
 
-	void SceneManager::SetActiveScene(Scene* Sc)
-	{
-		_ActiveScene = Sc;
+		CH_CORE_ASSERT(ScreenStore->Get(UpdateScene) != nullptr, "UpdateScene not valid!");
 
-		auto Camera = _World->GetComponent<CameraComponent>(Sc->MainCamera);
-		if (Camera == nullptr)
-			CH_CORE_ERROR("Camera is Needed! Scene: {}", Sc->Name);
-	}
+		if (GetSceneShaderIndex(UpdateScene) == UINT32_MAX)
+		{
+			_SceneShaderIndexMap.Insert(UpdateScene.Handle, _SceneIdx);
+			_SceneIdx++;
+		}
 
-	const Scene* SceneManager::GetActiveScene() const
-	{
-		if (_ActiveScene == nullptr)
-			CH_CORE_ERROR("NO ACTIVE SCENEN");
-		return _ActiveScene;
+		SceneData ShaderSceneData;
+		ShaderSceneData.AmbientColor = UpdateScene.ValPtr->Settings.AmbientColor;
+		ShaderSceneData.FogProperties = UpdateScene.ValPtr->Settings.FogProperties;
+		ShaderSceneData.ScreenData = UpdateScene.ValPtr->Settings.ScreenData;
+		ShaderSceneData.GlobalLightDir = UpdateScene.ValPtr->Settings.GlobalLightDir;
+
+		auto CameraComp = Command.GetComponent<CameraComponent>(UpdateScene.ValPtr->MainCamera);
+		ShaderSceneData.ViewProjMatrix = CameraComp->ViewProjMat;
+
+		RenderService->PushUpdateSceneShaderData(*_SceneShaderIndexMap.Get(UpdateScene.Handle), ShaderSceneData);
 	}
 }

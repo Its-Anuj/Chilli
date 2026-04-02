@@ -1,4 +1,5 @@
-﻿#include "Ch_PCH.h"
+﻿#include "DeafultExtensions.h"
+#include "Ch_PCH.h"
 #include "DeafultExtensions.h"
 #include "Window/Window.h"
 #include "Profiling\Timer.h"
@@ -103,7 +104,7 @@ namespace Chilli
 
 		App.Extensions.AddExtension(std::make_unique<WindowExtension>(_Config.WindowConfig), true, &App);
 		App.Extensions.AddExtension(std::make_unique<RenderExtension>(_Config.RenderConfig), true, &App);
-		//App.Extensions.AddExtension(std::make_unique<CameraExtension>(), true, &App);
+		App.Extensions.AddExtension(std::make_unique<CameraExtension>(), true, &App);
 		//App.Extensions.AddExtension(std::make_unique<PepperExtension>(_Config.PepperConfig), true, &App);
 
 		if (_Config.SimPhysicsConfig.Enabled)
@@ -993,10 +994,10 @@ namespace Chilli
 		case BasicShapes::QUAD:
 		{
 			Vertices = {
-				{ { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f } },
-				{ {  0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f } },
-				{ {  0.5f,  0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f } },
-				{ { -0.5f,  0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f } }
+				{ { -0.5f,  0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f }, { 0,0,0 } },
+				{ { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f }, {0,0,0} },
+				{ {  0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f }, {0,0,0} },
+				{ {  0.5f,  0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }, {0,0,0} },
 			};
 			Indices = { 0, 1, 2, 2, 3, 0 };
 			break;
@@ -1395,6 +1396,18 @@ namespace Chilli
 		MaterialSystem->DestroyMaterial(Mat);
 	}
 
+	BackBone::AssetHandle<Scene> Command::CreateScene()
+	{
+		auto SceneManager = this->GetService<Chilli::SceneManager>();
+		return SceneManager->CreateScene();
+	}
+
+	void Command::SetActiveScene(BackBone::AssetHandle<Scene> Scene)
+	{
+		auto RenderResource = this->GetResource<Chilli::RenderResource>();
+		RenderResource->ActiveSceneID = Scene;
+	}
+
 	BackBone::AssetHandle<Sampler> Command::CreateSampler(const SamplerSpec& Spec)
 	{
 		auto RenderCommandService = _Ctxt.ServiceRegistry->GetService<RenderCommand>();
@@ -1520,13 +1533,10 @@ namespace Chilli
 		auto Command = Chilli::Command(Ctxt);
 		auto RenderService = Ctxt.ServiceRegistry->GetService<Renderer>();
 		auto Window = Command.GetService<WindowManager>()->GetActiveWindow();
-		auto ActiveScene = Command.GetService<SceneManager>()->GetActiveScene();
 
 		for (auto [Entity, Camera, Transform] :
 			BackBone::QueryWithEntities<CameraComponent, TransformComponent>(*Ctxt.Registry))
 		{
-			if (ActiveScene->MainCamera != Entity)
-				continue;
 			// 1. Get the pre-calculated World Matrix (which includes your Pitch/Yaw)
 			glm::mat4 Model = Transform->GetWorldMatrix();
 
@@ -1561,10 +1571,8 @@ namespace Chilli
 
 			// Final Matrix: Projection * View
 			SceneData.ViewProjMatrix = projection * view;
-
-			RenderService->PushUpdateSceneShaderData(0, SceneData);
-
-			break;
+			
+			Camera->ViewProjMat = SceneData.ViewProjMatrix;
 		}
 	}
 
@@ -1623,10 +1631,10 @@ namespace Chilli
 			auto Input = Ctxt.ServiceRegistry->GetService<Chilli::Input>();
 			auto FrameData = Command.GetResource<Chilli::BackBone::GenericFrameData>();
 			auto Scene = Command.GetService<Chilli::SceneManager>();
-			auto ActiveScene = Scene->GetActiveScene();
 			float DT = FrameData->Ts.GetSecond();
 
 			auto Transform = Command.GetComponent<Chilli::TransformComponent>(Camera);
+			auto CameraComp = Command.GetComponent<Chilli::CameraComponent>(Camera);
 			auto Control = Command.GetComponent<Chilli::Deafult3DCameraController>(Camera);
 
 			// 1. Handle Rotation ONLY on Left Mouse Button

@@ -97,6 +97,7 @@ namespace Chilli
 		VULKAN_SUCCESS_ASSERT(vmaCreateBuffer(Allocator, &bufferInfo, &allocInfo, &Buffer.Buffer, &Buffer.Allocation, &Buffer.AllocationInfo), "Vulkan Buffer Creation Failed!");
 
 		auto BufferHandle = _Buffers.Create(Buffer);
+		_Allocator = Allocator;
 
 		if (CreateInfo.State == BufferState::STATIC_DRAW ||
 			CreateInfo.State == BufferState::STATIC_COPY ||
@@ -140,6 +141,13 @@ namespace Chilli
 
 				// If the memory isn't "Host Coherent", we would need to flush here.
 				// But VMA_MEMORY_USAGE_CPU_TO_GPU usually handles this.
+				// Check if we need to manually flush the cache
+				VkMemoryPropertyFlags memFlags;
+				vmaGetMemoryTypeProperties(_Allocator, Buffer->AllocationInfo.memoryType, &memFlags);
+
+				if (!(memFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+					vmaFlushAllocation(_Allocator, Buffer->Allocation, 0, Size);
+				}
 			}
 			return;
 		}

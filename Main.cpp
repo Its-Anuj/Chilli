@@ -127,7 +127,7 @@ void OnGameCreate(Chilli::BackBone::SystemContext& Ctxt)
 	GameData->GameScene.MainCamera = GameData->Camera;
 
 	auto SceneManager = Command.GetService<Chilli::SceneManager>();
-	SceneManager->SetActiveScene(&GameData->GameScene);
+	//SceneManager->SetActiveScene(&GameData->GameScene);
 
 	Chilli::BlazeVertex pathVertices[] = {
 		// Segment 1

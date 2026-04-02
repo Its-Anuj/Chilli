@@ -273,7 +273,7 @@ namespace Chilli
 
 		for (auto& Pass : *RenderGraph)
 		{
-			Pass->Teardown(Command);
+			Pass->Teardown(Ctxt);
 		}
 		// Clear Mesh
 		auto MeshStore = Command.GetStore<Mesh>();
@@ -342,152 +342,9 @@ namespace Chilli
 		{
 			for (auto& Pass : *RenderGraph)
 			{
-				Pass->OnResize(Command, ViewPort.x, ViewPort.y);
+				Pass->OnResize(Ctxt, ViewPort.x, ViewPort.y);
 				RenderService->PushFrameBufferResize(ViewPort);
 			}
-		}
-	}
-
-	void OnRenderExtensionScreenPassRender(BackBone::SystemContext& Ctxt, RenderPassDesc& Pass)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		auto RenderCommandService = Command.GetService<RenderCommand>();
-		auto RenderService = Command.GetService<Renderer>();
-		auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
-
-		auto DefferedResource = Command.GetResource< DefferedRenderingResource>();
-		auto RenderResource = Command.GetResource< Chilli::RenderResource>();
-
-		auto ActiveMaterial = DefferedResource->ScreenMaterial.ValPtr;
-		auto ActiveShader = DefferedResource->ScreenShaderProgram;
-
-		if (MaterialSystem->ShouldMaterialShaderDataUpdate(DefferedResource->ScreenMaterial))
-		{
-			MaterialShaderData MaterialData = MaterialSystem->GetMaterialShaderData(DefferedResource->ScreenMaterial);
-			RenderService->UpdateMaterialShaderData(MaterialSystem->GetRawMaterialHandle(DefferedResource->ScreenMaterial), MaterialData);
-		}
-
-		if (MaterialSystem->ShouldMaterialShaderDataUpdate(RenderResource->DeafultMaterial))
-		{
-			MaterialShaderData MaterialData = MaterialSystem->GetMaterialShaderData(RenderResource->DeafultMaterial);
-			RenderService->UpdateMaterialShaderData(MaterialSystem->GetRawMaterialHandle(RenderResource->DeafultMaterial), MaterialData);
-		}
-
-		RenderService->BindShaderProgram(DefferedResource->ScreenShaderProgram.ValPtr->RawProgramHandle);
-		RenderService->BindMaterailData(MaterialSystem->GetRawMaterialHandle(DefferedResource->ScreenMaterial));
-
-		auto MatIndex = RenderService->GetMaterialShaderIndex(MaterialSystem->GetRawMaterialHandle(DefferedResource->ScreenMaterial));
-
-		DrawPushShaderInlineUniformData PushData;
-		PushData.MaterialIndex = MatIndex;
-		PushData.ObjectIndex = 0;
-
-		RenderService->PushInlineUniformData(ActiveShader.ValPtr->RawProgramHandle,
-			SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, &PushData, sizeof(PushData), 0);
-
-		uint32_t Buffers[16] = { 0 };
-		uint32_t BindingCount = 0;
-
-		for (int i = 0; i < DefferedResource->ScreenRenderMesh.ValPtr->ActiveVBHandlesCount; i++)
-		{
-			Buffers[i] = DefferedResource->ScreenRenderMesh.ValPtr->VertexBufferHandles[i].ValPtr->RawBufferHandle;
-			BindingCount++;
-		}
-
-		RenderService->BindVertexBuffer(Buffers, BindingCount);
-
-		RenderService->BindIndexBuffer(DefferedResource->ScreenRenderMesh.ValPtr->IBHandle.ValPtr->RawBufferHandle,
-			DefferedResource->ScreenRenderMesh.ValPtr->IBType);
-
-		RenderService->DrawIndexed(DefferedResource->ScreenRenderMesh.ValPtr->IndexCount, 1, 0, 0, 0);
-	}
-
-	void OnRenderExtensionGeometryPassRender(BackBone::SystemContext& Ctxt, RenderPassDesc& Pass)
-	{
-		auto Command = Chilli::Command(Ctxt);
-		auto RenderCommandService = Command.GetService<RenderCommand>();
-		auto RenderService = Command.GetService<Renderer>();
-		auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
-		auto RenderResource = Command.GetResource<Chilli::RenderResource>();
-
-		for (auto [Entity, Transform, MeshComp] : BackBone::QueryWithEntities<TransformComponent, MeshComponent>(*Ctxt.Registry))
-		{
-			uint32_t RawMaterialHandle = 1;
-			BackBone::AssetHandle<Material> ActiveMaterial = MeshComp->MaterialHandle;
-			BackBone::AssetHandle<ShaderProgram> ActiveShader;
-
-			if (MeshComp->MaterialHandle.IsValid() == false)
-			{
-				RawMaterialHandle = MaterialSystem->GetRawMaterialHandle(RenderResource->DeafultMaterial);
-				ActiveShader = RenderResource->DeafultShaderProgram;
-				ActiveMaterial = RenderResource->DeafultMaterial;
-			}
-			else
-			{
-				RawMaterialHandle = MaterialSystem->GetRawMaterialHandle(MeshComp->MaterialHandle);
-				ActiveShader = MaterialSystem->GetShaderProgramID(MeshComp->MaterialHandle);
-			}
-
-			if (MaterialSystem->ShouldMaterialShaderDataUpdate(ActiveMaterial))
-			{
-				MaterialShaderData MaterialData = MaterialSystem->GetMaterialShaderData(ActiveMaterial);
-				RenderService->UpdateMaterialShaderData(MaterialSystem->GetRawMaterialHandle(ActiveMaterial), MaterialData);
-			}
-
-			auto ActiveMesh = MeshComp->MeshHandle.ValPtr;
-
-			RenderService->BindShaderProgram(ActiveShader.ValPtr->RawProgramHandle);
-			RenderService->BindMaterailData(RawMaterialHandle);
-
-			uint32_t Buffers[16] = { 0 };
-			uint32_t BindingCount = 0;
-
-			for (int i = 0; i < ActiveMesh->ActiveVBHandlesCount; i++)
-			{
-				Buffers[i] = ActiveMesh->VertexBufferHandles[i].ValPtr->RawBufferHandle;
-				BindingCount++;
-			}
-
-			RenderService->BindVertexBuffer(Buffers, BindingCount);
-			RenderService->BindIndexBuffer(ActiveMesh->IBHandle.ValPtr->RawBufferHandle, ActiveMesh->IBType);
-
-			auto OldTransform = RenderResource->LastTransformVersion.Get(Entity);
-
-			if (OldTransform == nullptr)
-			{
-				RenderResource::LastTransformStruct LastTransform;
-				LastTransform.GenerationVal = Command.GetEntityGeneration(Entity);
-				RenderResource->LastTransformVersion.Insert(Entity, LastTransform);
-				OldTransform = RenderResource->LastTransformVersion.Get(Entity);
-			}
-
-			if (OldTransform->GenerationVal != Command.GetEntityGeneration(Entity))
-			{
-				OldTransform->Version = UINT32_MAX;
-				OldTransform->GenerationVal = Command.GetEntityGeneration(Entity);
-			}
-
-			if (OldTransform->Version != Transform->GetVersion())
-			{
-				ObjectShaderData Data;
-				Data.TransformationMat = Transform->GetWorldMatrix();
-
-				OldTransform->GenerationVal = Command.GetEntityGeneration(Entity);
-				OldTransform->Version = Transform->GetVersion();
-
-				RenderService->UpdateObjectShaderData(Entity, Data);
-			}
-
-			auto MatIndex = RenderService->GetMaterialShaderIndex(RawMaterialHandle);
-
-			DrawPushShaderInlineUniformData PushData;
-			PushData.MaterialIndex = MatIndex;
-			PushData.ObjectIndex = RenderService->GetObjectShaderIndex(Entity);
-
-			RenderService->PushInlineUniformData(ActiveShader.ValPtr->RawProgramHandle,
-				SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, &PushData, sizeof(PushData), 0);
-
-			RenderService->DrawIndexed(ActiveMesh->IndexCount, 1, 0, 0, 0);
 		}
 	}
 
@@ -537,7 +394,7 @@ namespace Chilli
 			}
 
 			RenderService->BeginRenderPass(Pass->GetDesc());
-			Pass->Execute(Command, Pass->GetDesc());
+			Pass->Execute(Ctxt, Pass->GetDesc());
 
 			RenderService->EndRenderPass();
 
@@ -574,10 +431,29 @@ namespace Chilli
 	class GeometryPass : public Chilli::RenderGraphPass
 	{
 	public:
-		RenderPassDesc Setup(Chilli::Command& Command, RenderGraphRegistry& Registry) override
+		RenderPassDesc Setup(BackBone::SystemContext& Ctxt, RenderGraphRegistry& Registry) override
 		{
+			auto Command = Chilli::Command(Ctxt);
 			auto ActiveWindow = Command.GetActiveWindow();
 			auto ActiveWindowSize = IVec2{ ActiveWindow->GetWidth(), ActiveWindow->GetHeight() };
+
+			_ColorMSAACount = IMAGE_SAMPLE_COUNT_8_BIT;
+
+			ImageSpec ColorMSAATargetImageSpec;
+			ColorMSAATargetImageSpec.Format = ImageFormat::RGBA8;
+			ColorMSAATargetImageSpec.ImageData = nullptr;
+			ColorMSAATargetImageSpec.MipLevel = 1;
+			ColorMSAATargetImageSpec.Resolution = { ActiveWindowSize.x, ActiveWindowSize.y, 1 };
+			ColorMSAATargetImageSpec.Sample = _ColorMSAACount;
+			ColorMSAATargetImageSpec.State = ResourceState::RenderTarget;
+			ColorMSAATargetImageSpec.Type = ImageType::IMAGE_TYPE_2D;
+			ColorMSAATargetImageSpec.Usage = IMAGE_USAGE_COLOR_ATTACHMENT | IMAGE_USAGE_TRANSIENT_ATTACHMENT;
+			_ColorMSAAImage = Command.AllocateImage(ColorMSAATargetImageSpec);
+
+			TextureSpec ColorMSAATargetTextureSpec;
+			ColorMSAATargetTextureSpec.Format = ImageFormat::RGBA8;
+
+			_ColorMSAATexture = Command.CreateTexture(_ColorMSAAImage, ColorMSAATargetTextureSpec);
 
 			ImageSpec ColorTargetImageSpec;
 			ColorTargetImageSpec.Format = ImageFormat::RGBA8;
@@ -601,18 +477,26 @@ namespace Chilli
 
 			ColorAttachment ColorTargetAttachment;
 			ColorTargetAttachment.LoadOp = AttachmentLoadOp::CLEAR;
-			ColorTargetAttachment.StoreOp = AttachmentStoreOp::STORE;
-			ColorTargetAttachment.InitialState = ResourceState::RenderTarget;
-			ColorTargetAttachment.FinalState = ResourceState::ShaderRead;
-			ColorTargetAttachment.UseSwapChainImage = false;
+			ColorTargetAttachment.StoreOp = AttachmentStoreOp::DONT_CARE;
 			ColorTargetAttachment.ClearColor = { 0, 1, 0, 1 };
-			ColorTargetAttachment.ColorTexture = _ColorTargetTexture.ValPtr->RawTextureHandle;
+
+			ColorTargetAttachment.ColorTexture = _ColorMSAATexture.ValPtr->RawTextureHandle;
+			ColorTargetAttachment.InitialState = ResourceState::RenderTarget;
+			ColorTargetAttachment.FinalState = ResourceState::RenderTarget;
+
+			ColorTargetAttachment.ResolveOp = ResolveMode::AVERAGE;
+			ColorTargetAttachment.ResolveTexture = _ColorTargetTexture.ValPtr->RawTextureHandle;
+			ColorTargetAttachment.ResolveInitialState = ResourceState::RenderTarget;
+			ColorTargetAttachment.ResolveFinalState = ResourceState::ShaderRead;
+
+			ColorTargetAttachment.UseSwapChainImage = false;
 
 			_Resources.ColorAttachments[Desc.ColorAttachmentCount].IsSwapChain = false;
-			_Resources.ColorAttachments[Desc.ColorAttachmentCount].Color = _ColorTargetTexture;
+			_Resources.ColorAttachments[Desc.ColorAttachmentCount].Color = _ColorMSAATexture;
+			_Resources.ColorAttachments[Desc.ColorAttachmentCount].Resolve = _ColorTargetTexture;
 			Desc.ColorAttachments[Desc.ColorAttachmentCount++] = ColorTargetAttachment;
 
-			Registry.AddImageResource("GeometryColor", _ColorTargetTexture);
+			Registry.AddImageResource(_ColorTargetTextureKey, _ColorTargetTexture);
 
 			Desc.RenderArea = { ActiveWindowSize.x, ActiveWindowSize.y };
 			_Desc = Desc;
@@ -620,36 +504,248 @@ namespace Chilli
 			_MeshLayout.BeginBinding(0);
 			_MeshLayout.AddAttribute(ShaderObjectTypes::FLOAT3,
 				"InPosition", 0);
+			_MeshLayout.AddAttribute(ShaderObjectTypes::FLOAT3,
+				"InNormals", 1);
 			_MeshLayout.AddAttribute(ShaderObjectTypes::FLOAT2,
-				"InTexCoords", 1);
+				"InTexCoords", 2);
+			_MeshLayout.AddAttribute(ShaderObjectTypes::FLOAT3,
+				"InColor", 3);
 
 			PipelineBuilder Builder;
 			_PipelineState = Builder.Default().
 				AddColorBlend(ColorBlendAttachmentState::OpaquePass())
+				.SetMSAA(
+					_ColorMSAACount, // samples: Must match your MSAA image (4)
+					0xFFFFFFFF,               // mask: Enable all 32 possible samples (standard)
+					false                     // alphaToCoverage: Keep false unless doing foliage/fences
+				)
 				.Build();
 			return Desc;
 		}
 
-		void OnResize(Chilli::Command& Command, uint32_t Width, uint32_t Height)
+		void OnResize(BackBone::SystemContext& Ctxt, uint32_t Width, uint32_t Height)
 		{
-			_Desc.RenderArea = { (int)Width, (int)Height };
+			auto Command = Chilli::Command(Ctxt);
+			//_Desc.RenderArea = { (int)Width, (int)Height };
 		}
 
-		void Execute(Chilli::Command& Command, const RenderPassDesc& Desc) override
+		void ChangeResolution(BackBone::SystemContext& Ctxt, uint32_t NewWidth, uint32_t NewHeight)
 		{
+			auto Command = Chilli::Command(Ctxt);
+			auto RenderService = Command.GetService<Chilli::Renderer>();
+			auto RenderCommandService = Command.GetService<Chilli::RenderCommand>();
+
+			IVec2 ActiveWindowSize = { NewWidth, NewHeight };
+
+			RenderCommandService->DestroyImage(_ColorMSAAImage.ValPtr->RawImageHandle);
+
+			ImageSpec ColorMSAATargetImageSpec;
+			ColorMSAATargetImageSpec.Format = ImageFormat::RGBA8;
+			ColorMSAATargetImageSpec.ImageData = nullptr;
+			ColorMSAATargetImageSpec.MipLevel = 1;
+			ColorMSAATargetImageSpec.Resolution = { ActiveWindowSize.x, ActiveWindowSize.y, 1 };
+			ColorMSAATargetImageSpec.Sample = _ColorMSAACount;
+			ColorMSAATargetImageSpec.State = ResourceState::RenderTarget;
+			ColorMSAATargetImageSpec.Type = ImageType::IMAGE_TYPE_2D;
+			ColorMSAATargetImageSpec.Usage = IMAGE_USAGE_COLOR_ATTACHMENT | IMAGE_USAGE_TRANSIENT_ATTACHMENT;
+			_ColorMSAAImage.ValPtr->RawImageHandle = RenderCommandService->AllocateImage(ColorMSAATargetImageSpec);
+			_ColorMSAAImage.ValPtr->Spec = ColorMSAATargetImageSpec;
+
+			RenderCommandService->DestroyImage(_ColorTargetImage.ValPtr->RawImageHandle);
+
+			ImageSpec ColorTargetImageSpec;
+			ColorTargetImageSpec.Format = ImageFormat::RGBA8;
+			ColorTargetImageSpec.ImageData = nullptr;
+			ColorTargetImageSpec.MipLevel = 1;
+			ColorTargetImageSpec.Resolution = { ActiveWindowSize.x, ActiveWindowSize.y, 1 };
+			ColorTargetImageSpec.Sample = IMAGE_SAMPLE_COUNT_1_BIT;
+			ColorTargetImageSpec.State = ResourceState::ShaderRead;
+			ColorTargetImageSpec.Type = ImageType::IMAGE_TYPE_2D;
+			ColorTargetImageSpec.Usage = IMAGE_USAGE_COLOR_ATTACHMENT | IMAGE_USAGE_SAMPLED_IMAGE;
+			_ColorTargetImage.ValPtr->RawImageHandle = RenderCommandService->AllocateImage(ColorTargetImageSpec);
+			_ColorTargetImage.ValPtr->Spec = ColorTargetImageSpec;
+
+			auto OldColorMSAATargetTexture = _ColorMSAATexture.ValPtr->RawTextureHandle;
+
+			RenderCommandService->DestroyTexture(_ColorMSAATexture.ValPtr->RawTextureHandle);
+
+			TextureSpec ColorMSAATargetTextureSpec;
+			ColorMSAATargetTextureSpec.Format = ImageFormat::RGBA8;
+
+			_ColorMSAATexture.ValPtr->RawTextureHandle = RenderCommandService->CreateTexture(_ColorMSAAImage.ValPtr->RawImageHandle, ColorMSAATargetTextureSpec);
+			_ColorMSAATexture.ValPtr->ImageHandle = _ColorMSAAImage;
+			_ColorMSAATexture.ValPtr->Spec = ColorMSAATargetTextureSpec;
+
+			auto OldColorTargetTexture = _ColorTargetTexture.ValPtr->RawTextureHandle;
+
+			RenderCommandService->DestroyTexture(_ColorTargetTexture.ValPtr->RawTextureHandle);
+
+			TextureSpec ColorTargetTextureSpec;
+			ColorTargetTextureSpec.Format = ImageFormat::RGBA8;
+
+			_ColorTargetTexture.ValPtr->RawTextureHandle = RenderCommandService->CreateTexture(_ColorTargetImage.ValPtr->RawImageHandle, ColorTargetTextureSpec);
+			_ColorTargetTexture.ValPtr->ImageHandle = _ColorTargetImage;
+			_ColorTargetTexture.ValPtr->Spec = ColorTargetTextureSpec;
+
+			for (int i = 0; i < _Desc.PostPassBarrierCount; i++)
+			{
+				auto& PrePass = _Desc.PrePassBarriers[i];
+
+				if (PrePass.IsImageBarrier())
+				{
+					if (PrePass.Image.IsSwapChain == false &&
+						PrePass.Image.Handle == OldColorMSAATargetTexture)
+					{
+						PrePass.Image.Handle = _ColorMSAATexture.ValPtr->RawTextureHandle;
+					}
+					if (PrePass.Image.IsSwapChain == false &&
+						PrePass.Image.Handle == OldColorTargetTexture)
+					{
+						PrePass.Image.Handle = _ColorTargetTexture.ValPtr->RawTextureHandle;
+					}
+				}
+			}
+
+			for (int i = 0; i < _Desc.PostPassBarrierCount; i++)
+			{
+				auto& PostPass = _Desc.PostPassBarriers[i];
+
+				if (PostPass.IsImageBarrier())
+				{
+					if (PostPass.Image.IsSwapChain == false &&
+						PostPass.Image.Handle == OldColorMSAATargetTexture)
+					{
+						PostPass.Image.Handle = _ColorMSAATexture.ValPtr->RawTextureHandle;
+					}
+					if (PostPass.Image.IsSwapChain == false &&
+						PostPass.Image.Handle == OldColorTargetTexture)
+					{
+						PostPass.Image.Handle = _ColorTargetTexture.ValPtr->RawTextureHandle;
+					}
+				}
+			}
+		}
+
+		void Execute(BackBone::SystemContext& Ctxt, const RenderPassDesc& Desc) override
+		{
+			auto Command = Chilli::Command(Ctxt);
+			auto RenderCommandService = Command.GetService<RenderCommand>();
 			auto RenderService = Command.GetService<Renderer>();
 			auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
+			auto SceneManager = Command.GetService<Chilli::SceneManager>();
+			auto RenderResource = Command.GetResource<Chilli::RenderResource>();
+
+			if (RenderResource->ActiveSceneID.IsValid() == false)
+			{
+				CH_CORE_WARN("No Active Scene!");
+				return;
+			}
+
+			SceneManager->PushUpdateShaderData(RenderResource->ActiveSceneID);
+
+			RenderService->SetFullPipelineState(_PipelineState);
+			RenderService->SetVertexInputLayout(_MeshLayout);
+			//#define DO 1
+			for (auto [Entity, Transform, MeshComp] : BackBone::QueryWithEntities<TransformComponent, MeshComponent>(*Ctxt.Registry))
+			{
+				uint32_t RawMaterialHandle = 1;
+				BackBone::AssetHandle<Material> ActiveMaterial = MeshComp->MaterialHandle;
+				BackBone::AssetHandle<ShaderProgram> ActiveShader;
+
+				if (MeshComp->MaterialHandle.IsValid() == false)
+				{
+					RawMaterialHandle = MaterialSystem->GetRawMaterialHandle(RenderResource->DeafultMaterial);
+					ActiveShader = RenderResource->DeafultShaderProgram;
+					ActiveMaterial = RenderResource->DeafultMaterial;
+				}
+				else
+				{
+					RawMaterialHandle = MaterialSystem->GetRawMaterialHandle(MeshComp->MaterialHandle);
+					ActiveShader = MaterialSystem->GetShaderProgramID(MeshComp->MaterialHandle);
+				}
+
+				if (MaterialSystem->ShouldMaterialShaderDataUpdate(ActiveMaterial))
+				{
+					MaterialShaderData MaterialData = MaterialSystem->GetMaterialShaderData(ActiveMaterial);
+					RenderService->UpdateMaterialShaderData(MaterialSystem->GetRawMaterialHandle(ActiveMaterial), MaterialData);
+				}
+
+				auto ActiveMesh = MeshComp->MeshHandle.ValPtr;
+
+				RenderService->BindShaderProgram(ActiveShader.ValPtr->RawProgramHandle);
+				RenderService->BindMaterailData(RawMaterialHandle);
+
+				uint32_t Buffers[16] = { 0 };
+				uint32_t BindingCount = 0;
+
+				for (int i = 0; i < ActiveMesh->ActiveVBHandlesCount; i++)
+				{
+					Buffers[i] = ActiveMesh->VertexBufferHandles[i].ValPtr->RawBufferHandle;
+					BindingCount++;
+				}
+
+				RenderService->BindVertexBuffer(Buffers, BindingCount);
+				RenderService->BindIndexBuffer(ActiveMesh->IBHandle.ValPtr->RawBufferHandle, ActiveMesh->IBType);
+
+				auto OldTransform = RenderResource->LastTransformVersion.Get(Entity);
+
+				if (OldTransform == nullptr)
+				{
+					RenderResource::LastTransformStruct LastTransform;
+					LastTransform.GenerationVal = Command.GetEntityGeneration(Entity);
+					RenderResource->LastTransformVersion.Insert(Entity, LastTransform);
+					OldTransform = RenderResource->LastTransformVersion.Get(Entity);
+				}
+
+				if (OldTransform->GenerationVal != Command.GetEntityGeneration(Entity))
+				{
+					OldTransform->Version = UINT32_MAX;
+					OldTransform->GenerationVal = Command.GetEntityGeneration(Entity);
+				}
+
+				if (OldTransform->Version != Transform->GetVersion())
+				{
+					ObjectShaderData Data;
+					Data.TransformationMat = Transform->GetWorldMatrix();
+
+					OldTransform->GenerationVal = Command.GetEntityGeneration(Entity);
+					OldTransform->Version = Transform->GetVersion();
+
+					RenderService->UpdateObjectShaderData(Entity, Data);
+				}
+
+				auto MatIndex = RenderService->GetMaterialShaderIndex(RawMaterialHandle);
+
+				DrawPushShaderInlineUniformData PushData;
+				PushData.MaterialIndex = MatIndex;
+				PushData.SceneIndex = SceneManager->GetSceneShaderIndex(RenderResource->ActiveSceneID);
+				PushData.ObjectIndex = RenderService->GetObjectShaderIndex(Entity);
+
+				RenderService->PushInlineUniformData(ActiveShader.ValPtr->RawProgramHandle,
+					SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, &PushData, sizeof(PushData), 0);
+
+				RenderService->DrawIndexed(ActiveMesh->IndexCount, 1, 0, 0, 0);
+			}
 		}
 
 		RGKey GetColorTargetTextureKey() {
-			return "GeometryColor";
+			return _ColorTargetTextureKey;
+		}
+
+		void Teardown(BackBone::SystemContext& Ctxt)
+		{
+
 		}
 
 	private:
 		BackBone::AssetHandle<Image> _ColorTargetImage;
 		BackBone::AssetHandle<Texture> _ColorTargetTexture;
+		BackBone::AssetHandle<Image> _ColorMSAAImage;
+		BackBone::AssetHandle<Texture> _ColorMSAATexture;
+		SampleCount _ColorMSAACount = IMAGE_SAMPLE_COUNT_2_BIT;
 		PipelineStateInfo _PipelineState;
 		VertexInputShaderLayout _MeshLayout;
+		RGKey _ColorTargetTextureKey = "GeometryColor";
 	};
 
 	class ScreenPass : public Chilli::RenderGraphPass
@@ -661,8 +757,9 @@ namespace Chilli
 
 		}
 
-		RenderPassDesc Setup(Chilli::Command& Command, RenderGraphRegistry& Registry) override
+		RenderPassDesc Setup(BackBone::SystemContext& Ctxt, RenderGraphRegistry& Registry) override
 		{
+			auto Command = Chilli::Command(Ctxt);
 			RenderPassDesc Desc;
 			Desc.Name = "ScreenPass";
 			Desc.Stage = RenderPassStage::AfterOpaque;
@@ -699,10 +796,10 @@ namespace Chilli
 			ScreenVertex vertices[4] =
 			{
 				// Position              // TexCoords
-				{ { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f } }, // Bottom-left
-				{ {  0.5f, -0.5f, 0.0f }, { 1.0f, 0.0f } }, // Bottom-right
-				{ {  0.5f,  0.5f, 0.0f }, { 1.0f, 1.0f } }, // Top-right
-				{ { -0.5f,  0.5f, 0.0f }, { 0.0f, 1.0f } }  // Top-left
+				{ { -1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } }, // Bottom-left
+				{ {  1.0f, -1.0f, 0.0f }, { 1.0f, 0.0f } }, // Bottom-right
+				{ {  1.0f,  1.0f, 0.0f }, { 1.0f, 1.0f } }, // Top-right
+				{ { -1.0f,  1.0f, 0.0f }, { 0.0f, 1.0f } }  // Top-left
 			};
 
 			uint32_t indices[6] =
@@ -758,13 +855,15 @@ namespace Chilli
 			return Desc;
 		}
 
-		void OnResize(Chilli::Command& Command, uint32_t Width, uint32_t Height)
+		void OnResize(BackBone::SystemContext& Ctxt, uint32_t Width, uint32_t Height)
 		{
+			auto Command = Chilli::Command(Ctxt);
 			_Desc.RenderArea = { (int)Width, (int)Height };
 		}
 
-		void Execute(Chilli::Command& Command, const RenderPassDesc& Desc) override
+		void Execute(BackBone::SystemContext& Ctxt, const RenderPassDesc& Desc) override
 		{
+			auto Command = Chilli::Command(Ctxt);
 			auto RenderService = Command.GetService<Renderer>();
 			auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
 
@@ -782,6 +881,11 @@ namespace Chilli
 			RenderService->DrawIndexed(_ScreenMesh.ValPtr->IndexCount, 1, 0, 0, 0);
 		}
 
+		void Teardown(BackBone::SystemContext& Ctxt)
+		{
+
+		}
+
 	private:
 		BackBone::AssetHandle<ShaderProgram> _ScreenShader;
 		BackBone::AssetHandle<Mesh> _ScreenMesh;
@@ -796,8 +900,9 @@ namespace Chilli
 	class PresentPass : public Chilli::RenderGraphPass
 	{
 	public:
-		RenderPassDesc Setup(Chilli::Command& Command, RenderGraphRegistry& Registry) override
+		RenderPassDesc Setup(BackBone::SystemContext& Ctxt, RenderGraphRegistry& Registry) override
 		{
+			auto Command = Chilli::Command(Ctxt);
 			RenderPassDesc Desc;
 			Desc.Name = "PresentPass";
 			Desc.Stage = RenderPassStage::BeforePresent;
@@ -819,25 +924,33 @@ namespace Chilli
 			return Desc;
 		}
 
-		void OnResize(Chilli::Command& Command, uint32_t Width, uint32_t Height)
+		void OnResize(BackBone::SystemContext& Ctxt, uint32_t Width, uint32_t Height)
 		{
+			auto Command = Chilli::Command(Ctxt);
 			_Desc.RenderArea = { (int)Width, (int)Height };
 		}
 
-		void Execute(Chilli::Command& Command, const RenderPassDesc& Desc) override
+		void Execute(BackBone::SystemContext& Ctxt, const RenderPassDesc& Desc) override
 		{
+			auto Command = Chilli::Command(Ctxt);
 			// Issue draw calls here — Command wraps your existing API
+		}
+
+		void Teardown(BackBone::SystemContext& Ctxt)
+		{
+
 		}
 
 	private:
 	};
 
 #pragma region RenderGraph
-	void RenderGraph::Build(Chilli::Command& Command)
+	void RenderGraph::Build(BackBone::SystemContext& Ctxt)
 	{
+		auto Command = Chilli::Command(Ctxt);
 		// 1. Initial Setup: Call Setup() on all passes to gather their Descriptors
 		for (auto& pass : _Passes) {
-			pass->Setup(Command, _Registry);
+			pass->Setup(Ctxt, _Registry);
 			// IsValid Pass
 			auto IsValid = this->_IsPassValid(pass.get());
 			if (IsValid == RenderGraphErrorCodes::NONE)
@@ -890,78 +1003,102 @@ namespace Chilli
 			{
 				auto& ColorAttachment = Desc.ColorAttachments[x];
 
-				auto Texture = DescResources.ColorAttachments[x].Color;
+				// -----------------------------------------------------------
+				// PART 1: Handle MSAA / Main Color Texture
+				// -----------------------------------------------------------
+				uint32_t ColorTargetHandle = ColorAttachment.UseSwapChainImage ? SwapChainHandle : ColorAttachment.ColorTexture;
+				bool IsSwapChain = ColorAttachment.UseSwapChainImage;
 
-				PipelineBarrier PrePass, PostPass;
-
-				if (ColorAttachment.UseSwapChainImage)
-				{
-					if (CurrentImageResourceStates[SwapChainHandle] != ColorAttachment.InitialState)
-					{
-						// Add a Pre Pass
-						PrePass = FillImagePipelineBarrier(UINT32_MAX, true, CurrentImageResourceStates[SwapChainHandle],
-							ColorAttachment.InitialState, 0, 1, 0, 1);
-						CurrentImageResourceStates[SwapChainHandle] = ColorAttachment.InitialState;
-						Desc.PrePassBarriers[Desc.PrePassBarrierCount++] = PrePass;
-
-						ResourceStateChange::ImageResource ImageResource;
-						ImageResource.IsSwapChain = true;
-						PrePasChange.ResourceChangeImageHandles.push_back(ImageResource);
-						PrePasChange.ResourceChangeImageStates.push_back(ColorAttachment.InitialState);
-					}
-					if (ColorAttachment.FinalState != ColorAttachment.InitialState)
-					{
-						// Add a Pre Pass
-						PostPass = FillImagePipelineBarrier(UINT32_MAX, true, ColorAttachment.InitialState, ColorAttachment.FinalState, 0, 1, 0, 1);
-						CurrentImageResourceStates[SwapChainHandle] = ColorAttachment.FinalState;
-						Desc.PostPassBarriers[Desc.PostPassBarrierCount++] = PostPass;
-
-						ResourceStateChange::ImageResource ImageResource;
-						ImageResource.IsSwapChain = true;
-						PostPasChange.ResourceChangeImageHandles.push_back(ImageResource);
-						PostPasChange.ResourceChangeImageStates.push_back(ColorAttachment.FinalState);
-					}
-				}
-				else
-				{
-					// check if key exists
-					if (CurrentImageResourceStates.find(ColorAttachment.ColorTexture) != CurrentImageResourceStates.end()) {
-						// key exists
-					}
-					else {
-						CurrentImageResourceStates[ColorAttachment.ColorTexture] = DescResources.ColorAttachments[x].Color.ValPtr->ImageHandle.ValPtr->Spec.State;
-					}
-
-					if (CurrentImageResourceStates[ColorAttachment.ColorTexture] != ColorAttachment.InitialState)
-					{
-						// Add a Pre Pass
-						PrePass = FillImagePipelineBarrier(ColorAttachment.ColorTexture, false, CurrentImageResourceStates[ColorAttachment.ColorTexture],
-							ColorAttachment.InitialState, 0, 1, 0, 1);
-						CurrentImageResourceStates[ColorAttachment.ColorTexture] = ColorAttachment.InitialState;
-						Desc.PrePassBarriers[Desc.PrePassBarrierCount++] = PrePass;
-
-						ResourceStateChange::ImageResource ImageResource;
-						ImageResource.IsSwapChain = false;
-						ImageResource.Texture = DescResources.ColorAttachments[x].Color;
-						PrePasChange.ResourceChangeImageHandles.push_back(ImageResource);
-						PrePasChange.ResourceChangeImageStates.push_back(ColorAttachment.InitialState);
-
-					}
-					if (ColorAttachment.FinalState != ColorAttachment.InitialState)
-					{
-						// Add a Pre Pass
-						PostPass = FillImagePipelineBarrier(ColorAttachment.ColorTexture, false, ColorAttachment.InitialState, ColorAttachment.FinalState, 0, 1, 0, 1);
-						CurrentImageResourceStates[ColorAttachment.ColorTexture] = ColorAttachment.FinalState;
-						Desc.PostPassBarriers[Desc.PostPassBarrierCount++] = PostPass;
-
-						ResourceStateChange::ImageResource ImageResource;
-						ImageResource.IsSwapChain = false;
-						ImageResource.Texture = DescResources.ColorAttachments[x].Color;
-						PostPasChange.ResourceChangeImageHandles.push_back(ImageResource);
-						PostPasChange.ResourceChangeImageStates.push_back(ColorAttachment.FinalState);
-					}
+				// Initialize state tracking if key doesn't exist
+				if (CurrentImageResourceStates.find(ColorTargetHandle) == CurrentImageResourceStates.end()) {
+					CurrentImageResourceStates[ColorTargetHandle] = IsSwapChain ?
+						ResourceState::Undefined : // Swapchain usually starts undefined/presented
+						DescResources.ColorAttachments[x].Color.ValPtr->ImageHandle.ValPtr->Spec.State;
 				}
 
+				// Pre-Pass Barrier: Transition to InitialState
+				if (CurrentImageResourceStates[ColorTargetHandle] != ColorAttachment.InitialState)
+				{
+					Desc.PrePassBarriers[Desc.PrePassBarrierCount++] = FillImagePipelineBarrier(
+						ColorTargetHandle, IsSwapChain,
+						CurrentImageResourceStates[ColorTargetHandle],
+						ColorAttachment.InitialState, 0, 1, 0, 1);
+
+					CurrentImageResourceStates[ColorTargetHandle] = ColorAttachment.InitialState;
+
+					ResourceStateChange::ImageResource Res;
+					Res.IsSwapChain = IsSwapChain;
+					Res.Texture = DescResources.ColorAttachments[x].Color;
+					PrePasChange.ResourceChangeImageHandles.push_back(Res);
+					PrePasChange.ResourceChangeImageStates.push_back(ColorAttachment.InitialState);
+				}
+
+				// Post-Pass Barrier: Transition to FinalState
+				if (ColorAttachment.FinalState != ColorAttachment.InitialState)
+				{
+					Desc.PostPassBarriers[Desc.PostPassBarrierCount++] = FillImagePipelineBarrier(
+						ColorTargetHandle, IsSwapChain,
+						ColorAttachment.InitialState,
+						ColorAttachment.FinalState, 0, 1, 0, 1);
+
+					CurrentImageResourceStates[ColorTargetHandle] = ColorAttachment.FinalState;
+
+					ResourceStateChange::ImageResource Res;
+					Res.IsSwapChain = IsSwapChain;
+					Res.Texture = DescResources.ColorAttachments[x].Color;
+					PostPasChange.ResourceChangeImageHandles.push_back(Res);
+					PostPasChange.ResourceChangeImageStates.push_back(ColorAttachment.FinalState);
+				}
+
+				// -----------------------------------------------------------
+				// PART 2: Handle Resolve Texture (If Applicable)
+				// -----------------------------------------------------------
+				if (!IsSwapChain && ColorAttachment.ResolveTexture != UINT32_MAX)
+				{
+					uint32_t ResolveHandle = ColorAttachment.ResolveTexture;
+
+					// Initialize Resolve state tracking
+					if (CurrentImageResourceStates.find(ResolveHandle) == CurrentImageResourceStates.end()) {
+						CurrentImageResourceStates[ResolveHandle] =
+							DescResources.ColorAttachments[x].Resolve.ValPtr->ImageHandle.ValPtr->Spec.State;
+					}
+
+					// Pre-Pass Barrier for Resolve: Transition to ResolveInitialState
+					// (Usually ColorAttachmentOptimal)
+					if (CurrentImageResourceStates[ResolveHandle] != ColorAttachment.ResolveInitialState)
+					{
+						Desc.PrePassBarriers[Desc.PrePassBarrierCount++] = FillImagePipelineBarrier(
+							ResolveHandle, false,
+							CurrentImageResourceStates[ResolveHandle],
+							ColorAttachment.ResolveInitialState, 0, 1, 0, 1);
+
+						CurrentImageResourceStates[ResolveHandle] = ColorAttachment.ResolveInitialState;
+
+						ResourceStateChange::ImageResource Res;
+						Res.IsSwapChain = false;
+						Res.Texture = DescResources.ColorAttachments[x].Resolve;
+						PrePasChange.ResourceChangeImageHandles.push_back(Res);
+						PrePasChange.ResourceChangeImageStates.push_back(ColorAttachment.ResolveInitialState);
+					}
+
+					// Post-Pass Barrier for Resolve: Transition to ResolveFinalState
+					// (Usually ShaderRead so it can be sampled in the next pass)
+					if (ColorAttachment.ResolveFinalState != ColorAttachment.ResolveInitialState)
+					{
+						Desc.PostPassBarriers[Desc.PostPassBarrierCount++] = FillImagePipelineBarrier(
+							ResolveHandle, false,
+							ColorAttachment.ResolveInitialState,
+							ColorAttachment.ResolveFinalState, 0, 1, 0, 1);
+
+						CurrentImageResourceStates[ResolveHandle] = ColorAttachment.ResolveFinalState;
+
+						ResourceStateChange::ImageResource Res;
+						Res.IsSwapChain = false;
+						Res.Texture = DescResources.ColorAttachments[x].Resolve;
+						PostPasChange.ResourceChangeImageHandles.push_back(Res);
+						PostPasChange.ResourceChangeImageStates.push_back(ColorAttachment.ResolveFinalState);
+					}
+				}
 			}
 
 			for (int x = 0; x < Desc.InputAttachmentCount; x++)
@@ -1158,43 +1295,21 @@ namespace Chilli
 		return RenderGraphErrorCodes::NONE;
 	}
 
-	void RenderGraph::AddBarrier(std::array<PipelineBarrier, CHILLI_MAX_PASS_BARRIERS>& container,
-		uint32_t& counter, uint32_t handle,
-		ResourceState oldState, ResourceState newState, bool IsSwapChain)
-	{
-		if (counter >= CHILLI_MAX_PASS_BARRIERS) return;
-
-		PipelineBarrier barrier{};
-		barrier.Image.Handle = handle;
-		barrier.OldState = oldState;
-		barrier.NewState = newState;
-		barrier.Image.IsSwapChain = IsSwapChain;
-		// Use your existing Lookup Table logic
-		SyncMapping src = GetSyncInfo(oldState);
-		SyncMapping dst = GetSyncInfo(newState);
-
-		barrier.SrcStage = src.Stage;
-		barrier.DstStage = dst.Stage;
-		barrier.SrcAccess = src.Access;
-		barrier.DstAccess = dst.Access;
-
-		container[counter++] = barrier;
-	}
 #pragma endregion
 
-		void OnRenderExtensionSetup(BackBone::SystemContext& Ctxt)
-		{
-			auto Command = Chilli::Command(Ctxt);
-			auto RenderGraph = Command.GetResource<Chilli::RenderResource>()->RenderGraph;
+	void OnRenderExtensionSetup(BackBone::SystemContext& Ctxt)
+	{
+		auto Command = Chilli::Command(Ctxt);
+		auto RenderGraph = Command.GetResource<Chilli::RenderResource>()->RenderGraph;
 
-			auto GeometryPass = std::make_shared<Chilli::GeometryPass>();
+		auto GeometryPass = std::make_shared<Chilli::GeometryPass>();
 
-			RenderGraph->AddPass(GeometryPass);
-			RenderGraph->AddPass<ScreenPass>(GeometryPass->GetColorTargetTextureKey());
-			RenderGraph->AddPass<PresentPass>();
+		RenderGraph->AddPass(GeometryPass);
+		RenderGraph->AddPass<ScreenPass>(GeometryPass->GetColorTargetTextureKey());
+		RenderGraph->AddPass<PresentPass>();
 
-			RenderGraph->Build(Command);
-		}
+		RenderGraph->Build(Ctxt);
+	}
 
 	void RenderExtension::Build(BackBone::App& App)
 	{
@@ -1215,7 +1330,8 @@ namespace Chilli
 		App.AssetRegistry.RegisterStore<ShaderProgram>();
 		App.AssetRegistry.RegisterStore<Material>();
 		App.AssetRegistry.RegisterStore<ImageData>();
-		App.ServiceRegistry.RegisterService<SceneManager>(std::make_shared<SceneManager>(App.Ctxt.Registry));
+		App.AssetRegistry.RegisterStore<Scene>();
+		App.ServiceRegistry.RegisterService<SceneManager>(std::make_shared<SceneManager>(App.Ctxt));
 		App.ServiceRegistry.RegisterService<ParentChildMapTable>(std::make_shared<ParentChildMapTable>());
 
 		App.SystemScheduler.AddSystemOverLayBefore(BackBone::ScheduleTimer::START_UP, OnRenderExtensionsSetup);

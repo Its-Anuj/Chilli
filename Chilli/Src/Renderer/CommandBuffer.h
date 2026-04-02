@@ -52,6 +52,8 @@ namespace Chilli
 	{
 		uint32_t ObjectIndex;
 		uint32_t MaterialIndex;
+		uint32_t SceneIndex;
+		uint32_t Padding = { 0 };
 	};
 
 	struct PushShaderInlineUniformDataCmdPayload

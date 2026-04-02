@@ -10,6 +10,9 @@
 struct Simulation
 {
 	Chilli::BackBone::Entity Window;
+	Chilli::BackBone::Entity Square;
+	Chilli::BackBone::Entity Camera;
+	Chilli::BackBone::AssetHandle<Chilli::Material> OurMaterial;
 	Chilli::Scene Scene;
 };
 
@@ -36,26 +39,42 @@ void OnWindowCreate(Chilli::BackBone::SystemContext& Ctxt)
 void OnStartUp(Chilli::BackBone::SystemContext& Ctxt)
 {
 	auto Command = Chilli::Command(Ctxt);
-	auto[Image, ImageData] = Command.AllocateImage("Assets/Textures/Deafult.png", Chilli::ImageFormat::RGBA8, Chilli::IMAGE_USAGE_SAMPLED_IMAGE, Chilli::ImageType::IMAGE_TYPE_2D, 1, true);
+	auto SimulationResource = Command.GetResource<Simulation>();
 
-	Chilli::TextureSpec TexSpec{};
-	TexSpec.Format = Chilli::ImageFormat::RGBA8;
-	auto Texturre = Command.CreateTexture(Image, TexSpec);
+	auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
+	auto RenderResource = Command.GetResource<Chilli::RenderResource>();
 
-	auto Index = Command.GetService<Chilli::Renderer>()->GetTextureShaderIndex(Texturre.ValPtr->RawTextureHandle);
+	auto	OurMaterial = MaterialSystem->CreateMaterial(RenderResource->DeafultShaderProgram);
+	MaterialSystem->CopyMaterial(RenderResource->DeafultMaterial, OurMaterial);
+	MaterialSystem->SetAlbedoColor(OurMaterial, { 1.0f, 		0.0f, 0.0f, 0.0f });
 
-	auto SquareMesh = Command.CreateMesh(Chilli::BasicShapes::TRIANGLE);
+	auto SquareMesh = Command.CreateMesh(Chilli::BasicShapes::CUBE);
 	auto Square = Command.CreateEntity();
 	Command.AddComponent<Chilli::TransformComponent>(Square, {});
 	Command.AddComponent<Chilli::MeshComponent>(Square, Chilli::MeshComponent{
-		.MeshHandle = SquareMesh });
+		.MeshHandle = SquareMesh,
+		.MaterialHandle = OurMaterial });
+
+	SimulationResource->Camera = Chilli::CameraBundle::Create3D(Ctxt);
+	Command.AddComponent(SimulationResource->Camera, Chilli::Deafult3DCameraController());
+
+	auto ActiveScene = Command.CreateScene();
+	ActiveScene.ValPtr->Name = "ActiveScene";
+	ActiveScene.ValPtr->MainCamera = SimulationResource->Camera;
+	Command.SetActiveScene(ActiveScene);
+
+	SimulationResource->Square = Square;
+	SimulationResource->OurMaterial = OurMaterial;
 }
 
 void InputTest(Chilli::BackBone::SystemContext& Ctxt)
 {
 	auto Command = Chilli::Command(Ctxt);
+	auto SimulationResource = Command.GetResource<Simulation>();
+	auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
 	if (Command.IsKeyPressed(Chilli::Input_key_T))
 		CH_CORE_INFO("T");
+	Chilli::CameraBundle::Update3DCamera(SimulationResource->Camera, Ctxt);
 }
 
 int main()
@@ -75,12 +94,12 @@ int main()
 
 	Chilli::DeafultExtensionConfig DeafultConfig;
 	DeafultConfig.RenderConfig = RenderConfig;
-	
+
 	App.Extensions.AddExtension(std::make_unique<Chilli::DeafultExtension>(DeafultConfig), true, &App);
 	App.SystemScheduler.AddSystemOverLayBefore(Chilli::BackBone::ScheduleTimer::UPDATE, InputTest);
 	App.SystemScheduler.AddSystem(Chilli::BackBone::ScheduleTimer::START_UP, OnStartUp);
 	CH_CORE_INFO("LOG");
-	
+
 	App.Run();
 
 	std::cin.get();

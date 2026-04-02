@@ -105,20 +105,6 @@ namespace Chilli
 		bool UIPass = true;
 	};
 
-	struct DefferedRenderingResource
-	{
-		BackBone::AssetHandle<Image> GeometryColorMSAAImage;
-		BackBone::AssetHandle<Image> GeometryColorImage;
-		BackBone::AssetHandle<Image> GeometryDepthImage;
-		BackBone::AssetHandle<Texture> GeometryColorMSAATexture;
-		BackBone::AssetHandle<Texture> GeometryColorTexture;
-		BackBone::AssetHandle<Texture> GeometryDepthTexture;
-		BackBone::AssetHandle<Texture> GeometryDepthViewTexture;
-		//BackBone::AssetHandle<GraphicsPipeline> ScenePipeline;
-		BackBone::AssetHandle<Mesh> ScreenRenderMesh;
-		BackBone::AssetHandle<ShaderProgram> ScreenShaderProgram;
-		BackBone::AssetHandle<Material> ScreenMaterial;
-	};
 
 	enum class RendererType
 	{
@@ -170,19 +156,6 @@ namespace Chilli
 		bool ContinueRender = false;
 		CommandBufferAllocInfo ActiveCommandBuffer;
 
-		struct {
-			uint32_t  DrawCallsCount = 0;
-			uint32_t VertexCount = 0;
-			uint32_t IndexCount = 0;
-			uint32_t PipelineCount = 0;
-			struct {
-				uint32_t  DrawCallsCount = 0;
-				uint32_t VertexCount = 0;
-				uint32_t IndexCount = 0;
-				uint32_t PipelineCount = 0;
-			} RenderDebugInfo;
-		} RenderDebugInfo;
-
 		struct LastTransformStruct
 		{
 			uint32_t GenerationVal = 0;
@@ -199,6 +172,7 @@ namespace Chilli
 		BackBone::AssetHandle<Sampler> DeafultSampler;
 		std::shared_ptr<RenderGraph> RenderGraph;
 		ResourceState SwapChainState = ResourceState::Present;
+		BackBone::AssetHandle<Scene> ActiveSceneID;
 	};
 
 	class Command;
@@ -207,11 +181,11 @@ namespace Chilli
 	{
 		bool IsSwapChain = false;
 		BackBone::AssetHandle<Texture> Color;
+		BackBone::AssetHandle<Texture> Resolve;
 	};
 
 	struct RenderGraphPassResources
 	{
-
 		std::array<ColorResources, CHILLI_MAX_COLOR_ATTACHMENT> ColorAttachments;
 		std::array<BackBone::AssetHandle<Texture>, CHILLI_MAX_INPUT_ATTACHMENT > InputAttachments;
 		std::array<BackBone::AssetHandle<Buffer>, CHILLI_MAX_COLOR_ATTACHMENT> BufferDependencies;
@@ -281,22 +255,17 @@ namespace Chilli
 
 		// Called once at startup or when pass is registered
 		// User declares their attachments here
-		virtual RenderPassDesc Setup(Chilli::Command& Command, RenderGraphRegistry& Registry) = 0;
-
-		// Cpu Side Update States of buffers and shader
-		virtual void ExecutePrePassBariersStateChanges() {};
-		// Cpu Side Update States of buffers and shader
-		virtual void ExecutePostPassBariersStateChanges() {};
+		virtual RenderPassDesc Setup(BackBone::SystemContext& Ctxt, RenderGraphRegistry& Registry) = 0;
 
 		// Called every frame at the declared stage
 		// User issues draw calls here
-		virtual void Execute(Chilli::Command& Command, const RenderPassDesc& Desc) = 0;
+		virtual void Execute(BackBone::SystemContext& Ctxt, const RenderPassDesc& Desc) = 0;
 
 		// Called when window resizes — user recreates size-dependent resources
-		virtual void OnResize(Chilli::Command& Command, uint32_t Width, uint32_t Height) {}
+		virtual void OnResize(BackBone::SystemContext& Ctxt, uint32_t Width, uint32_t Height) {}
 
 		// Called when pass is removed
-		virtual void Teardown(Chilli::Command& Command) {}
+		virtual void Teardown(BackBone::SystemContext& Ctxt) = 0;
 
 		const RenderPassDesc& GetDesc() const { return _Desc; }
 		RenderPassDesc& GetDesc() { return _Desc; }
@@ -324,32 +293,39 @@ namespace Chilli
 		std::vector<ResourceState> ResourceChangeImageStates;
 	};
 
-#define CHILLI_MAX_RENDER_GRAPH_KEY_LENGTH 16
+#define CHILLI_MAX_RENDER_GRAPH_KEY_LENGTH 32
+#define CHILLI_MAX_RENDER_GRAPH_KEY_LENGTH 32
 
 	struct RGKey {
 		char Data[CHILLI_MAX_RENDER_GRAPH_KEY_LENGTH] = { 0 };
 
 		RGKey(const char* name) {
-			// Ensure we don't overflow and null-terminate
-			std::strncpy(Data, name, CHILLI_MAX_RENDER_GRAPH_KEY_LENGTH - 1);
-			Data[CHILLI_MAX_RENDER_GRAPH_KEY_LENGTH - 1] = '\0';
+			// Clear buffer first to ensure stable hashing (important for padding bytes)
+			std::memset(Data, 0, CHILLI_MAX_RENDER_GRAPH_KEY_LENGTH);
+			if (name) {
+				std::strncpy(Data, name, CHILLI_MAX_RENDER_GRAPH_KEY_LENGTH - 1);
+			}
 		}
 
 		bool operator==(const RGKey& other) const {
+			// Modern compilers optimize this into 2-4 SIMD instructions
 			return std::memcmp(Data, other.Data, CHILLI_MAX_RENDER_GRAPH_KEY_LENGTH) == 0;
 		}
 	};
 
-	// Custom hasher for our 16-byte key
 	struct RGKeyHasher {
 		size_t operator()(const RGKey& k) const {
-			// Simple FNV-1a or similar hash for 16 bytes
-			size_t hash = 2166136261u;
-			for (int i = 0; i < CHILLI_MAX_RENDER_GRAPH_KEY_LENGTH && k.Data[i] != '\0'; ++i) {
-				hash ^= static_cast<size_t>(k.Data[i]);
-				hash *= 16777619u;
-			}
-			return hash;
+			// Fast 64-bit hashing (process 8 bytes at a time)
+			const uint64_t* p = reinterpret_cast<const uint64_t*>(k.Data);
+			size_t h = 14695981039346656037ULL; // FNV offset basis for 64-bit
+
+			// Unrolled loop for 32 bytes (4 iterations)
+			h = (h ^ p[0]) * 1099511628211ULL;
+			h = (h ^ p[1]) * 1099511628211ULL;
+			h = (h ^ p[2]) * 1099511628211ULL;
+			h = (h ^ p[3]) * 1099511628211ULL;
+
+			return h;
 		}
 	};
 
@@ -464,7 +440,7 @@ namespace Chilli
 			return *this;
 		}
 
-		void Build(Chilli::Command& Command);
+		void Build(BackBone::SystemContext& Ctxt);
 
 		std::vector<std::shared_ptr<RenderGraphPass>>& GetPasses()
 		{

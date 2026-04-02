@@ -43,6 +43,8 @@ namespace Chilli
 
 		// Material is based on program it is needed to even initialize
 		BackBone::AssetHandle<Material> CreateMaterial(BackBone::AssetHandle<ShaderProgram> Program);
+		BackBone::AssetHandle<Material> CloneMaterial(BackBone::AssetHandle<ShaderProgram> Program) {}
+		void CopyMaterial(BackBone::AssetHandle<Material> Src, BackBone::AssetHandle<Material> Dst);
 		// Destroy fully from the store
 		void DestroyMaterial(BackBone::AssetHandle<Material> Mat);
 		// Doesnot Destroy from the store
@@ -67,6 +69,12 @@ namespace Chilli
 			Mat->Version++;
 		}
 
+		Vec4 GetAlbedoColor(BackBone::AssetHandle<Material> Handle)
+		{
+			auto Mat = GetMaterial(Handle);
+			return Mat->AlbedoColor;
+		}
+
 		void SetAlbedoTexture(BackBone::AssetHandle<Material> Handle, BackBone::AssetHandle <Texture> AlbedoTextureHandle)
 		{
 			auto Mat = GetMaterial(Handle);
@@ -82,10 +90,10 @@ namespace Chilli
 		}
 
 		bool ShouldMaterialShaderDataUpdate(BackBone::AssetHandle<Material> Mat);
-		const MaterialShaderData& GetMaterialShaderData(BackBone::AssetHandle<Material> Mat);
+		MaterialShaderData GetMaterialShaderData(BackBone::AssetHandle<Material> Mat);
 
 		// Just a view into changeable components
-		const MaterialView& GetView(BackBone::AssetHandle<Material> Handle)
+		MaterialView GetView(BackBone::AssetHandle<Material> Handle)
 		{
 			auto Mat = GetMaterial(Handle);
 
