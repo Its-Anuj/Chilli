@@ -11,6 +11,7 @@ struct Simulation
 {
 	Chilli::BackBone::Entity Window;
 	Chilli::BackBone::Entity Square;
+	Chilli::BackBone::Entity Plane;
 	Chilli::BackBone::Entity Camera;
 	Chilli::BackBone::AssetHandle<Chilli::Material> OurMaterial;
 	Chilli::Scene Scene;
@@ -49,13 +50,51 @@ void OnStartUp(Chilli::BackBone::SystemContext& Ctxt)
 	MaterialSystem->SetAlbedoColor(OurMaterial, { 1.0f, 		0.0f, 0.0f, 0.0f });
 
 	auto SquareMesh = Command.CreateMesh(Chilli::BasicShapes::CUBE);
+
+	Chilli::RigidBody PlaneRigidBody;
+	PlaneRigidBody.Mass = 10.0f;
+	PlaneRigidBody.Layer = Chilli::Layers::STATIC;
+	PlaneRigidBody.MotionType = Chilli::MotionType::STATIC;
+	PlaneRigidBody.GravityFactor = 0.0f;
+
+	Chilli::Collider PlaneCollider;
+	PlaneCollider.IsTrigger = false;
+	PlaneCollider.Shape.AABB.HalfExtent = { 5, 0.5, 5 };
+	PlaneCollider.Type = Chilli::ColliderType::BOX;
+
+	auto Plane = Command.CreateEntity();
+	Command.AddComponent<Chilli::TransformComponent>(Plane, {
+		{0.0f, -5.0f, 0.0f}, {10.0f, 1.0f, 10.0f} });
+
+	Command.AddComponent(Plane, PlaneRigidBody);
+	Command.AddComponent(Plane, PlaneCollider);
+
+	Command.AddComponent<Chilli::MeshComponent>(Plane, Chilli::MeshComponent{
+		.MeshHandle = SquareMesh,
+		.MaterialHandle = OurMaterial });
+
 	auto Square = Command.CreateEntity();
+
+	Chilli::RigidBody SquareRigidBody;
+	SquareRigidBody.Mass = 10.0f;
+	SquareRigidBody.Layer = Chilli::Layers::DYNAMIC;
+	SquareRigidBody.MotionType = Chilli::MotionType::DYNAMIC;
+	SquareRigidBody.GravityFactor = 1.0f;
+
+	Chilli::Collider SquareCollider;
+	SquareCollider.IsTrigger = false;
+	SquareCollider.Shape.AABB.HalfExtent = { 0.5, 0.5, 0.5 };
+	SquareCollider.Type = Chilli::ColliderType::BOX;
+
+	Command.AddComponent(Square, SquareRigidBody);
+	Command.AddComponent(Square, SquareCollider);
+
 	Command.AddComponent<Chilli::TransformComponent>(Square, {});
 	Command.AddComponent<Chilli::MeshComponent>(Square, Chilli::MeshComponent{
 		.MeshHandle = SquareMesh,
 		.MaterialHandle = OurMaterial });
 
-	SimulationResource->Camera = Chilli::CameraBundle::Create3D(Ctxt);
+	SimulationResource->Camera = Chilli::CameraBundle::Create3D(Ctxt, {0,0, 5});
 	Command.AddComponent(SimulationResource->Camera, Chilli::Deafult3DCameraController());
 
 	auto ActiveScene = Command.CreateScene();
@@ -64,6 +103,7 @@ void OnStartUp(Chilli::BackBone::SystemContext& Ctxt)
 	Command.SetActiveScene(ActiveScene);
 
 	SimulationResource->Square = Square;
+	SimulationResource->Plane = Plane;
 	SimulationResource->OurMaterial = OurMaterial;
 }
 
@@ -72,9 +112,8 @@ void InputTest(Chilli::BackBone::SystemContext& Ctxt)
 	auto Command = Chilli::Command(Ctxt);
 	auto SimulationResource = Command.GetResource<Simulation>();
 	auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
-	if (Command.IsKeyPressed(Chilli::Input_key_T))
-		CH_CORE_INFO("T");
 	Chilli::CameraBundle::Update3DCamera(SimulationResource->Camera, Ctxt);
+
 }
 
 int main()

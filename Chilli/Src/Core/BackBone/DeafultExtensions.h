@@ -1538,13 +1538,13 @@ namespace Chilli
 		template<typename... Ts>
 		std::tuple<Ts*...> GetComponents(BackBone::Entity  entity)
 		{
-			return _Ctxt.Registry->GetComponents<Ts>(entity);
+			return _Ctxt.Registry->GetComponents<Ts...>(entity);
 		}
 
 		template<typename... Ts>
 		std::tuple<const Ts*...> GetComponents(BackBone::Entity  entity) const
 		{
-			return _Ctxt.Registry->GetComponents<Ts>(entity);
+			return _Ctxt.Registry->GetComponents<Ts...>(entity);
 		}
 
 		template<typename T>

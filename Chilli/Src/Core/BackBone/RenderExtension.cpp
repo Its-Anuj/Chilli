@@ -437,6 +437,10 @@ namespace Chilli
 			auto ActiveWindow = Command.GetActiveWindow();
 			auto ActiveWindowSize = IVec2{ ActiveWindow->GetWidth(), ActiveWindow->GetHeight() };
 
+			RenderPassDesc Desc;
+			Desc.Name = "GeometryPass";
+			Desc.Stage = RenderPassStage::AfterOpaque;
+
 			_ColorMSAACount = IMAGE_SAMPLE_COUNT_8_BIT;
 
 			ImageSpec ColorMSAATargetImageSpec;
@@ -471,9 +475,35 @@ namespace Chilli
 
 			_ColorTargetTexture = Command.CreateTexture(_ColorTargetImage, ColorTargetTextureSpec);
 
-			RenderPassDesc Desc;
-			Desc.Name = "GeometryPass";
-			Desc.Stage = RenderPassStage::AfterOpaque;
+			ImageSpec DepthImageSpec;
+			DepthImageSpec.Format = ImageFormat::D32F_S8I;
+			DepthImageSpec.ImageData = nullptr;
+			DepthImageSpec.MipLevel = 1;
+			DepthImageSpec.Resolution.Width = ActiveWindowSize.x;
+			DepthImageSpec.Resolution.Height = ActiveWindowSize.y;
+			DepthImageSpec.Resolution.Depth = 1;
+			DepthImageSpec.Type = ImageType::IMAGE_TYPE_2D;
+			DepthImageSpec.Usage = IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT | IMAGE_USAGE_SAMPLED_IMAGE;
+			DepthImageSpec.State = ResourceState::ShaderRead;
+			DepthImageSpec.Sample = _ColorMSAACount;
+			this->_DepthImage = Command.AllocateImage(DepthImageSpec);
+
+			TextureSpec DepthTextureSpec;
+			DepthTextureSpec.Format = DepthImageSpec.Format;
+			_DepthTexture = Command.CreateTexture(_DepthImage, DepthTextureSpec);
+
+			TextureSpec DepthViewTextureSpec;
+			DepthViewTextureSpec.Format = DepthImageSpec.Format;
+			DepthViewTextureSpec.Aspect = IMAGE_ASPECT_DEPTH;
+			_DepthViewTexture = Command.CreateTexture(_DepthImage, DepthViewTextureSpec);
+
+			DepthAttachment DepthAttachment;
+			DepthAttachment.Depth = 1.0f;
+			DepthAttachment.DepthTexture = _DepthTexture.ValPtr->RawTextureHandle;
+			DepthAttachment.LoadOp = AttachmentLoadOp::CLEAR;
+			DepthAttachment.StoreOp = AttachmentStoreOp::STORE;
+			DepthAttachment.Stencil = 0.0f;
+			DepthAttachment.FinalState = ResourceState::ShaderRead;
 
 			ColorAttachment ColorTargetAttachment;
 			ColorTargetAttachment.LoadOp = AttachmentLoadOp::CLEAR;
@@ -496,7 +526,12 @@ namespace Chilli
 			_Resources.ColorAttachments[Desc.ColorAttachmentCount].Resolve = _ColorTargetTexture;
 			Desc.ColorAttachments[Desc.ColorAttachmentCount++] = ColorTargetAttachment;
 
+			Desc.DepthStencil = DepthAttachment;
+			Desc.HasDepthStencil = true;
+			_Resources.DepthTexture = _DepthTexture;
+
 			Registry.AddImageResource(_ColorTargetTextureKey, _ColorTargetTexture);
+			Registry.AddImageResource(_DepthViewTextureKey, _DepthViewTexture);
 
 			Desc.RenderArea = { ActiveWindowSize.x, ActiveWindowSize.y };
 			_Desc = Desc;
@@ -520,13 +555,14 @@ namespace Chilli
 					false                     // alphaToCoverage: Keep false unless doing foliage/fences
 				)
 				.Build();
+
+			//ChangeResolution(Ctxt, 400, 300);
 			return Desc;
 		}
 
 		void OnResize(BackBone::SystemContext& Ctxt, uint32_t Width, uint32_t Height)
 		{
 			auto Command = Chilli::Command(Ctxt);
-			//_Desc.RenderArea = { (int)Width, (int)Height };
 		}
 
 		void ChangeResolution(BackBone::SystemContext& Ctxt, uint32_t NewWidth, uint32_t NewHeight)
@@ -535,7 +571,8 @@ namespace Chilli
 			auto RenderService = Command.GetService<Chilli::Renderer>();
 			auto RenderCommandService = Command.GetService<Chilli::RenderCommand>();
 
-			IVec2 ActiveWindowSize = { NewWidth, NewHeight };
+			IVec2 ActiveWindowSize = { (int)NewWidth, (int)NewHeight };
+			_Desc.RenderArea = { (int)NewWidth, (int)NewHeight };
 
 			RenderCommandService->DestroyImage(_ColorMSAAImage.ValPtr->RawImageHandle);
 
@@ -575,6 +612,7 @@ namespace Chilli
 			_ColorMSAATexture.ValPtr->RawTextureHandle = RenderCommandService->CreateTexture(_ColorMSAAImage.ValPtr->RawImageHandle, ColorMSAATargetTextureSpec);
 			_ColorMSAATexture.ValPtr->ImageHandle = _ColorMSAAImage;
 			_ColorMSAATexture.ValPtr->Spec = ColorMSAATargetTextureSpec;
+			//_ColorMSAATexture.ValPtr->
 
 			auto OldColorTargetTexture = _ColorTargetTexture.ValPtr->RawTextureHandle;
 
@@ -623,6 +661,28 @@ namespace Chilli
 						PostPass.Image.Handle = _ColorTargetTexture.ValPtr->RawTextureHandle;
 					}
 				}
+			}
+
+			for (int i = 0; i < _Desc.ColorAttachmentCount; i++)
+			{
+				auto& ColorAttachment = _Desc.ColorAttachments[i];
+
+				if (ColorAttachment.ColorTexture == OldColorMSAATargetTexture)
+				{
+					ColorAttachment.ColorTexture = _ColorMSAATexture.ValPtr->RawTextureHandle;
+				}
+				if (ColorAttachment.ResolveTexture == OldColorTargetTexture)
+				{
+					ColorAttachment.ColorTexture = _ColorTargetTexture.ValPtr->RawTextureHandle;
+				}
+			}
+
+			for (int i = 0; i < _Desc.ColorAttachmentCount; i++)
+			{
+				if (_Resources.ColorAttachments[i].Color.ValPtr->RawTextureHandle == OldColorMSAATargetTexture)
+					_Resources.ColorAttachments[i].Color = _ColorMSAATexture;
+				if (_Resources.ColorAttachments[i].Color.ValPtr->RawTextureHandle == OldColorTargetTexture)
+					_Resources.ColorAttachments[i].Color = _ColorTargetTexture;
 			}
 		}
 
@@ -732,6 +792,10 @@ namespace Chilli
 			return _ColorTargetTextureKey;
 		}
 
+		RGKey GetDepthViewTextureKey() {
+			return _DepthViewTextureKey;
+		}
+
 		void Teardown(BackBone::SystemContext& Ctxt)
 		{
 
@@ -740,12 +804,16 @@ namespace Chilli
 	private:
 		BackBone::AssetHandle<Image> _ColorTargetImage;
 		BackBone::AssetHandle<Texture> _ColorTargetTexture;
+		BackBone::AssetHandle<Image> _DepthImage;
+		BackBone::AssetHandle<Texture> _DepthTexture;
+		BackBone::AssetHandle<Texture> _DepthViewTexture;
 		BackBone::AssetHandle<Image> _ColorMSAAImage;
 		BackBone::AssetHandle<Texture> _ColorMSAATexture;
 		SampleCount _ColorMSAACount = IMAGE_SAMPLE_COUNT_2_BIT;
 		PipelineStateInfo _PipelineState;
 		VertexInputShaderLayout _MeshLayout;
 		RGKey _ColorTargetTextureKey = "GeometryColor";
+		RGKey _DepthViewTextureKey = "GeometryDepthView";
 	};
 
 	class ScreenPass : public Chilli::RenderGraphPass
@@ -1185,8 +1253,22 @@ namespace Chilli
 					PrePasChange.ResourceChangeImageStates.push_back(ResourceState::DepthWrite);
 
 					Desc.PrePassBarriers[Desc.PrePassBarrierCount++] = Bar;
+					CurrentImageResourceStates[DepthAttachment.DepthTexture] = ResourceState::DepthWrite;
 				}
+				if (CurrentImageResourceStates[DepthAttachment.DepthTexture] != DepthAttachment.FinalState)
+				{
+					auto Bar = FillImagePipelineBarrier(DepthAttachment.DepthTexture, false, CurrentImageResourceStates[DepthAttachment.DepthTexture],
+						DepthAttachment.FinalState, 0, 1, 0, 1);
 
+					ResourceStateChange::ImageResource ImageResource;
+					ImageResource.IsSwapChain = false;
+					ImageResource.Texture = Texture;
+					PrePasChange.ResourceChangeImageHandles.push_back(ImageResource);
+					PrePasChange.ResourceChangeImageStates.push_back(DepthAttachment.FinalState);
+
+					Desc.PostPassBarriers[Desc.PostPassBarrierCount++] = Bar;
+					CurrentImageResourceStates[DepthAttachment.DepthTexture] = DepthAttachment.FinalState;
+				}
 			}
 		}
 

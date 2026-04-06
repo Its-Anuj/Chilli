@@ -23,7 +23,12 @@ if(WIN32 AND NOT MSVC)
     # Remove any manual /Zi, /W4, or /Od calls
 endif()
 
-set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /DEBUG")
+if(MSVC)
+    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /DEBUG")
+else()
+    # MinGW/GCC uses -g for debug info, which is already handled in your CXX_FLAGS
+    # You don't need a special linker flag here for MinGW
+endif()
 
 set(CHILLI_COMPILE_EXAMPLES ON)
 set(Chilli_EXAMPLE_GRAVITY_COMPILE ON)

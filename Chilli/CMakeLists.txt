@@ -1,3 +1,9 @@
+# DO THIS AT THE VERY TOP OF YOUR FILE
+set(USE_DX12 OFF CACHE BOOL "Disable DX12 for Jolt" FORCE)
+set(USE_VULKAN ON CACHE BOOL "Enable Vulkan for Jolt" FORCE)
+# Use CPU if you don't need GPU compute for physics yet
+set(USE_CPU_COMPUTE ON CACHE BOOL "" FORCE)
+
 file(GLOB_RECURSE CHILLI_CORE_SOURCES Src/Core/*.cpp Src/Core/*/*.cpp Src/Renderer/RenderClasses.cpp Src/Renderer/Renderer.cpp)
 
 # Disable warnings-as-errors for Jolt due to Vulkan SDK issues

@@ -755,7 +755,7 @@ namespace Chilli
 				}
 			};
 
-			HandleView<T> GetHandles() const { return HandleView(this); }
+			HandleView<T> GetHandles() const { return HandleView<T>(this); }
 
 			// For range-based for loops:
 			template<typename _RefType>

@@ -124,6 +124,9 @@ namespace Chilli
 		AttachmentLoadOp StencilLoadOp = AttachmentLoadOp::CLEAR;
 		AttachmentStoreOp StencilStoreOp = AttachmentStoreOp::STORE;
 
+		static constexpr ResourceState  InitialState = ResourceState::DepthWrite;
+		ResourceState                FinalState = ResourceState::DepthWrite;
+
 		float Depth = 1.0f;
 		float Stencil = 0.0f;
 	};

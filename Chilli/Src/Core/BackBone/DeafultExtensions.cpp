@@ -109,7 +109,7 @@ namespace Chilli
 
 		if (_Config.SimPhysicsConfig.Enabled)
 		{
-			//App.Extensions.AddExtension(std::make_unique<JoltPhysicsExtension>(_Config.SimPhysicsConfig), true, &App);
+			App.Extensions.AddExtension(std::make_unique<JoltPhysicsExtension>(_Config.SimPhysicsConfig), true, &App);
 		}
 		if (_Config.NoiseExtensionConfig.EnableFastNoise2Provider)
 		{
@@ -1542,15 +1542,14 @@ namespace Chilli
 
 			// 2. Extract Position and Directions from the Matrix
 			// Column 3 is Position, Column 2 is Z-Axis (Forward), Column 1 is Y-Axis (Up)
-			glm::vec3 CameraPos = glm::vec3(Model[3]);
+			glm::vec3 CameraPos = glm::vec3(Transform->GetPosition().x, Transform->GetPosition().y,
+				Transform->GetPosition().z);
 
-			// In Vulkan/OpenGL, Forward is usually -Z
-			glm::vec3 Forward = -glm::vec3(Model[2]);
-			glm::vec3 Up = glm::vec3(Model[1]);
+			glm::vec3 Forward = glm::vec3(Transform->GetForward().x, Transform->GetForward().y, Transform->GetForward().z);
+			glm::vec3 Up = glm::vec3(Transform->GetUp().x, Transform->GetUp().y, Transform->GetUp().z);
 
 			// 3. Create the View Matrix looking at (Pos + Forward)
-			glm::mat4 view = glm::lookAt(CameraPos, CameraPos + Forward, Up);
-
+			glm::mat4 view = glm::lookAtRH(CameraPos, CameraPos + Forward, Up);
 			// 4. Calculate Projection
 			glm::mat4 projection;
 			if (Camera->Is_Orthro)
@@ -1564,7 +1563,7 @@ namespace Chilli
 					Window->GetAspectRatio(),
 					Camera->Near_Clip, Camera->Far_Clip);
 			}
-
+			projection[1][1] *= -1;
 			// 5. Build and Push Scene Data
 			SceneData SceneData{};
 			SceneData.CameraPos = { CameraPos.x, CameraPos.y, CameraPos.z, 1.0f };
@@ -1597,14 +1596,15 @@ namespace Chilli
 
 			Command.AddComponent<TransformComponent>(camera, TransformComponent(
 				FromGlmVec3(Pos),
-				{ 1.0f, 1.0f, 1.0f },
-				{ 0.0f, 0.0f, 0.0f }
+				{ 1.0f, 1.0f, 1.0f }
 			));
+
+			Command.GetComponent<TransformComponent>(camera)->SetEulerRotation({ 0,0,0 });
 
 			return camera;
 		}
 
-		Chilli::BackBone::Entity CameraBundle::Create2D(Chilli::BackBone::SystemContext& Ctxt, bool Main_Cam, const IVec2& Resolution)
+		Chilli::BackBone::Entity Create2D(Chilli::BackBone::SystemContext& Ctxt, bool Main_Cam, const IVec2& Resolution)
 		{
 			auto Command = Chilli::Command(Ctxt);
 			auto camera = Command.CreateEntity();
@@ -1621,23 +1621,21 @@ namespace Chilli
 				{ 0.0f, 0.0f, 0.0f }
 			));
 
-			return Chilli::BackBone::Entity();
+			return camera;
 		}
-
-		void CameraBundle::Update3DCamera(Chilli::BackBone::Entity Camera, Chilli::BackBone::SystemContext& Ctxt)
-
+		void Update3DCamera(Chilli::BackBone::Entity Camera, Chilli::BackBone::SystemContext& Ctxt)
 		{
 			auto Command = Chilli::Command(Ctxt);
 			auto Input = Ctxt.ServiceRegistry->GetService<Chilli::Input>();
 			auto FrameData = Command.GetResource<Chilli::BackBone::GenericFrameData>();
-			auto Scene = Command.GetService<Chilli::SceneManager>();
 			float DT = FrameData->Ts.GetSecond();
 
 			auto Transform = Command.GetComponent<Chilli::TransformComponent>(Camera);
-			auto CameraComp = Command.GetComponent<Chilli::CameraComponent>(Camera);
 			auto Control = Command.GetComponent<Chilli::Deafult3DCameraController>(Camera);
 
-			// 1. Handle Rotation ONLY on Left Mouse Button
+			if (!Control || !Transform) return;
+
+			// 1. Handle Rotation via Quaternions (Euler-to-Quat conversion)
 			if (Input->IsMouseButtonDown(Chilli::Input_mouse_Left))
 			{
 				Chilli::IVec2 Mouse_Delta = Input->GetCursorDelta();
@@ -1647,35 +1645,36 @@ namespace Chilli
 				float Y_Mult = Control->Invert_Y ? 1.0f : -1.0f;
 				Control->Pitch += Mouse_Delta.y * Control->Look_Sensitivity * Y_Mult;
 
-				// Constrain Pitch to avoid flipping the camera over the poles
+				// Constrain Pitch to avoid flipping (still useful with Quats for FPS style)
 				Control->Pitch = glm::clamp(Control->Pitch, -89.0f, 89.0f);
 
+				// Re-apply rotation to the quaternion
 				Transform->SetEulerRotation({ Control->Pitch, Control->Yaw, 0.0f });
 			}
 
-			// 2. Handle Movement (WASD + Space/Ctrl)
-			// We get the current matrix to extract the 'Look' vectors
-			glm::mat4 Mat = Transform->GetWorldMatrix();
-
-			// Extract Forward (-Z) and Right (+X) from matrix columns
-			Chilli::Vec3 Forward = -Chilli::Vec3(Mat[2].x, Mat[2].y, Mat[2].z);
-			Chilli::Vec3 Right = Chilli::Vec3(Mat[0].x, Mat[0].y, Mat[0].z);
+			// 2. Handle Movement using Transform's direction vectors
+			// Your TransformComponent now provides these via Quaternion math
+			Chilli::Vec3 Forward = Transform->GetForward();
+			Chilli::Vec3 Right = Transform->GetRight();
 
 			float S = Control->Move_Speed * DT;
 
-			// Horizontal Movement
+			// W moves toward Forward, S moves away
 			if (Input->IsKeyDown(Chilli::Input_key_W)) Transform->Move(Forward * S);
-			if (Input->IsKeyDown(Chilli::Input_key_S)) Transform->Move(-Forward * S);
-			if (Input->IsKeyDown(Chilli::Input_key_A)) Transform->Move(-Right * S);
+			if (Input->IsKeyDown(Chilli::Input_key_S)) Transform->Move(Forward * -S);
+
+			// A moves Left (-Right), D moves Right
+			if (Input->IsKeyDown(Chilli::Input_key_A)) Transform->Move(Right * -S);
 			if (Input->IsKeyDown(Chilli::Input_key_D)) Transform->Move(Right * S);
 
-			// Vertical Movement
+			// Space moves UP (+Y), Control moves DOWN (-Y)
 			if (Input->IsKeyDown(Chilli::Input_key_Space))       Transform->MoveY(S);
 			if (Input->IsKeyDown(Chilli::Input_key_LeftControl)) Transform->MoveY(-S);
 		}
 
 	}
 #pragma endregion
+
 #pragma region Ember
 	BackBone::AssetHandle<STBITTF_Data> STBITTF_Loader::LoadTyped(BackBone::SystemContext& Ctxt, const std::string& Path)
 	{
