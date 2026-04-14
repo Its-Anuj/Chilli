@@ -11,6 +11,8 @@ struct Simulation
 {
 	Chilli::BackBone::Entity Window;
 	Chilli::BackBone::Entity Square;
+	Chilli::BackBone::Entity Slider;
+	Chilli::BackBone::Entity Platform;
 	Chilli::BackBone::Entity Plane;
 	Chilli::BackBone::Entity Camera;
 	Chilli::BackBone::AssetHandle<Chilli::Material> OurMaterial;
@@ -35,6 +37,111 @@ void OnWindowCreate(Chilli::BackBone::SystemContext& Ctxt)
 	Command.AddResource<Simulation>();
 
 	Command.GetResource<Simulation>()->Window = Command.SpwanWindow(Chilli::WindowSpec{ "Gravity Sim", {800, 600} });
+}
+
+void OnButtonClick(Chilli::BackBone::SystemContext& Ctxt, Chilli::Event& e, Chilli::PepperEventTypes Type,
+	Chilli::BackBone::Entity Entity)
+{
+	CH_CORE_INFO("Button Click");
+}
+
+void OnTextBoxEnter(Chilli::BackBone::SystemContext& Ctxt, Chilli::Event& e, Chilli::PepperEventTypes Type,
+	Chilli::BackBone::Entity Entity)
+{
+	CH_CORE_INFO("TextBox Enter");
+}
+
+void OnCheckBox(Chilli::BackBone::SystemContext& Ctxt, Chilli::Event& e, Chilli::PepperEventTypes Type,
+	Chilli::BackBone::Entity Entity)
+{
+	auto Command = Chilli::Command(Ctxt);
+	auto Pepper = Chilli::Pepper(Ctxt);
+	auto PepperElement = Command.GetComponent<Chilli::PepperElement>(Entity);
+	auto CheckBox = Command.GetComponent<Chilli::CheckBoxComponent>(Entity);
+
+	if (CheckBox->State == true)
+	{
+		Pepper.SetMaterialColor(Entity, { 0.0f, 0.0f, 0.0f, 1.0f });
+	}
+	else
+	{
+		Pepper.SetMaterialColor(Entity, { 1.0f, 0.0f, 0.0f, 1.0f });
+	}
+}
+
+void CreateCheckBox(Chilli::BackBone::SystemContext& Ctxt, Chilli::PepperActionKey Key,
+	const Chilli::PepperActionCallBackFn& CallBack)
+{
+	auto Command = Chilli::Command(Ctxt);
+	auto PepperResource = Command.GetResource<Chilli::PepperResource>();
+
+	auto Pepper = Chilli::Pepper(Ctxt);
+	auto CheckBox = Command.CreateEntity();
+
+	Chilli::PepperTransform panelTransform;
+
+	panelTransform.PercentageDimensions = { 0.05f, 0.08f };
+
+	// Position: Top-right corner
+	panelTransform.PercentagePosition = { 0.55f, 0.5f };
+
+	panelTransform.AnchorX = Chilli::AnchorX::CENTER;  // Align right
+	panelTransform.AnchorY = Chilli::AnchorY::TOP;    // Align top
+
+	Chilli::PepperElement PepperElement;
+	PepperElement.Flags = Chilli::PEPPER_ELEMENT_VISIBLE;
+	strncpy(PepperElement.Name, "CheckBox", 32);
+	PepperElement.Type = Chilli::PepperElementTypes::BUTTON;
+
+	Command.AddComponent(CheckBox, panelTransform);
+	Command.AddComponent(CheckBox, PepperElement);
+	Command.AddComponent(CheckBox, Chilli::InteractionState());
+	Command.AddComponent(CheckBox, Chilli::CheckBoxComponent{
+		.OnStateChange = Pepper.RegisterAction(Key, CallBack),
+		});
+	Pepper.SetMaterialTexture(CheckBox, PepperResource->SliderCircleTexture);
+}
+
+void CreateTextBox(Chilli::BackBone::SystemContext& Ctxt, Chilli::PepperActionKey Key,
+	const Chilli::PepperActionCallBackFn& CallBack,
+	Chilli::BackBone::AssetHandle<Chilli::FlameFont> Font)
+{
+	auto Command = Chilli::Command(Ctxt);
+
+	auto Pepper = Chilli::Pepper(Ctxt);
+	auto TextBox = Command.CreateEntity();
+	auto TextRenderContext = Command.CreateEntity();
+
+	Chilli::PepperTransform panelTransform;
+
+	panelTransform.PercentageDimensions = { 0.2f, 0.04f };
+
+	// Position: Top-right corner
+	panelTransform.PercentagePosition = { 0.55f, 0.5f };
+
+	panelTransform.AnchorX = Chilli::AnchorX::CENTER;  // Align right
+	panelTransform.AnchorY = Chilli::AnchorY::TOP;    // Align top
+
+	Chilli::PepperElement PepperElement;
+	PepperElement.Flags = Chilli::PEPPER_ELEMENT_VISIBLE;
+	strncpy(PepperElement.Name, "CheckBox", 32);
+	PepperElement.Type = Chilli::PepperElementTypes::PANEL;
+	panelTransform.ZOrder = 0;
+
+	Chilli::FlameTextComponent TextComp;
+	TextComp.Font = Font;
+
+	Command.AddComponent(TextRenderContext, panelTransform);
+	Command.AddComponent(TextRenderContext, TextComp);
+
+	Command.AddComponent(TextBox, panelTransform);
+	Command.AddComponent(TextBox, PepperElement);
+	Command.AddComponent(TextBox, Chilli::InteractionState());
+	Command.AddComponent(TextBox, Chilli::TextBoxComponent{
+		.OnSubmit = Pepper.RegisterAction("OnTextBoxEnter",OnTextBoxEnter),
+		.TextRenderContext = TextRenderContext
+		});
+	Pepper.SetMaterialColor(TextBox, { 0.0f,0.0f, 1.0f, 1.0f });
 }
 
 void OnStartUp(Chilli::BackBone::SystemContext& Ctxt)
@@ -94,13 +201,47 @@ void OnStartUp(Chilli::BackBone::SystemContext& Ctxt)
 		.MeshHandle = SquareMesh,
 		.MaterialHandle = OurMaterial });
 
-	SimulationResource->Camera = Chilli::CameraBundle::Create3D(Ctxt, {0,0, 5});
+	SimulationResource->Camera = Chilli::CameraBundle::Create3D(Ctxt, { 0,0, 5 });
 	Command.AddComponent(SimulationResource->Camera, Chilli::Deafult3DCameraController());
+	Command.SetParentEntity(SimulationResource->Camera, Square);
+
+	auto Pepper = Chilli::Pepper(Ctxt);
+	auto Button = Command.CreateEntity();
+
+	Chilli::PepperTransform panelTransform;
+
+	// Size: 20% width, 20% height (example)
+	panelTransform.PercentageDimensions = { 0.1f, 0.05f };
+
+	// Position: Top-right corner
+	panelTransform.PercentagePosition = { 0.75f, 0.3f };
+
+	panelTransform.AnchorX = Chilli::AnchorX::RIGHT;  // Align right
+	panelTransform.AnchorY = Chilli::AnchorY::TOP;    // Align top
+
+	Chilli::PepperElement PepperElement;
+	PepperElement.Flags = Chilli::PEPPER_ELEMENT_VISIBLE;
+	strncpy(PepperElement.Name, "Button", 32);
+	PepperElement.Type = Chilli::PepperElementTypes::BUTTON;
+
+	Command.AddComponent(Button, panelTransform);
+	Command.AddComponent(Button, PepperElement);
+	Command.AddComponent(Button, Chilli::InteractionState());
+	Command.AddComponent(Button, Chilli::ButtonComponent{
+		.OnClick = Pepper.RegisterAction("OnButtonClick", OnButtonClick)
+		});
 
 	auto ActiveScene = Command.CreateScene();
 	ActiveScene.ValPtr->Name = "ActiveScene";
 	ActiveScene.ValPtr->MainCamera = SimulationResource->Camera;
 	Command.SetActiveScene(ActiveScene);
+
+	//SimulationResource->Slider = Pepper.CreateSlider(Ctxt, "OnSliderChange", OnSliderChanged,
+	// Chilli::BackBone::npos);
+
+	CreateCheckBox(Ctxt, "OnCheckBox", OnCheckBox);
+	auto Font = Command.LoadFont_Msdf("Assets/Fonts/Alkia.msdf", "Assets/Fonts/Alkia.png");
+	//CreateTextBox(Ctxt, "OnCheckBox", OnCheckBox, Font);
 
 	SimulationResource->Square = Square;
 	SimulationResource->Plane = Plane;
@@ -113,7 +254,6 @@ void InputTest(Chilli::BackBone::SystemContext& Ctxt)
 	auto SimulationResource = Command.GetResource<Simulation>();
 	auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
 	Chilli::CameraBundle::Update3DCamera(SimulationResource->Camera, Ctxt);
-
 }
 
 int main()

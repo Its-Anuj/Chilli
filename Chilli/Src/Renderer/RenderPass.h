@@ -62,9 +62,36 @@ namespace Chilli
 		} Image;
 
 		// Helper to determine barrier type at runtime
-		bool IsImageBarrier() const { return Image.Handle != UINT32_MAX || Image.IsSwapChain;
-	}
+		bool IsImageBarrier() const {
+			return Image.Handle != UINT32_MAX || Image.IsSwapChain;
+		}
 		bool IsBufferBarrier() const { return Buffer.Handle != UINT32_MAX; }
+
+		PipelineBarrier& operator=(const PipelineBarrier& other) {
+			// 1. Self-assignment check
+			if (this == &other) {
+				return *this;
+			}
+
+			// 2. Copy shared synchronization data
+			SrcStage = other.SrcStage;
+			DstStage = other.DstStage;
+			SrcAccess = other.SrcAccess;
+			DstAccess = other.DstAccess;
+
+			// 3. Copy state and stream data
+			OldState = other.OldState;
+			NewState = other.NewState;
+			OldStream = other.OldStream;
+			NewStream = other.NewStream;
+
+			// 4. Copy resource-specific data
+			// (Note: Since Buffer and Image are POD structs, direct assignment works)
+			Buffer = other.Buffer;
+			Image = other.Image;
+
+			return *this;
+		}
 	};
 
 	struct PipelineBarrierCmdPayload {
@@ -146,7 +173,7 @@ namespace Chilli
 		std::string     Name;
 		RenderPassStage Stage;
 
-		std::array<ColorAttachment , CHILLI_MAX_COLOR_ATTACHMENT> ColorAttachments;
+		std::array<ColorAttachment, CHILLI_MAX_COLOR_ATTACHMENT> ColorAttachments;
 		uint32_t ColorAttachmentCount = 0;
 		bool             HasDepthStencil = false;
 		DepthAttachment DepthStencil;

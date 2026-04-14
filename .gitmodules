@@ -31,3 +31,9 @@
 [submodule "Chilli/Libs/JoltPhysics"]
 	path = Chilli/Libs/JoltPhysics
 	url = https://github.com/jrouwe/JoltPhysics.git
+[submodule "Chilli/Libs/Msdfgen"]
+	path = Chilli/Libs/Msdfgen
+	url = https://github.com/Chlumsky/msdfgen.git
+[submodule "Chilli/Libs/NlohmannJson"]
+	path = Chilli/Libs/NlohmannJson
+	url = https://github.com/nlohmann/json.git

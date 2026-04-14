@@ -686,7 +686,7 @@ namespace Chilli
 			}
 		}
 
-		void Execute(BackBone::SystemContext& Ctxt, const RenderPassDesc& Desc) override
+		void Execute(BackBone::SystemContext& Ctxt, RenderPassDesc& Desc) override
 		{
 			auto Command = Chilli::Command(Ctxt);
 			auto RenderCommandService = Command.GetService<RenderCommand>();
@@ -828,9 +828,12 @@ namespace Chilli
 		RenderPassDesc Setup(BackBone::SystemContext& Ctxt, RenderGraphRegistry& Registry) override
 		{
 			auto Command = Chilli::Command(Ctxt);
+			auto ActiveWindow = Command.GetActiveWindow();
+			auto ActiveWindowSize = IVec2(ActiveWindow->GetWidth(), ActiveWindow->GetHeight());
+
 			RenderPassDesc Desc;
 			Desc.Name = "ScreenPass";
-			Desc.Stage = RenderPassStage::AfterOpaque;
+			Desc.Stage = RenderPassStage::BeforeUI;
 
 			ColorAttachment Color;
 			Color.LoadOp = AttachmentLoadOp::CLEAR;
@@ -842,7 +845,7 @@ namespace Chilli
 			_Resources.ColorAttachments[Desc.ColorAttachmentCount].IsSwapChain = true;
 			Desc.ColorAttachments[Desc.ColorAttachmentCount++] = Color;
 
-			Desc.RenderArea = { 800, 600 };
+			Desc.RenderArea = { ActiveWindowSize.x, ActiveWindowSize.y };
 			_Desc = Desc;
 
 			auto ScreenVertexShader = Command.CreateShaderModule("Assets/Shaders/screen_vert.spv",
@@ -929,7 +932,7 @@ namespace Chilli
 			_Desc.RenderArea = { (int)Width, (int)Height };
 		}
 
-		void Execute(BackBone::SystemContext& Ctxt, const RenderPassDesc& Desc) override
+		void Execute(BackBone::SystemContext& Ctxt, RenderPassDesc& Desc) override
 		{
 			auto Command = Chilli::Command(Ctxt);
 			auto RenderService = Command.GetService<Renderer>();
@@ -965,12 +968,162 @@ namespace Chilli
 		RGKey _ScreenColorDisplayTextureKey;
 	};
 
+	class PepperPass : public Chilli::RenderGraphPass
+	{
+	public:
+		RenderPassDesc Setup(BackBone::SystemContext& Ctxt, RenderGraphRegistry& Registry) override
+		{
+			auto Command = Chilli::Command(Ctxt);
+			auto ActiveWindow = Command.GetActiveWindow();
+			auto ActiveWindowSize = IVec2{ ActiveWindow->GetWidth(), ActiveWindow->GetHeight() };
+
+			RenderPassDesc Desc;
+			Desc.Name = "PepperPass";
+			Desc.Stage = RenderPassStage::BeforeUI;
+
+			ColorAttachment Color;
+			Color.LoadOp = AttachmentLoadOp::LOAD;
+			Color.StoreOp = AttachmentStoreOp::STORE;
+			Color.InitialState = ResourceState::Present;
+			Color.FinalState = ResourceState::Present;
+			Color.UseSwapChainImage = true;
+
+			_Resources.ColorAttachments[Desc.ColorAttachmentCount].IsSwapChain = true;
+			Desc.ColorAttachments[Desc.ColorAttachmentCount++] = Color;
+
+			Desc.RenderArea = { ActiveWindowSize.x, ActiveWindowSize.y };
+
+			ImageSpec DepthImageSpec;
+			DepthImageSpec.Format = ImageFormat::D32F_S8I;
+			DepthImageSpec.ImageData = nullptr;
+			DepthImageSpec.MipLevel = 1;
+			DepthImageSpec.Resolution.Width = ActiveWindowSize.x;
+			DepthImageSpec.Resolution.Height = ActiveWindowSize.y;
+			DepthImageSpec.Resolution.Depth = 1;
+			DepthImageSpec.Type = ImageType::IMAGE_TYPE_2D;
+			DepthImageSpec.Usage = IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT | IMAGE_USAGE_SAMPLED_IMAGE;
+			DepthImageSpec.State = ResourceState::ShaderRead;
+			DepthImageSpec.Sample = IMAGE_SAMPLE_COUNT_1_BIT;
+			this->_DepthImage = Command.AllocateImage(DepthImageSpec);
+
+			TextureSpec DepthTextureSpec;
+			DepthTextureSpec.Format = DepthImageSpec.Format;
+			_DepthTexture = Command.CreateTexture(_DepthImage, DepthTextureSpec);
+
+			DepthAttachment DepthAttachment;
+			DepthAttachment.Depth = 1.0f;
+			DepthAttachment.DepthTexture = _DepthTexture.ValPtr->RawTextureHandle;
+			DepthAttachment.LoadOp = AttachmentLoadOp::CLEAR;
+			DepthAttachment.StoreOp = AttachmentStoreOp::DONT_CARE;
+			DepthAttachment.Stencil = 0.0f;
+			DepthAttachment.FinalState = ResourceState::ShaderRead;
+
+			Desc.DepthStencil = DepthAttachment;
+			Desc.HasDepthStencil = true;
+			_Resources.DepthTexture = _DepthTexture;
+
+			_Desc = Desc;
+
+			PipelineBuilder Builder;
+			_PipelineState = Builder.Default().
+				AddColorBlend(ColorBlendAttachmentState::OpaquePass())
+				.SetDepth(true, true)
+				.Build();
+
+			_MeshLayout.BeginBinding(0, false, BufferState::DYNAMIC_DRAW);
+			_MeshLayout.AddAttribute(ShaderObjectTypes::FLOAT3, "InPosition", 0);
+			_MeshLayout.AddAttribute(ShaderObjectTypes::FLOAT2, "InTexCoords", 1);
+			_MeshLayout.AddAttribute(ShaderObjectTypes::INT1, "InPepperMaterialIndex", 2);
+
+			return Desc;
+		}
+
+		void OnResize(BackBone::SystemContext& Ctxt, uint32_t Width, uint32_t Height)
+		{
+			auto Command = Chilli::Command(Ctxt);
+			_Desc.RenderArea = { (int)Width, (int)Height };
+		}
+
+		void Execute(BackBone::SystemContext& Ctxt, RenderPassDesc& Desc) override
+		{
+			auto Command = Chilli::Command(Ctxt);
+
+			auto RenderCommandService = Command.GetService<RenderCommand>();
+			auto RenderService = Command.GetService<Renderer>();
+			auto MaterialSystem = Command.GetService<Chilli::MaterialSystem>();
+			auto PepperResource = Command.GetResource<Chilli::PepperResource>();
+			auto InputManager = Command.GetService<Chilli::Input>();
+
+			if (_BarrierSetup == false)
+			{
+				auto Barriers = GetPepperPrePassPipelineBarrier(Ctxt);
+
+				for (auto Bar : Barriers)
+					Desc.PrePassBarriers[_Desc.PrePassBarrierCount++] = Bar;
+
+				Barriers = GetPepperPostPassPipelineBarrier(Ctxt);
+
+				for (auto Bar : Barriers)
+					Desc.PostPassBarriers[_Desc.PostPassBarrierCount++] = Bar;
+
+				Barriers = GetFlamePrePassPipelineBarrier(Ctxt);
+
+				for (auto Bar : Barriers)
+					Desc.PrePassBarriers[_Desc.PrePassBarrierCount++] = Bar;
+
+				Barriers = GetFlamePostPassPipelineBarrier(Ctxt);
+
+				for (auto Bar : Barriers)
+					Desc.PostPassBarriers[_Desc.PostPassBarrierCount++] = Bar;
+
+				_BarrierSetup = true;
+			}
+
+			if (PepperResource->QuadCount != 0)
+			{
+				if (InputManager->IsKeyDown(Input_key_0))
+				{
+					RenderService->SetFillMode(PolygonMode::Wireframe);
+				}
+
+				RenderService->SetFullPipelineState(_PipelineState);
+				RenderService->SetVertexInputLayout(_MeshLayout);
+
+				RenderService->BindShaderProgram(PepperResource->PepperShaderProgram.ValPtr->RawProgramHandle);
+
+				RenderService->BindMaterailData(MaterialSystem->GetRawMaterialHandle(PepperResource->ContextMaterial));
+
+				RenderService->BindVertexBuffer({ PepperResource->RenderMesh.ValPtr->VertexBufferHandles[0].ValPtr->RawBufferHandle });
+				RenderService->BindIndexBuffer(PepperResource->RenderMesh.ValPtr->IBHandle.ValPtr->RawBufferHandle,
+					IndexBufferType::UINT32_T);
+
+				RenderService->DrawIndexed(PepperResource->QuadCount * 6, 1, 0, 0, 0);
+			}
+
+			OnFlameRenderUI(Ctxt);
+		}
+
+		void Teardown(BackBone::SystemContext& Ctxt)
+		{
+
+		}
+	private:
+		bool _BarrierSetup = false;
+		PipelineStateInfo _PipelineState;
+		VertexInputShaderLayout _MeshLayout;
+		BackBone::AssetHandle<Image> _DepthImage;
+		BackBone::AssetHandle<Texture> _DepthTexture;
+	};
+
 	class PresentPass : public Chilli::RenderGraphPass
 	{
 	public:
 		RenderPassDesc Setup(BackBone::SystemContext& Ctxt, RenderGraphRegistry& Registry) override
 		{
 			auto Command = Chilli::Command(Ctxt);
+			auto ActiveWindow = Command.GetActiveWindow();
+			auto ActiveWindowSize = IVec2{ ActiveWindow->GetWidth(), ActiveWindow->GetHeight() };
+
 			RenderPassDesc Desc;
 			Desc.Name = "PresentPass";
 			Desc.Stage = RenderPassStage::BeforePresent;
@@ -985,7 +1138,7 @@ namespace Chilli
 			_Resources.ColorAttachments[Desc.ColorAttachmentCount].IsSwapChain = true;
 			Desc.ColorAttachments[Desc.ColorAttachmentCount++] = Color;
 
-			Desc.RenderArea = { 800, 600 };
+			Desc.RenderArea = { ActiveWindowSize.x, ActiveWindowSize.y };
 
 			_Desc = Desc;
 
@@ -998,7 +1151,7 @@ namespace Chilli
 			_Desc.RenderArea = { (int)Width, (int)Height };
 		}
 
-		void Execute(BackBone::SystemContext& Ctxt, const RenderPassDesc& Desc) override
+		void Execute(BackBone::SystemContext& Ctxt, RenderPassDesc& Desc) override
 		{
 			auto Command = Chilli::Command(Ctxt);
 			// Issue draw calls here — Command wraps your existing API
@@ -1379,7 +1532,7 @@ namespace Chilli
 
 #pragma endregion
 
-	void OnRenderExtensionSetup(BackBone::SystemContext& Ctxt)
+	void OnRenderSetup(BackBone::SystemContext& Ctxt)
 	{
 		auto Command = Chilli::Command(Ctxt);
 		auto RenderGraph = Command.GetResource<Chilli::RenderResource>()->RenderGraph;
@@ -1388,6 +1541,7 @@ namespace Chilli
 
 		RenderGraph->AddPass(GeometryPass);
 		RenderGraph->AddPass<ScreenPass>(GeometryPass->GetColorTargetTextureKey());
+		RenderGraph->AddPass<PepperPass>();
 		RenderGraph->AddPass<PresentPass>();
 
 		RenderGraph->Build(Ctxt);
@@ -1417,7 +1571,7 @@ namespace Chilli
 		App.ServiceRegistry.RegisterService<ParentChildMapTable>(std::make_shared<ParentChildMapTable>());
 
 		App.SystemScheduler.AddSystemOverLayBefore(BackBone::ScheduleTimer::START_UP, OnRenderExtensionsSetup);
-		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::START_UP, OnRenderExtensionSetup);
+		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::START_UP, OnRenderSetup);
 		App.SystemScheduler.AddSystem(BackBone::ScheduleTimer::INPUT, OnRenderExtensionDefferedRenderingUpdate);
 
 		App.SystemScheduler.AddSystemOverLayBefore(BackBone::ScheduleTimer::RENDER, OnRenderExtensionRenderBegin);

@@ -1044,7 +1044,7 @@ namespace Chilli
 				else
 					bufBar.size = bar.Buffer.Size;
 
-				bufBarriersStack[imgCount++] = bufBar;
+				bufBarriersStack[bufCount++] = bufBar;
 			}
 		}
 

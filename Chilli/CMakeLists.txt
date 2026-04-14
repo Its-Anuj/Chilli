@@ -22,6 +22,8 @@ include_directories("Src/Core/Layers/")
 include_directories("Src/Core/BackBone/")
 include_directories("Src/Renderer/")
 
+set(MSDFGEN_CORE_ONLY ON)
+
 # Library includes
 include_directories("Libs/FastNoise2/include/")
 include_directories("Libs/GLFW/include/")
@@ -34,6 +36,8 @@ include_directories("Libs/Cgltf/")
 include_directories("Libs/UFBX/")
 include_directories("Libs/TinyObjLoader/")
 include_directories("Libs/SPIRV-Reflect/")
+include_directories("Libs/NlohmannJson/")
+include_directories("Libs/Msdfgen/")
 
 add_subdirectory("Src/Renderer/")
 add_subdirectory(Libs/JoltPhysics/Build/ Jolt)
@@ -41,6 +45,8 @@ add_subdirectory("Libs/GLFW/")
 add_subdirectory("Libs/VMA/")
 add_subdirectory("Libs/FastNoise2/")
 add_subdirectory("Libs/glm/")
+add_subdirectory("Libs/NlohmannJson/")
+add_subdirectory("Libs/Msdfgen/")
 
 add_library(SPIRV-Reflect STATIC  Libs/SPIRV-Reflect/spirv_reflect.c)
 add_library(ufbx STATIC  Libs/UFBX/ufbx.c)
@@ -48,7 +54,7 @@ add_library(ufbx STATIC  Libs/UFBX/ufbx.c)
 add_library(ChilliCore STATIC ${CHILLI_CORE_SOURCES})
 target_link_libraries(ChilliVulkan PRIVATE ${Vulkan_LIBRARIES} VulkanMemoryAllocator )
 
-target_link_libraries(ChilliCore ufbx FastNoise2 Jolt glm::glm kernel32 user32 glfw)
+target_link_libraries(ChilliCore ufbx FastNoise2 Jolt glm::glm kernel32 user32 glfw nlohmann_json msdfgen-core)
 
 target_precompile_headers(ChilliCore PRIVATE "Src/Core/Ch_PCH.h" )
 

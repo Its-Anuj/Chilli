@@ -16,6 +16,7 @@
 
 #include "BasicComponents.h"
 #include "RenderExtension.h"
+#include "UIExtensions.h"
 
 inline glm::vec3 ToGlmVec3(Chilli::Vec3 Data) { return glm::vec3(Data.x, Data.y, Data.z); }
 inline Chilli::Vec3 FromGlmVec3(glm::vec3 Data) { return Chilli::Vec3(Data.x, Data.y, Data.z); }
@@ -229,456 +230,6 @@ namespace Chilli
 		WindowExtensionConfig _Config;
 	};
 #pragma endregion 
-
-#pragma region Ember Extension
-
-	struct STBITTF_BakedChar
-	{
-		uint16_t x0, y0, x1, y1; // Coordinates in the atlas
-		float xoff, yoff, xadvance;
-		float xoff2, yoff2;
-	};
-
-	struct STBITTF_Data
-	{
-		void* Pixels = nullptr;
-		uint32_t Width = 0;
-		uint32_t Height = 0;
-
-		STBITTF_BakedChar BakedChars[96];
-
-		float FontSize = 32.0f;
-		float Ascent = 0.0f;
-		float Descent = 0.0f;
-		float LineGap = 0.0f;
-		std::string FileName;
-		std::string FilePath;
-
-		~STBITTF_Data() {
-			if (Pixels) {
-				free(Pixels);
-				Pixels = nullptr;
-			}
-		}
-
-		// --- Helper Functions ---
-
-		// Safely get the character data, defaulting to '?' if out of range
-		const STBITTF_BakedChar& GetChar(char c) const {
-			if (c >= 32 && c <= 126) {
-				return BakedChars[c - 32];
-			}
-			return BakedChars['?' - 32]; // Fallback character
-		}
-
-		// Returns the normalized UV coordinates for a specific glyph
-		// Useful for building the Instance Data
-		void GetUVs(char c, Vec2& outOffset, Vec2& outRange) const {
-			const auto& bc = GetChar(c);
-			float invW = 1.0f / (float)Width;
-			float invH = 1.0f / (float)Height;
-
-			outOffset = { (float)bc.x0 * invW, (float)bc.y0 * invH };
-			outRange = { (float)(bc.x1 - bc.x0) * invW, (float)(bc.y1 - bc.y0) * invH };
-		}
-
-		// Calculate the total pixel width of a string
-		float GetStringWidth(const std::string& text) const {
-			float totalWidth = 0.0f;
-			for (char c : text) {
-				totalWidth += GetChar(c).xadvance;
-			}
-			return totalWidth;
-		}
-
-		// Get the recommended height between lines (Baseline to Baseline)
-		float GetLineHeight() const {
-			return (Ascent - Descent) + LineGap;
-		}
-
-		// Calculate a full bounding box for a string (Width and Height)
-		Vec2 GetTextSize(const std::string& text) const {
-			if (text.empty()) return { 0.0f, 0.0f };
-
-			float x = GetStringWidth(text);
-			// Height is typically the Max Ascent to Min Descent for the font
-			float y = Ascent - Descent;
-			return { x, y };
-		}
-
-		ImageSpec GetImageCreateInfo()
-		{
-			ImageSpec Spec;
-			Spec.Resolution.Width = this->Width;
-			Spec.Resolution.Height = this->Height;
-			Spec.Resolution.Depth = 1;
-			Spec.Format = ImageFormat::R8;
-			Spec.Type = ImageType::IMAGE_TYPE_2D;
-			Spec.Usage = IMAGE_USAGE_SAMPLED_IMAGE;
-			Spec.State = ResourceState::ShaderRead;
-			return Spec;
-		}
-	};
-
-	// 1. The Interface (The Contract)
-	class STBITTF_Loader : public BaseLoader<STBITTF_Data> {
-	public:
-		STBITTF_Loader() {}
-		~STBITTF_Loader() {}
-
-		// Every loader must implement these
-		virtual BackBone::AssetHandle<STBITTF_Data> LoadTyped(BackBone::SystemContext& Ctxt, const std::string& Path) override;
-		virtual void Unload(BackBone::SystemContext& Ctxt, const std::string& Path) override;
-		virtual void Unload(BackBone::SystemContext& Ctxt, const BackBone::AssetHandle<STBITTF_Data>& Data) override;
-		virtual std::vector<std::string> GetExtensions() override { return { ".ttf" }; }
-		virtual bool DoesExist(const std::string& Path) const override;
-		virtual int __FindIndex(const std::string& Path) const override { return 0; }
-
-	private:
-		std::vector<IndexEntry> _IndexMaps;
-		std::vector<BackBone::AssetHandle<STBITTF_Data>> _STBITTF_Handles;   // Maps Hash index to _ImageDatas index
-	};
-
-	struct EmberFont
-	{
-		BackBone::AssetHandle<STBITTF_Data> FontSource; // This has the pixels so functions as the image data
-		BackBone::AssetHandle<Image> FontImage; // the raw gpu image
-		BackBone::AssetHandle<Texture> FontTexture; // the texture
-	};
-
-	struct EmberExtensionConfig
-	{
-		uint32_t MaxFrameInFlight = 0;
-	};
-
-	struct EmberFontVertex {
-		Vec2 pos; // Normalized coordinates (0,0) to (1,1)
-	};
-
-	struct EmberFontInstance {
-		Vec2 instPos;      // Position on screen (Pixels or NDC)
-		Vec2 instSize;     // Width and Height of the glyph
-		Vec2 instUVOffset; // Top-left coordinate in the Atlas (0.0 to 1.0)
-		Vec2 instUVRange;  // Width and Height of the glyph in the Atlas (0.0 to 1.0)
-		uint32_t FontIndex = 0;
-	};
-
-#define CH_EMBER_MAX_UNIQUE_FONT_COUNT 32
-
-	struct EmberResource
-	{
-		static const uint32_t MaxCharacterCount = 1000;
-
-		BackBone::AssetHandle<ShaderProgram> EmberShaderProgram;
-		BackBone::AssetHandle<Material> ContextMaterial;
-
-		std::vector<BackBone::AssetHandle<Buffer>> EmberFontVBs;
-		BackBone::AssetHandle<Buffer> EmberVertexVB;
-		BackBone::AssetHandle<Buffer> EmberVertexIB;
-
-		std::vector<EmberFontInstance> EmberInstanceData;
-		uint32_t GeoCharacterCount = 0;
-		uint32_t UICharacterCount = 0;
-
-		struct ShaderArrayFontAtlasMetaData
-		{
-			BackBone::AssetHandle<Texture> Tex;
-			uint32_t ShaderIndex;
-		};
-
-		SparseSet<ShaderArrayFontAtlasMetaData> FontAtlasTextureMap;
-
-		uint32_t _FontAtlasTextureMapCount = 0;
-
-		void UpdateFontAtlasTextureMap(Renderer* RenderService, MaterialSystem* MaterialSystem, BackBone::AssetHandle<Texture> Tex);
-
-		uint32_t GetFontAtlasTextureShaderIndex(BackBone::AssetHandle<Texture> Tex)
-		{
-			return FontAtlasTextureMap.Get(Tex.Handle)->ShaderIndex;
-		}
-	};
-
-	struct EmberTextComponent {
-		std::string Content;
-		BackBone::AssetHandle<EmberFont> Font;
-		float FontSize = 32.0f;
-		Vec4 Color = { 1, 1, 1, 1 };
-		bool IsDirty = true; // Flag to tell the system to rebuild the instances
-		bool IsRender = true;
-	};
-
-	// ---- Basic Extensions ----
-	class EmberExtension : public BackBone::Extension
-	{
-	public:
-		EmberExtension(EmberExtensionConfig Config) : _Config(Config) {}
-		~EmberExtension() {}
-
-		virtual void Build(BackBone::App& App) override;
-
-		virtual const char* Name() const override { return "EmberExtension "; }
-	private:
-		EmberExtensionConfig _Config;
-	};
-
-	std::vector<PipelineBarrier> GetEmberPrePassPipelineBarrier(BackBone::SystemContext& Ctxt);
-	std::vector<PipelineBarrier> GetEmberPostPassPipelineBarrier(BackBone::SystemContext& Ctxt);
-#pragma endregion
-
-	// The Base UI Library
-#pragma region Pepper
-
-	enum class AnchorX
-	{
-		LEFT,
-		RIGHT,
-		CENTER,
-		STRETCH
-	};
-
-	enum class AnchorY
-	{
-		TOP,
-		BOTTOM,
-		CENTER,
-		STRETCH
-	};
-
-	enum class ResizeEdge { None, Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight };
-
-	inline const char* ResizeEdgeToString(ResizeEdge edge) {
-		switch (edge) {
-		case ResizeEdge::None:        return "None";
-		case ResizeEdge::Left:        return "Left";
-		case ResizeEdge::Right:       return "Right";
-		case ResizeEdge::Top:         return "Top";
-		case ResizeEdge::Bottom:      return "Bottom";
-		case ResizeEdge::TopLeft:     return "TopLeft";
-		case ResizeEdge::TopRight:    return "TopRight";
-		case ResizeEdge::BottomLeft:  return "BottomLeft";
-		case ResizeEdge::BottomRight: return "BottomRight";
-		default:                      return "Unknown";
-		}
-	}
-
-	struct ResizeFactors {
-		float moveX, moveY; // Position shift weight
-		float sizeX, sizeY; // Dimension scale weight
-	};
-
-	// Index this using your ResizeEdge enum
-	static const ResizeFactors Factors[] = {
-		{0, 0,  0, 0}, // None
-		{1, 0, -1, 0}, // Left:   Shift X, Inverse Scale Width
-		{0, 0,  1, 0}, // Right:  No Shift, Direct Scale Width
-		{0, 0,  0, 1}, // Top:    No Shift, Direct Scale Height
-		{0, 1,  0,-1}, // Bottom: Shift Y, Inverse Scale Height
-		{1, 0, -1, 1}, // TopLeft
-		{0, 0,  1, 1}, // TopRight
-		{1, 1, -1,-1}, // BottomLeft
-		{0, 1,  1,-1}  // BottomRight
-	};
-
-	// Components
-	struct PepperTransform
-	{
-		Vec2 PercentageDimensions{ 0,0 };
-		Vec2 PercentagePosition{ 0,0 };
-		Vec2 ActualDimensions{ 0,0 };
-		Vec2 ActualPosition{ 0,0 };
-
-		Chilli::AnchorX AnchorX;
-		Chilli::AnchorY AnchorY;
-		IVec2 Anchor{ 0,0 };
-
-		IVec2 Pivot{ 0,0 };
-		int ZOrder = 0;
-	};
-
-	enum class PepperElementTypes
-	{
-		PANEL,
-		HEADER
-	};
-
-	enum PepperElementFlags
-	{
-		PEPPER_ELEMENT_RESIZEABLE = (1 << 0),
-		PEPPER_ELEMENT_MOVEABLE = (1 << 1),
-		PEPPER_ELEMENT_VISIBLE = (1 << 2),
-	};
-
-	class Pepper;
-	struct PepperElement;
-	struct PepperResource;
-
-	struct PepperMaterial
-	{
-	private:
-		BackBone::AssetHandle <Texture> TextureHandle;
-		BackBone::AssetHandle <Sampler> SamplerHandle;
-		Vec4 Color = { 1.0f, 1.0f, 1.0f, 1.0f };
-
-		uint32_t Version = 0;
-		uint32_t LastUploadedVersion = 0;
-
-		friend class Pepper;
-	};
-
-	struct PepperShaderMaterialData
-	{
-		// x for AlbedoTexture, y for AlbedoSampler
-		int TextureIndex;
-		int SamplerIndex;
-		int Padding[2];
-		Vec4 Color;
-	};
-
-	struct PepperElement
-	{
-		PepperElementTypes Type = PepperElementTypes::PANEL;
-		uint64_t Flags = PEPPER_ELEMENT_VISIBLE | PEPPER_ELEMENT_MOVEABLE | PEPPER_ELEMENT_RESIZEABLE;
-		char Name[32] = { 0 };
-		BackBone::Entity Parent = BackBone::npos;
-		PepperMaterial Material;
-	};
-
-	class Pepper
-	{
-	public:
-		Pepper(BackBone::SystemContext& Ctxt) :_Ctxt(Ctxt) {}
-
-		void SetMaterialColor(BackBone::Entity Entity, const Vec4& Color)
-		{
-			auto Mat = GetMaterial(Entity);
-			Mat->Color = Color;
-			Mat->Version++;
-		}
-
-		void SetMaterialTexture(BackBone::Entity Entity, BackBone::AssetHandle <Texture> AlbedoTextureHandle)
-		{
-			auto Mat = GetMaterial(Entity);
-			Mat->TextureHandle = AlbedoTextureHandle;
-			Mat->Version++;
-		}
-
-		void SetMaterialSampler(BackBone::Entity Entity, BackBone::AssetHandle <Sampler> SamplerHandle)
-		{
-			auto Mat = GetMaterial(Entity);
-			Mat->SamplerHandle = SamplerHandle;
-			Mat->Version++;
-		}
-
-		void SetElementPercentagePosition(BackBone::Entity Entity, const Vec2& Position)
-		{
-
-		}
-
-		void RemoveFlag(BackBone::Entity Entity, PepperElementFlags Flag)
-		{
-			auto Element = GetElement(Entity);
-			if (Element->Flags & Flag)
-				Element->Flags -= Flag;
-		}
-
-		void AddFlag(BackBone::Entity Entity, PepperElementFlags Flag)
-		{
-			auto Element = GetElement(Entity);
-			if (!(Element->Flags & Flag))
-				Element->Flags += Flag;
-		}
-
-		BackBone::AssetHandle<Texture> GetDeafultPepperTexture();
-
-		bool ShouldMaterialShaderDataUpdate(BackBone::Entity Entity);
-		PepperShaderMaterialData GetMaterialShaderData(BackBone::Entity Entity);
-
-	private:
-		PepperMaterial* GetMaterial(BackBone::Entity Entity);
-		PepperElement* GetElement(BackBone::Entity Entity);
-		PepperTransform* GetTransform(BackBone::Entity Entity);
-		PepperResource* GetPepperResource();
-
-	private:
-		BackBone::SystemContext _Ctxt;
-	};
-
-	struct PepperVertex
-	{
-		Vec3 Position;
-		Vec2 TexCoords;
-		uint32_t PepperMaterialIndex = 0;
-	};
-
-	// Systems
-	void OnPepperStartUp(BackBone::SystemContext& Ctxt);
-	void OnPepperUpdate(BackBone::SystemContext& Ctxt);
-	void OnPepperRender(BackBone::SystemContext& Ctxt, RenderPassDesc& Pass);
-	std::vector<PipelineBarrier> GetPepperPrePassPipelineBarrier(BackBone::SystemContext& Ctxt);
-	std::vector<PipelineBarrier> GetPepperPostPassPipelineBarrier(BackBone::SystemContext& Ctxt);
-
-	struct PepperExtensionConfig
-	{
-		bool Enable = true;
-		uint32_t MaxFramesInFlight = 0;
-		EmberExtensionConfig EmberConfig;
-	};
-
-	struct PepperResource
-	{
-		static const uint32_t MeshQuadCount = 10000;
-
-		BackBone::AssetHandle<ImageData> ResizeCursorImageData;
-		BackBone::AssetHandle<Cursor> ResizeCursor;
-		BackBone::AssetHandle<Mesh> RenderMesh;
-		BackBone::AssetHandle<Texture> PepperDeafultTexture;
-		BackBone::AssetHandle<Sampler> PepperDeafultSampler;
-		BackBone::AssetHandle<Image> PepperDeafultImage;
-		BackBone::AssetHandle<ShaderProgram> PepperShaderProgram;
-		BackBone::AssetHandle<Material> ContextMaterial;
-		std::vector< BackBone::AssetHandle<Buffer>> PepperMaterialSSBO;
-		std::vector< PepperShaderMaterialData> PepperMaterialData;
-		std::vector<uint32_t> EntityToPCMap;
-		SparseSet<std::vector<BackBone::Entity>> ParentChildMap;
-		std::array<BackBone::AssetHandle<Cursor>, int(DeafultCursorTypes::Count) > DeafultCursors;
-
-		IVec2 OldWindowSize{ 0,0 };
-		IVec2 WindowSize{ 0,0 };
-		IVec2 OldCursorPos{ 0,0 };
-		IVec2 CursorPos{ 0,0 };
-
-		uint32_t QuadCount = 0;
-		std::vector<PepperVertex> QuadVertices;
-		std::vector<uint32_t> QuadIndicies;
-
-		struct {
-			glm::mat4 OthroMat = glm::mat4{ 1.0f };
-		} CameraManager;
-
-		// Which Canvas the mouse is on
-		BackBone::Entity ActiveMouseElement;
-
-		// Add these to PepperResource struct
-		BackBone::Entity ResizingEntity = BackBone::npos;
-		ResizeEdge ActiveEdge = ResizeEdge::None;
-	};
-
-	class PepperExtension : public BackBone::Extension
-	{
-	public:
-		PepperExtension(const PepperExtensionConfig& Config = PepperExtensionConfig())
-			:_Config(Config)
-		{
-		}
-		~PepperExtension() {}
-
-		virtual void Build(BackBone::App& App) override;
-
-		virtual const char* Name() const override { return "PepperExtension"; }
-	private:
-		PepperExtensionConfig _Config;
-	};
-#pragma endregion
 
 #pragma region Camera Extension
 	struct MainCameraTag {};
@@ -1262,7 +813,6 @@ namespace Chilli
 		DeafultExtensionConfig _Config;
 	};
 
-
 #pragma region Command
 	class Command
 	{
@@ -1431,6 +981,16 @@ namespace Chilli
 		void DestroyEntity(uint32_t EntityID);
 		bool IsEntityValid(uint32_t EntityID);
 
+		void GenerateCircleImageData(
+			uint32_t* pixels,
+			int width,
+			int height,
+			int cx, int cy,       // center of circle
+			int radius,
+			uint32_t color,       // circle color (RGBA)
+			uint32_t bg_color     // background color (RGBA)
+		);
+
 		BackBone::AssetHandle<Scene> CreateScene();
 		void SetActiveScene(BackBone::AssetHandle<Scene> Scene);
 
@@ -1465,11 +1025,13 @@ namespace Chilli
 		void MapBufferData(const BackBone::AssetHandle<Buffer>& Handle, void* Data, size_t Size
 			, size_t Offset = 0);
 
-		BackBone::AssetHandle<EmberFont> LoadFont_TTF(const std::string& Path);
-		void UnLoadFont_TTF(BackBone::AssetHandle<EmberFont> FontHandle);
+		BackBone::AssetHandle<FlameFont> LoadFont_Msdf(const std::string& Path, const std::string& AtlasPath);
+		void UnLoadFont_Msdf(BackBone::AssetHandle<FlameFont> FontHandle);
 		// Window Services Related
 		uint32_t SpwanWindow(const WindowSpec& Spec);
 		void DestroyWindow(uint32_t Idx);
+
+		void SetParentEntity(BackBone::Entity Child, BackBone::Entity Parent);
 
 		BackBone::AssetHandle<ShaderProgram> GetDeafultShaderProgram() {
 			return GetResource<RenderResource>()->DeafultShaderProgram;

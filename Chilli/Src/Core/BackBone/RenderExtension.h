@@ -259,7 +259,7 @@ namespace Chilli
 
 		// Called every frame at the declared stage
 		// User issues draw calls here
-		virtual void Execute(BackBone::SystemContext& Ctxt, const RenderPassDesc& Desc) = 0;
+		virtual void Execute(BackBone::SystemContext& Ctxt, RenderPassDesc& Desc) = 0;
 
 		// Called when window resizes — user recreates size-dependent resources
 		virtual void OnResize(BackBone::SystemContext& Ctxt, uint32_t Width, uint32_t Height) {}
@@ -293,7 +293,6 @@ namespace Chilli
 		std::vector<ResourceState> ResourceChangeImageStates;
 	};
 
-#define CHILLI_MAX_RENDER_GRAPH_KEY_LENGTH 32
 #define CHILLI_MAX_RENDER_GRAPH_KEY_LENGTH 32
 
 	struct RGKey {

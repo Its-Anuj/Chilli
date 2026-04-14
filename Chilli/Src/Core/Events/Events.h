@@ -11,7 +11,11 @@ namespace Chilli
 
 		virtual const char* GetName() const = 0;
 
+		void Consume() { _IsConsumed = true; }
+		bool IsConsumed() { return _IsConsumed; }
+
 	private:
+		bool _IsConsumed = false;
 	};
 	struct WindowCloseEvent : public Event
 	{
